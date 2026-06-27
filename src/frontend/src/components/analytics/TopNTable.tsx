@@ -64,8 +64,8 @@ export function TopNTable({ data, metric, emptyMessage }: TopNTableProps) {
               </div>
               <div className="h-2 overflow-hidden rounded-full bg-gray-100" aria-hidden="true">
                 <div
-                  className="h-full rounded-full bg-red-700 transition-all"
-                  style={{ width: `${width}%` }}
+                  className="h-full rounded-full transition-all"
+                  style={{ width: `${width}%`, backgroundColor: '#FAB95B' }}
                 />
               </div>
             </div>

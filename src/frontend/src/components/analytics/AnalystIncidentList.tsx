@@ -248,7 +248,7 @@ export function AnalystIncidentList({
     <section className={`overflow-hidden rounded-md border bg-white shadow-sm ${prominent ? 'border-red-200 ring-1 ring-red-100' : 'border-gray-200'}`} aria-labelledby="incident-list-heading">
       <div className="flex flex-col gap-3 border-b border-gray-200 bg-white px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-start gap-3">
-          <div className={`flex shrink-0 items-center justify-center rounded-md bg-red-50 text-red-700 ${prominent ? 'h-11 w-11' : 'h-9 w-9'}`}>
+          <div className={`flex shrink-0 items-center justify-center rounded-md ${prominent ? 'h-11 w-11' : 'h-9 w-9'}`} style={{ backgroundColor: '#FFF8EC', color: '#FAB95B' }}>
             <ListChecks className={prominent ? 'h-6 w-6' : 'h-5 w-5'} />
           </div>
           <div>

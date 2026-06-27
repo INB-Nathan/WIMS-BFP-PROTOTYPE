@@ -275,7 +275,7 @@ export default function OfflineWorkPage() {
               type="button"
               onClick={handleRetryAll}
               disabled={syncing || retrying}
-              className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
+              className="ml-auto inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]" style={{ backgroundColor: '#1A3263' }}
             >
               <RefreshCw className={`h-3.5 w-3.5 ${retrying ? 'animate-spin' : ''}`} aria-hidden />
               {retrying ? 'Retrying…' : 'Retry All'}

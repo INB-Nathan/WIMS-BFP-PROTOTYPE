@@ -125,8 +125,8 @@ export function SectionDotNav({ links, ariaLabel = 'Page sections' }: SectionDot
           <span
             className={`h-3.5 w-3.5 rounded-full border shadow-sm transition-all duration-200 motion-safe:group-hover:scale-125 motion-safe:group-focus:scale-125 ${
               activeId === id
-                ? 'border-red-800 bg-red-800 ring-4 ring-red-100'
-                : 'border-slate-400 bg-white group-hover:border-red-700 group-focus:border-red-700 group-hover:bg-red-50 group-focus:bg-red-50'
+                ? 'border-[#1A3263] bg-[#1A3263] ring-4 ring-blue-100'
+                : 'border-slate-400 bg-white group-hover:border-[#1A3263] group-focus:border-[#1A3263] group-hover:bg-[#E8E2DB] group-focus:bg-[#E8E2DB]'
             }`}
           />
           <span className="pointer-events-none absolute right-9 top-1/2 -translate-y-1/2 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 opacity-0 shadow-sm transition-all duration-150 group-hover:-translate-x-2 group-hover:opacity-100 group-focus:-translate-x-2 group-focus:opacity-100">

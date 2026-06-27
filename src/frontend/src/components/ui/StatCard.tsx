@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import type { LucideIcon } from "lucide-react";
 
@@ -53,7 +53,7 @@ export function StatCard({ card }: StatCardProps) {
   );
 }
 
-// â”€â”€ Shared grid constants â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Shared grid constants ──────────────────────────────────────────────────
 
 export const STATS_DATE_FILTERS = [
   { label: "Today", value: "today" },

@@ -162,7 +162,7 @@ function Panel({
     <section className="overflow-hidden rounded-md border border-gray-200 bg-white shadow-sm">
       <div className="flex flex-col gap-3 border-b border-gray-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex min-w-0 items-start gap-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-red-50 text-red-700">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md" style={{ backgroundColor: '#FFF8EC', color: '#FAB95B' }}>
             {icon}
           </div>
           <div className="min-w-0">
@@ -435,7 +435,7 @@ export default function AnalystWorkflowPage() {
   if (!workflow || !config) {
     return (
       <div className="space-y-4">
-        <Link href="/dashboard/analyst" className="inline-flex items-center gap-2 text-sm font-semibold text-red-700">
+        <Link href="/dashboard/analyst" className="inline-flex items-center gap-2 text-sm font-semibold" style={{ color: '#1A3263' }}>
           <ArrowLeft className="h-4 w-4" /> Analyst dashboard
         </Link>
         <div className="rounded-md border border-gray-200 bg-white p-8 text-center shadow-sm">
@@ -470,13 +470,16 @@ export default function AnalystWorkflowPage() {
       <div className="rounded-md border border-gray-200 bg-white px-5 py-4 shadow-sm">
         <Link
           href="/dashboard/analyst"
-          className="mb-3 inline-flex items-center gap-1.5 text-sm font-semibold text-red-700 transition-colors hover:text-red-800"
+          className="mb-3 inline-flex items-center gap-1.5 text-sm font-semibold transition-colors"
+          style={{ color: '#1A3263' }}
+          onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = '#142849'; }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = '#1A3263'; }}
         >
           <ArrowLeft className="h-4 w-4" /> Analyst dashboard
         </Link>
         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div className="flex min-w-0 items-start gap-3">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-red-50 text-red-700">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md" style={{ backgroundColor: '#FFF8EC', color: '#FAB95B' }}>
               <WorkflowIcon className="h-6 w-6" />
             </div>
             <div className="min-w-0">

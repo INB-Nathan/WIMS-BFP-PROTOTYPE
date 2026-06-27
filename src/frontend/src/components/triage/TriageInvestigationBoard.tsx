@@ -59,7 +59,7 @@ export function TriageInvestigationBoard({
             </div>
             <button
               type="button"
-              className="rounded-md bg-red-700 px-3 py-2 text-sm font-bold text-white hover:bg-red-800"
+              className="rounded-md px-3 py-2 text-sm font-bold text-white" style={{ backgroundColor: '#1A3263' }}
               onClick={() => onInspect(selectedItem)}
             >
               Inspect / Act

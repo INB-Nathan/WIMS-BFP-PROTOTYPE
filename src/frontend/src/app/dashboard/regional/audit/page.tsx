@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
@@ -193,7 +193,7 @@ export default function EncoderAuditPage() {
           </div>
 
           {loading && (
-            <div className="text-sm py-12 text-center" style={{ color: 'var(--text-muted)' }}>Loadingâ€¦</div>
+            <div className="text-sm py-12 text-center" style={{ color: 'var(--text-muted)' }}>Loading…</div>
           )}
           {error && !loading && (
             <div className="rounded-md p-3 text-sm mb-4" style={{ backgroundColor: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c' }}>
@@ -227,7 +227,7 @@ export default function EncoderAuditPage() {
                               year: 'numeric', month: '2-digit', day: '2-digit',
                               hour: '2-digit', minute: '2-digit', hour12: false,
                             })
-                          : 'â€”'}
+                          : '—'}
                       </td>
                       <td className="px-6 py-3 text-sm font-mono">
                         {it.incident_id != null ? (
@@ -239,7 +239,7 @@ export default function EncoderAuditPage() {
                             #{it.incident_id}
                           </Link>
                         ) : (
-                          <span style={{ color: 'var(--text-muted)' }}>â€”</span>
+                          <span style={{ color: 'var(--text-muted)' }}>—</span>
                         )}
                       </td>
                       <td className="px-6 py-3 text-sm">
@@ -247,11 +247,11 @@ export default function EncoderAuditPage() {
                           className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium"
                           style={ACTION_BADGE_STYLE[it.action_label ?? ''] ?? { backgroundColor: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db' }}
                         >
-                          {ACTION_LABEL_MAP[it.action_label ?? ''] ?? it.action_label ?? 'â€”'}
+                          {ACTION_LABEL_MAP[it.action_label ?? ''] ?? it.action_label ?? '—'}
                         </span>
                       </td>
                       <td className="px-6 py-3 text-sm font-mono" style={{ color: 'var(--text-secondary)' }}>
-                        {it.ip_address ?? 'â€”'}
+                        {it.ip_address ?? '—'}
                       </td>
                     </tr>
                   ))}
@@ -278,7 +278,7 @@ export default function EncoderAuditPage() {
               className="px-3 py-1 border rounded disabled:opacity-40"
               style={{ borderColor: 'var(--border-color)' }}
             >
-              Next â†’
+              Next →
             </button>
           </div>
         </div>
