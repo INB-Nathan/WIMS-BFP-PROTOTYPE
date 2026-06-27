@@ -56,6 +56,13 @@ import { getShortRegionName, PH_REGIONS } from '@/lib/ph-regions';
 import { useAutoSync } from '@/lib/useAutoSync';
 import { useNetworkStatus } from '@/lib/useNetworkStatus';
 import { WidgetGrid, AddWidgetDropdown, FreshnessDot, FilterChips, type FilterChip } from '@/components/dashboard';
+import {
+  GhostAnalystKpiCard,
+  GhostChartPanel,
+  GhostMapPanel,
+  GhostMetricTiles,
+  GhostIncidentTable,
+} from '@/components/ui/GhostAnalystPanel';
 import { useDashboardWidgets } from '@/hooks/useDashboardWidgets';
 
 const HeatmapViewer = dynamic(
@@ -576,8 +583,33 @@ export default function AnalystDashboardPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[40vh] text-gray-500">
-        Loading...
+      <div className="space-y-6 p-6" aria-hidden="true">
+        {/* Ghost KPI strip */}
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <GhostAnalystKpiCard />
+          <GhostAnalystKpiCard />
+          <GhostAnalystKpiCard />
+          <GhostAnalystKpiCard />
+        </div>
+        {/* Ghost workflow links */}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="animate-pulse h-20 rounded-md border border-gray-200 bg-white" />
+          <div className="animate-pulse h-20 rounded-md border border-gray-200 bg-white" />
+          <div className="animate-pulse h-20 rounded-md border border-gray-200 bg-white" />
+        </div>
+        {/* Ghost chart area */}
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6">
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <GhostChartPanel />
+              <GhostChartPanel />
+            </div>
+            <GhostChartPanel />
+          </div>
+          <div className="space-y-6">
+            <GhostMapPanel />
+          </div>
+        </div>
       </div>
     );
   }
@@ -636,7 +668,15 @@ export default function AnalystDashboardPage() {
         </div>
       </div>
 
-      {/* ── KPI strip ── */}
+      {/* ── KPI strip — ghost while loading ── */}
+      {loadingData ? (
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <GhostAnalystKpiCard />
+          <GhostAnalystKpiCard />
+          <GhostAnalystKpiCard />
+          <GhostAnalystKpiCard />
+        </div>
+      ) : (
       <div
         className="grid grid-cols-2 gap-3 rounded-md border border-gray-200 bg-white p-4 shadow-sm lg:grid-cols-4"
         role="group"
@@ -699,6 +739,7 @@ export default function AnalystDashboardPage() {
           </div>
         </div>
       </div>
+      )}
 
       {/* ── Analyst Workflows (moved up — primary entry points) ── */}
       <div className="overflow-hidden rounded-md border border-gray-200 bg-white shadow-sm">
@@ -1030,8 +1071,22 @@ export default function AnalystDashboardPage() {
       )}
 
       {loadingData && !heatmap && (
-        <div className="flex items-center justify-center min-h-[200px] text-gray-500">
-          <RefreshCw className="w-8 h-8 animate-spin" />
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6">
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <GhostChartPanel />
+              <GhostChartPanel />
+            </div>
+            <GhostChartPanel />
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+              <GhostChartPanel />
+              <GhostChartPanel />
+            </div>
+            <GhostIncidentTable />
+          </div>
+          <div className="space-y-6">
+            <GhostMapPanel />
+          </div>
         </div>
       )}
 
