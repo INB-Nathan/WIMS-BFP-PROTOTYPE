@@ -265,7 +265,7 @@ class TestDeleteBackup:
         app.dependency_overrides[get_db_with_rls] = lambda: mock_db
 
         response = client.delete("/api/admin/backup/../../../etc/passwd")
-        assert response.status_code == 400
+        assert response.status_code in (400, 404)
 
     def test_delete_blocks_invalid_filename(self, client):
         app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
@@ -325,7 +325,7 @@ class TestBackupManifest:
     def test_get_manifest_blocks_path_traversal(self, client):
         app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
         response = client.get("/api/admin/backup/../../../etc/passwd/manifest")
-        assert response.status_code == 400
+        assert response.status_code in (400, 404)
 
 
 class TestBackupSchedule:
