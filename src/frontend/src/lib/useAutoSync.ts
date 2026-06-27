@@ -28,6 +28,7 @@ export interface AutoSyncState {
   failedCount: number;
   authFailed: boolean;
   syncNow: () => Promise<void>;
+  syncProgress: { done: number; total: number } | null;
 }
 
 const OFFLINE_TOAST_ID = 'wims-connection-offline';
@@ -41,6 +42,7 @@ export function useAutoSync(): AutoSyncState {
   const [conflictCount, setConflictCount] = useState(0);
   const [failedCount, setFailedCount] = useState(0);
   const [authFailed, setAuthFailed] = useState(false);
+  const [syncProgress, setSyncProgress] = useState<{ done: number; total: number } | null>(null);
   const syncMutex = useRef(false);
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasMountSynced = useRef(false);
@@ -60,11 +62,17 @@ export function useAutoSync(): AutoSyncState {
     if (syncMutex.current) return;
     syncMutex.current = true;
     setSyncing(true);
+    setSyncProgress(null);
+
+    const onProgress = (p: { done: number; total: number }) => {
+      setSyncProgress(p);
+    };
 
     try {
-      const result: SyncResult = options.bypassBackoff
-        ? await syncPendingIncidents(user.id, options)
-        : await syncPendingIncidents(user.id);
+      const result: SyncResult = await syncPendingIncidents(user.id, {
+        ...options,
+        onProgress,
+      });
 
       setLastSyncedAt(new Date());
 
@@ -109,6 +117,7 @@ export function useAutoSync(): AutoSyncState {
         toast.error(`${result.failed} item${result.failed === 1 ? '' : 's'} failed to sync`);
       }
     } finally {
+      setSyncProgress(null);
       setSyncing(false);
       syncMutex.current = false;
       await refreshOpsCounts();
@@ -208,5 +217,5 @@ export function useAutoSync(): AutoSyncState {
   // intentionally not listing refreshOpsCounts — it's stable but capturing it
   // would add an extra mount call since it references user?.id transitively.
 
-  return { syncing, lastSyncedAt, pendingCount, conflictCount, failedCount, authFailed, syncNow };
+  return { syncing, lastSyncedAt, pendingCount, conflictCount, failedCount, authFailed, syncNow, syncProgress };
 }

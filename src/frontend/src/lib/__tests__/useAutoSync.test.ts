@@ -120,9 +120,39 @@ describe('useAutoSync', () => {
     });
 
     expect(syncPendingIncidents).toHaveBeenCalledTimes(1);
-    expect(syncPendingIncidents).toHaveBeenCalledWith(ENCODER_ID);
+    expect(syncPendingIncidents).toHaveBeenCalledWith(ENCODER_ID, expect.objectContaining({ onProgress: expect.any(Function) }));
 
     vi.useRealTimers();
+  });
+
+  it('exposes syncProgress during active sync', async () => {
+    let resolveSync!: (value: SyncResult) => void;
+    const SYNC_PROGRESS = { done: 1, total: 3 };
+    vi.mocked(syncPendingIncidents).mockImplementation(
+      (_id: string, options?: { onProgress?: (p: { done: number; total: number }) => void }) => {
+        // Simulate progress emission
+        options?.onProgress?.(SYNC_PROGRESS);
+        return new Promise((resolve) => { resolveSync = resolve; });
+      },
+    );
+    vi.mocked(getOfflineOpsCounts).mockResolvedValue({ pendingCount: 3, failedCount: 0, conflictCount: 0, totalActionableCount: 3 });
+
+    const { result } = renderHook(() => useAutoSync());
+
+    await act(async () => {
+      result.current.syncNow();
+    });
+
+    // Progress should be emitted during sync
+    expect(result.current.syncProgress).toEqual(SYNC_PROGRESS);
+
+    // Resolve sync
+    await act(async () => {
+      resolveSync({ synced: 3, conflicts: 0, failed: 0, errors: [], syncedIncidents: [] });
+    });
+
+    // Progress should be null after sync completes
+    expect(result.current.syncProgress).toBeNull();
   });
 
   it('syncNow() triggers immediate sync without waiting for debounce', async () => {
@@ -137,7 +167,7 @@ describe('useAutoSync', () => {
     });
 
     expect(syncPendingIncidents).toHaveBeenCalledTimes(1);
-    expect(syncPendingIncidents).toHaveBeenCalledWith(ENCODER_ID, { bypassBackoff: true });
+    expect(syncPendingIncidents).toHaveBeenCalledWith(ENCODER_ID, expect.objectContaining({ bypassBackoff: true, onProgress: expect.any(Function) }));
     expect(result.current.lastSyncedAt).toBeInstanceOf(Date);
   });
 

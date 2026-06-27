@@ -28,6 +28,7 @@ import {
   getFailedOps,
   type OfflineOpDecrypted,
 } from '@/lib/offlineStore';
+import { cancelOfflineOperation } from '@/lib/offlineOpActions';
 import { syncPendingIncidents } from '@/lib/syncEngine';
 import { useAutoSync } from '@/lib/useAutoSync';
 
@@ -89,6 +90,8 @@ export default function OfflineWorkPage() {
   const [failedOps, setFailedOps] = useState<OfflineOpDecrypted[]>([]);
   const [loadingOps, setLoadingOps] = useState(true);
   const [retrying, setRetrying] = useState(false);
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [confirmCancel, setConfirmCancel] = useState<OfflineOpDecrypted | null>(null);
 
   const loadAll = useCallback(async () => {
     if (!encoderId) return;
@@ -108,6 +111,7 @@ export default function OfflineWorkPage() {
       toast.error('Failed to load offline work.');
     } finally {
       setLoadingOps(false);
+      setCancellingId(null);
     }
   }, [encoderId]);
 
@@ -142,6 +146,21 @@ export default function OfflineWorkPage() {
       setRetrying(false);
     }
   };
+
+  const handleCancelConfirm = useCallback(async () => {
+    if (!confirmCancel || syncing) return;
+    setCancellingId(confirmCancel.localId);
+    try {
+      await cancelOfflineOperation(confirmCancel);
+      toast.success('Operation cancelled.');
+      void loadAll();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to cancel operation.');
+    } finally {
+      setConfirmCancel(null);
+      setCancellingId(null);
+    }
+  }, [confirmCancel, syncing, loadAll]);
 
   if (loading) {
     return (
@@ -380,6 +399,18 @@ export default function OfflineWorkPage() {
                           {op.operation === 'create' ? 'Open Draft' : 'View Incident'}
                         </Link>
                       )}
+                      {(activeSection === 'queued' || activeSection === 'failed') && !isConflictLink && (
+                        <button
+                          type="button"
+                          disabled={syncing || cancellingId === op.localId}
+                          onClick={() => setConfirmCancel(op)}
+                          className="inline-flex items-center gap-1 rounded-md border border-red-300 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                          aria-label={`Cancel ${operationDisplay(op)}`}
+                        >
+                          <XCircle className="h-3.5 w-3.5" aria-hidden />
+                          {cancellingId === op.localId ? 'Cancelling…' : 'Cancel'}
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -394,6 +425,56 @@ export default function OfflineWorkPage() {
         <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-800">
           <RefreshCw className="h-4 w-4 animate-spin" aria-hidden />
           Sync in progress…
+        </div>
+      )}
+
+      {/* ── Cancel confirmation dialog ── */}
+      {confirmCancel && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="cancel-confirm-heading"
+        >
+          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
+            <h2
+              id="cancel-confirm-heading"
+              className="text-lg font-semibold text-gray-900"
+            >
+              Cancel {operationDisplay(confirmCancel)}?
+            </h2>
+            <p className="mt-2 text-sm text-red-700">
+              This will permanently delete this queued operation. It cannot be undone.
+            </p>
+            <div className="mt-1 text-xs text-gray-500">
+              <p>Operation: {operationDisplay(confirmCancel)}</p>
+              {confirmCancel.createdAt && (
+                <p>Queued: {formatCreatedAt(confirmCancel.createdAt)}</p>
+              )}
+              {confirmCancel.syncStatus === 'failed' && (
+                <p className="mt-1 text-red-600">
+                  This operation failed permanently and will not retry automatically.
+                </p>
+              )}
+            </div>
+            <div className="mt-5 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setConfirmCancel(null)}
+                className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                Keep Operation
+              </button>
+              <button
+                type="button"
+                disabled={syncing || cancellingId !== null}
+                onClick={handleCancelConfirm}
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {cancellingId === confirmCancel.localId ? 'Cancelling…' : 'Yes, Cancel'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

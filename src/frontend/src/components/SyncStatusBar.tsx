@@ -14,7 +14,7 @@ import { useAutoSync } from '@/lib/useAutoSync';
 import { useNetworkStatus } from '@/lib/useNetworkStatus';
 
 export function SyncStatusBar() {
-  const { syncing, lastSyncedAt, pendingCount, conflictCount, failedCount, authFailed, syncNow } = useAutoSync();
+  const { syncing, lastSyncedAt, pendingCount, conflictCount, failedCount, authFailed, syncNow, syncProgress } = useAutoSync();
   const { isOnline, isChecking, isReconnecting } = useNetworkStatus();
 
   if (isChecking) {
@@ -87,16 +87,41 @@ export function SyncStatusBar() {
 
   // Actively syncing
   if (syncing) {
+    const showProgress = syncProgress && syncProgress.total > 0;
     return (
       <div
-        className="flex items-center gap-2 rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-sm text-blue-800"
+        className="flex flex-col gap-1 rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-sm text-blue-800"
         role="status"
       >
-        <span
-          data-testid="sync-spinner"
-          className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-blue-300 border-t-blue-700"
-        />
-        <span>Syncing {pendingCount} incident{pendingCount !== 1 ? 's' : ''}...</span>
+        <div className="flex items-center gap-2">
+          <span
+            data-testid="sync-spinner"
+            className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-blue-300 border-t-blue-700"
+          />
+          {showProgress ? (
+            <span data-testid="sync-progress-text">
+              Syncing {syncProgress!.done} of {syncProgress!.total}...
+            </span>
+          ) : (
+            <span>Syncing {pendingCount} incident{pendingCount !== 1 ? 's' : ''}...</span>
+          )}
+        </div>
+        {showProgress && (
+          <div
+            data-testid="sync-progress-bar"
+            className="h-1.5 w-full overflow-hidden rounded-full bg-blue-200"
+            role="progressbar"
+            aria-valuenow={syncProgress!.done}
+            aria-valuemin={0}
+            aria-valuemax={syncProgress!.total}
+            aria-label={`Syncing ${syncProgress!.done} of ${syncProgress!.total}`}
+          >
+            <div
+              className="h-full rounded-full bg-blue-600 transition-all duration-300 ease-out"
+              style={{ width: `${(syncProgress!.done / syncProgress!.total) * 100}%` }}
+            />
+          </div>
+        )}
       </div>
     );
   }

@@ -10,6 +10,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useAutoSync } from '@/lib/useAutoSync';
 import * as offlineStore from '@/lib/offlineStore';
 import * as syncEngine from '@/lib/syncEngine';
+import * as offlineOpActions from '@/lib/offlineOpActions';
 import OfflineWorkPage from './page';
 
 // ── Mocks ──
@@ -36,6 +37,10 @@ vi.mock('@/lib/offlineStore', () => ({
 
 vi.mock('@/lib/syncEngine', () => ({
   syncPendingIncidents: vi.fn(),
+}));
+
+vi.mock('@/lib/offlineOpActions', () => ({
+  cancelOfflineOperation: vi.fn(),
 }));
 
 vi.mock('sonner', () => ({
@@ -294,6 +299,121 @@ describe('OfflineWorkPage', () => {
     await userEvent.click(screen.getByRole('button', { name: /Sync Now/i }));
     await waitFor(() => {
       expect(syncEngine.syncPendingIncidents).toHaveBeenCalledWith(ENCODER_ID, { bypassBackoff: true });
+    });
+  });
+
+  it('shows cancel button for queued ops and confirms before cancelling', async () => {
+    (offlineStore.getDraftOps as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    (offlineStore.getPendingOps as ReturnType<typeof vi.fn>).mockResolvedValue([
+      makeOp({ operation: 'update', serverId: 42, syncStatus: 'pending' }),
+    ]);
+    (offlineStore.getConflictOps as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    (offlineStore.getFailedOps as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    (offlineOpActions.cancelOfflineOperation as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+
+    render(<OfflineWorkPage />);
+
+    // Switch to Queued tab
+    await userEvent.click(screen.getByRole('tab', { name: /Queued/i }));
+    await waitFor(() => {
+      expect(screen.getByText(/Update incident/)).toBeInTheDocument();
+    });
+
+    // Cancel button should be visible
+    const cancelBtn = screen.getByRole('button', { name: /Cancel Update incident/i });
+    expect(cancelBtn).toBeInTheDocument();
+    expect(cancelBtn).not.toBeDisabled();
+
+    // Click cancel — confirmation dialog should appear
+    await userEvent.click(cancelBtn);
+    await waitFor(() => {
+      expect(screen.getByText(/Cancel Update incident\?/)).toBeInTheDocument();
+      expect(screen.getByText(/permanently delete/)).toBeInTheDocument();
+    });
+
+    // Confirm cancellation
+    await userEvent.click(screen.getByRole('button', { name: /Yes, Cancel/i }));
+    await waitFor(() => {
+      expect(offlineOpActions.cancelOfflineOperation).toHaveBeenCalledWith(
+        expect.objectContaining({ localId: expect.any(String), operation: 'update' }),
+      );
+    });
+  });
+
+  it('shows cancel button for failed ops', async () => {
+    (offlineStore.getDraftOps as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    (offlineStore.getPendingOps as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    (offlineStore.getConflictOps as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    (offlineStore.getFailedOps as ReturnType<typeof vi.fn>).mockResolvedValue([
+      makeOp({ operation: 'submit', serverId: 99, syncStatus: 'failed', errorMessage: 'Timeout' }),
+    ]);
+    (offlineOpActions.cancelOfflineOperation as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+
+    render(<OfflineWorkPage />);
+
+    await userEvent.click(screen.getByRole('tab', { name: /Failed/i }));
+
+    // Wait for the cancel button to appear (operation matches 'submit')
+    const cancelBtn = await screen.findByRole('button', { name: /Cancel Submit for review/i });
+    expect(cancelBtn).toBeInTheDocument();
+    expect(cancelBtn).not.toBeDisabled();
+
+    // Click cancel to show confirmation
+    await userEvent.click(cancelBtn);
+
+    // After clicking cancel, the confirmation dialog should appear
+    await waitFor(() => {
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+    });
+    // Dialog should mention the operation
+    expect(screen.getByText(/Cancel Submit for review\?/)).toBeInTheDocument();
+    // Confirmation should show failed-specific messaging (unique to dialog only)
+    expect(screen.getByText(/will not retry automatically/)).toBeInTheDocument();
+  });
+
+  it('disables cancel buttons when syncing is active', async () => {
+    (useAutoSync as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
+      syncing: true,
+      pendingCount: 1,
+      conflictCount: 0,
+      failedCount: 0,
+      lastSyncedAt: null,
+      authFailed: false,
+      syncNow: vi.fn(),
+    });
+
+    (offlineStore.getDraftOps as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    (offlineStore.getPendingOps as ReturnType<typeof vi.fn>).mockResolvedValue([
+      makeOp({ operation: 'update', serverId: 42, syncStatus: 'pending' }),
+    ]);
+    (offlineStore.getConflictOps as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    (offlineStore.getFailedOps as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+
+    render(<OfflineWorkPage />);
+
+    await userEvent.click(screen.getByRole('tab', { name: /Queued/i }));
+    await waitFor(() => {
+      const cancelBtn = screen.getByRole('button', { name: /Cancel Update incident/i });
+      expect(cancelBtn).toBeDisabled();
+    });
+  });
+
+  it('does not show cancel button for conflicts section', async () => {
+    (offlineStore.getDraftOps as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    (offlineStore.getPendingOps as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    (offlineStore.getConflictOps as ReturnType<typeof vi.fn>).mockResolvedValue([
+      makeOp({ operation: 'update', serverId: 55, syncStatus: 'conflict' }),
+    ]);
+    (offlineStore.getFailedOps as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+
+    render(<OfflineWorkPage />);
+
+    await userEvent.click(screen.getByRole('tab', { name: /Conflicts/i }));
+    await waitFor(() => {
+      // The Resolve link should be present
+      expect(screen.getByRole('link', { name: /Resolve/i })).toBeInTheDocument();
+      // No cancel button for conflicts
+      expect(screen.queryByRole('button', { name: /Cancel/i })).not.toBeInTheDocument();
     });
   });
 

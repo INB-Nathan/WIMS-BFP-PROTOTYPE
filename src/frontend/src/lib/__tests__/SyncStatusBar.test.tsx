@@ -40,6 +40,7 @@ describe('SyncStatusBar', () => {
       conflictCount: 0,
       failedCount: 0,
       syncNow: vi.fn(),
+      syncProgress: null,
     });
 
     render(<SyncStatusBar />);
@@ -55,6 +56,7 @@ describe('SyncStatusBar', () => {
       conflictCount: 0,
       failedCount: 0,
       syncNow: vi.fn(),
+      syncProgress: null,
     });
 
     render(<SyncStatusBar />);
@@ -70,6 +72,7 @@ describe('SyncStatusBar', () => {
       conflictCount: 0,
       failedCount: 0,
       syncNow: vi.fn(),
+      syncProgress: null,
     });
 
     render(<SyncStatusBar />);
@@ -87,6 +90,7 @@ describe('SyncStatusBar', () => {
       conflictCount: 0,
       failedCount: 0,
       syncNow: vi.fn(),
+      syncProgress: null,
     });
 
     render(<SyncStatusBar />);
@@ -103,6 +107,7 @@ describe('SyncStatusBar', () => {
       conflictCount: 0,
       failedCount: 0,
       syncNow: syncNowMock,
+      syncProgress: null,
     });
 
     render(<SyncStatusBar />);
@@ -121,6 +126,7 @@ describe('SyncStatusBar', () => {
       conflictCount: 0,
       failedCount: 0,
       syncNow: vi.fn(),
+      syncProgress: null,
     });
 
     render(<SyncStatusBar />);
@@ -139,6 +145,7 @@ describe('SyncStatusBar', () => {
       conflictCount: 0,
       failedCount: 0,
       syncNow: vi.fn(),
+      syncProgress: null,
     });
 
     render(<SyncStatusBar />);
@@ -155,6 +162,7 @@ describe('SyncStatusBar', () => {
       conflictCount: 0,
       failedCount: 0,
       syncNow: vi.fn(),
+      syncProgress: null,
     });
 
     render(<SyncStatusBar />);
@@ -171,6 +179,7 @@ describe('SyncStatusBar', () => {
       conflictCount: 0,
       failedCount: 0,
       syncNow: vi.fn(),
+      syncProgress: null,
     });
 
     render(<SyncStatusBar />);
@@ -186,6 +195,7 @@ describe('SyncStatusBar', () => {
       conflictCount: 1,
       failedCount: 0,
       syncNow: vi.fn(),
+      syncProgress: null,
     });
 
     render(<SyncStatusBar />);
@@ -205,6 +215,7 @@ describe('SyncStatusBar', () => {
       conflictCount: 2,
       failedCount: 0,
       syncNow: vi.fn(),
+      syncProgress: null,
     });
 
     render(<SyncStatusBar />);
@@ -221,6 +232,7 @@ describe('SyncStatusBar', () => {
       conflictCount: 0,
       failedCount: 1,
       syncNow: vi.fn(),
+      syncProgress: null,
     });
 
     render(<SyncStatusBar />);
@@ -238,6 +250,7 @@ describe('SyncStatusBar', () => {
       conflictCount: 0,
       failedCount: 2,
       syncNow: vi.fn(),
+      syncProgress: null,
     });
 
     render(<SyncStatusBar />);
@@ -258,6 +271,7 @@ describe('SyncStatusBar', () => {
       conflictCount: 3,
       failedCount: 2,
       syncNow: vi.fn(),
+      syncProgress: null,
     });
 
     render(<SyncStatusBar />);
@@ -265,5 +279,41 @@ describe('SyncStatusBar', () => {
     // Conflict takes priority because the check comes first
     expect(screen.getByText(/3 items.*need your attention/i)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /review/i })).toBeInTheDocument();
+  });
+
+  it('shows determinate progress during active sync when syncProgress.total > 0', () => {
+    mockUseAutoSync.mockReturnValue({
+      syncing: true,
+      lastSyncedAt: null,
+      pendingCount: 5,
+      conflictCount: 0,
+      failedCount: 0,
+      syncNow: vi.fn(),
+      syncProgress: { done: 2, total: 5 },
+    });
+
+    render(<SyncStatusBar />);
+
+    expect(screen.getByText(/syncing 2 of 5/i)).toBeInTheDocument();
+    expect(screen.getByTestId('sync-progress-bar')).toBeInTheDocument();
+    expect(screen.getByTestId('sync-progress-text')).toBeInTheDocument();
+  });
+
+  it('falls back to pendingCount text when syncing without progress', () => {
+    mockUseAutoSync.mockReturnValue({
+      syncing: true,
+      lastSyncedAt: null,
+      pendingCount: 5,
+      conflictCount: 0,
+      failedCount: 0,
+      syncNow: vi.fn(),
+      syncProgress: null,
+    });
+
+    render(<SyncStatusBar />);
+
+    // Should show the fallback text when no progress is available
+    expect(screen.getByText(/syncing 5 incidents/i)).toBeInTheDocument();
+    expect(screen.queryByTestId('sync-progress-bar')).not.toBeInTheDocument();
   });
 });

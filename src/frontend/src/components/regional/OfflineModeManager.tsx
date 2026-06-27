@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { CloudDownload, Check, Trash2, Loader2, WifiOff } from 'lucide-react';
 import { toast } from 'sonner';
@@ -37,26 +37,48 @@ export function OfflineModeManager({ variant = 'panel' }: { variant?: 'banner' |
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<OfflineEnableProgress | null>(null);
   const [clearing, setClearing] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     setEnabled(isOfflineModeEnabled());
   }, []);
 
+  // Cleanup on unmount: avoid calling setState on an unmounted component
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+      abortRef.current = null;
+    };
+  }, []);
+
+  const cancelEnable = useCallback(() => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setBusy(false);
+    setProgress(null);
+  }, []);
+
   const runEnable = useCallback(async () => {
     if (!encoderId || busy) return;
+    const controller = new AbortController();
+    abortRef.current = controller;
     setBusy(true);
-    setProgress({ step: 'Starting…', done: 0, total: 1 });
+    setProgress({ step: 'Starting…', phase: 'setup', done: 0, total: 1 });
     const result = await enableOfflineMode(encoderId, {
       prefetch: (href) => router.prefetch(href),
       onProgress: setProgress,
+      signal: controller.signal,
     });
     setBusy(false);
     setProgress(null);
+    abortRef.current = null;
     if (result.ok) {
       setEnabled(true);
       toast.success(
         `Offline mode ready — ${result.cachedDetails} incident${result.cachedDetails === 1 ? '' : 's'} saved for offline use.`,
       );
+    } else if (result.error === 'Offline setup cancelled.') {
+      toast.info('Offline setup cancelled.');
     } else {
       toast.error(result.error ?? 'Could not enable offline mode.');
     }
@@ -149,8 +171,17 @@ export function OfflineModeManager({ variant = 'panel' }: { variant?: 'banner' |
               title={isOnline ? 'Download / refresh offline data' : 'Connect to the internet to enable offline mode'}
             >
               {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <CloudDownload className="h-3.5 w-3.5" aria-hidden />}
-              {enabled ? 'Update offline data' : 'Enable offline mode'}
+              {busy ? 'Setting up offline…' : (enabled ? 'Update offline data' : 'Enable offline mode')}
             </button>
+            {busy && (
+              <button
+                type="button"
+                onClick={cancelEnable}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-700 transition-colors hover:bg-red-50"
+              >
+                Cancel
+              </button>
+            )}
             <button
               type="button"
               onClick={runClear}
@@ -175,18 +206,26 @@ export function OfflineModeManager({ variant = 'panel' }: { variant?: 'banner' |
 
 function ProgressBar({ busy, progress }: { busy: boolean; progress: OfflineEnableProgress | null }) {
   if (!busy || !progress) return null;
+  const pct = progress.total > 1 ? Math.round((progress.done / progress.total) * 100) : 0;
+  const phaseLabel = progress.phase
+    ? { pages: 'Pages', chunks: 'Forms', list: 'Incidents', details: 'Details', setup: 'Setup' }[progress.phase] ?? progress.phase
+    : null;
   return (
     <div className="rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm" role="status">
       <div className="flex items-center gap-2 font-medium text-gray-700">
         <Loader2 className="h-4 w-4 animate-spin text-sky-600" aria-hidden />
-        {progress.step}
+        {phaseLabel && <span className="text-xs font-semibold uppercase tracking-wider text-sky-700">{phaseLabel}</span>}
+        <span>{progress.step}</span>
         {progress.total > 1 && <span className="text-gray-500">({progress.done}/{progress.total})</span>}
       </div>
+      {progress.currentLabel && (
+        <p className="mt-0.5 text-xs text-gray-500">{progress.currentLabel}</p>
+      )}
       {progress.total > 1 && (
         <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-gray-100">
           <div
             className="h-full rounded-full bg-sky-600 transition-all"
-            style={{ width: `${Math.round((progress.done / progress.total) * 100)}%` }}
+            style={{ width: `${pct}%` }}
           />
         </div>
       )}

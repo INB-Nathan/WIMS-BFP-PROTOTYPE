@@ -138,6 +138,32 @@ describe('syncPendingIncidents', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it('calls onProgress callback for each op during sync', async () => {
+    vi.mocked(getPendingOps).mockResolvedValue([
+      makeOp({ localId: 'op-1', operation: 'create' }),
+      makeOp({ localId: 'op-2', operation: 'create' }),
+    ]);
+    mockSessionOkWithApiResponses(
+      { ok: true, status: 200, json: () => Promise.resolve({ status: 'ok', incident_ids: [42], failed: [] }), text: () => Promise.resolve(JSON.stringify({ status: 'ok', incident_ids: [42], failed: [] })) },
+      { ok: true, status: 200, json: () => Promise.resolve({ status: 'ok', incident_ids: [43], failed: [] }), text: () => Promise.resolve(JSON.stringify({ status: 'ok', incident_ids: [43], failed: [] })) },
+    );
+
+    const progressCalls: Array<{ done: number; total: number; currentOperation?: string }> = [];
+    const onProgress = (p: { done: number; total: number; currentOperation?: string }) => {
+      progressCalls.push(p);
+    };
+
+    const result = await syncPendingIncidents(ENCODER_ID, { onProgress });
+
+    expect(result.synced).toBe(2);
+    expect(progressCalls.length).toBeGreaterThanOrEqual(2);
+    // First call should be done=1, total=2
+    expect(progressCalls[0].done).toBe(1);
+    expect(progressCalls[0].total).toBe(2);
+    // Last call should have done=total
+    expect(progressCalls[progressCalls.length - 1].done).toBe(progressCalls[progressCalls.length - 1].total);
+  });
+
   it('aborts with abortReason=offline when app reachability check fails', async () => {
     vi.mocked(isReachable).mockResolvedValue(false);
 
