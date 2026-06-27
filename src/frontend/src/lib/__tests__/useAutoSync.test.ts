@@ -20,6 +20,7 @@ vi.mock('../syncEngine', () => ({
 
 // Mock offlineStore (new ops API)
 vi.mock('../offlineStore', () => ({
+  getOfflineOpsCounts: vi.fn(),
   getPendingOpsCount: vi.fn(),
   recoverStaleSyncingOps: vi.fn().mockResolvedValue(0),
 }));
@@ -48,7 +49,7 @@ vi.mock('../useNetworkStatus', () => ({
 
 import { useAutoSync } from '../useAutoSync';
 import { syncPendingIncidents } from '../syncEngine';
-import { getPendingOpsCount, recoverStaleSyncingOps } from '../offlineStore';
+import { getOfflineOpsCounts, getPendingOpsCount, recoverStaleSyncingOps } from '../offlineStore';
 import { useAuth } from '@/context/AuthContext';
 import { toast } from 'sonner';
 
@@ -61,6 +62,7 @@ beforeEach(() => {
   mockNetworkStatus.isReconnecting = false;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   vi.mocked(useAuth).mockReturnValue({ user: { id: ENCODER_ID } as any, loading: false } as any);
+  vi.mocked(getOfflineOpsCounts).mockResolvedValue({ pendingCount: 0, failedCount: 0, conflictCount: 0, totalActionableCount: 0 });
   vi.mocked(getPendingOpsCount).mockResolvedValue(0);
   vi.mocked(recoverStaleSyncingOps).mockResolvedValue(0);
   vi.mocked(syncPendingIncidents).mockResolvedValue(OK_RESULT);
@@ -84,15 +86,17 @@ describe('useAutoSync', () => {
     expect(result.current.pendingCount).toBe(0);
   });
 
-  it('fetches pendingCount on mount via getPendingOpsCount', async () => {
-    vi.mocked(getPendingOpsCount).mockResolvedValue(3);
+  it('fetches all counts on mount via getOfflineOpsCounts', async () => {
+    vi.mocked(getOfflineOpsCounts).mockResolvedValue({ pendingCount: 2, failedCount: 1, conflictCount: 3, totalActionableCount: 6 });
 
     const { result } = renderHook(() => useAutoSync());
 
     await waitFor(() => {
-      expect(result.current.pendingCount).toBe(3);
+      expect(result.current.pendingCount).toBe(2);
+      expect(result.current.failedCount).toBe(1);
+      expect(result.current.conflictCount).toBe(3);
     });
-    expect(getPendingOpsCount).toHaveBeenCalledWith(ENCODER_ID);
+    expect(getOfflineOpsCounts).toHaveBeenCalledWith(ENCODER_ID);
   });
 
   it('auto-syncs after debounce when network reconnects', async () => {
@@ -137,11 +141,11 @@ describe('useAutoSync', () => {
     expect(result.current.lastSyncedAt).toBeInstanceOf(Date);
   });
 
-  it('syncNow() updates pendingCount after sync', async () => {
+  it('syncNow() updates all counts after sync', async () => {
     vi.mocked(syncPendingIncidents).mockResolvedValue({
       synced: 2, conflicts: 0, failed: 0, errors: [],
     });
-    vi.mocked(getPendingOpsCount).mockResolvedValueOnce(2).mockResolvedValue(0);
+    vi.mocked(getOfflineOpsCounts).mockResolvedValueOnce({ pendingCount: 2, failedCount: 0, conflictCount: 1, totalActionableCount: 3 }).mockResolvedValue({ pendingCount: 0, failedCount: 0, conflictCount: 1, totalActionableCount: 1 });
 
     const { result } = renderHook(() => useAutoSync());
 
@@ -152,6 +156,7 @@ describe('useAutoSync', () => {
     });
 
     expect(result.current.pendingCount).toBe(0);
+    expect(result.current.conflictCount).toBe(1);
   });
 
   it('does not sync while already syncing (mutex)', async () => {

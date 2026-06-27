@@ -8,6 +8,7 @@ import { InfoBlock } from "@/components/ui/InfoBlock";
 import { formatIncidentDate, statusBorderColor } from "@/lib/incident-utils";
 import { formatClassification } from "@/lib/afor-utils";
 import type { RegionalIncidentListItem } from "@/lib/api";
+import type { RegionalIncidentOfflineStatus } from "@/lib/regionalOfflineStatus";
 
 interface Props {
   inc: RegionalIncidentListItem;
@@ -20,6 +21,37 @@ interface Props {
   onUnarchive: (incidentId: number, e: React.MouseEvent) => void;
   isDetailCached?: boolean;
   isOnline?: boolean;
+  offlineStatus?: RegionalIncidentOfflineStatus;
+}
+
+const SEVERITY_STYLES: Record<string, { bg: string; text: string; border: string }> = {
+  conflict: { bg: 'bg-orange-100', text: 'text-orange-800', border: 'border-orange-300' },
+  failed: { bg: 'bg-red-100', text: 'text-red-800', border: 'border-red-300' },
+  pending: { bg: 'bg-amber-100', text: 'text-amber-800', border: 'border-amber-300' },
+};
+
+function OfflineSyncBadges({ status }: { status: RegionalIncidentOfflineStatus }) {
+  const style = SEVERITY_STYLES[status.severity] ?? SEVERITY_STYLES.pending;
+
+  return (
+    <>
+      {status.labels.slice(0, 2).map((label) => (
+        <span
+          key={label}
+          className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${style.bg} ${style.text} ${style.border}`}
+        >
+          {label}
+        </span>
+      ))}
+      {status.labels.length > 2 && (
+        <span
+          className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${style.bg} ${style.text} ${style.border}`}
+        >
+          +{status.labels.length - 2} more
+        </span>
+      )}
+    </>
+  );
 }
 
 function completeAddress(incident: RegionalIncidentListItem): string {
@@ -37,8 +69,17 @@ export function IncidentCard({
   onUnarchive,
   isDetailCached,
   isOnline,
+  offlineStatus,
 }: Props) {
   const offlineUncached = isOnline === false && isDetailCached === false;
+
+  // Disable archive button when an archive_action is already queued for this incident
+  const hasQueuedArchive = offlineStatus?.operations.some(
+    (op) => op.operation === 'archive_action',
+  );
+  const archiveButtonLabel = hasQueuedArchive
+    ? (isArchiveView ? 'Restore queued' : 'Archive queued')
+    : (isArchiveView ? 'Unarchive' : 'Archive');
 
   return (
     <article
@@ -78,6 +119,7 @@ export function IncidentCard({
             </span>
           )}
           <StatusBadge status={inc.verification_status} />
+          {offlineStatus && <OfflineSyncBadges status={offlineStatus} />}
           {offlineUncached && (
             <span className="rounded-full bg-gray-100 border border-gray-200 px-2 py-0.5 text-xs font-semibold text-gray-500">
               Go online to view
@@ -130,13 +172,22 @@ export function IncidentCard({
         <div className="mt-4 flex justify-end border-t border-gray-100 pt-3">
           <button
             type="button"
-            onClick={(e) => isArchiveView ? onUnarchive(inc.incident_id, e) : onArchive(inc.incident_id, e)}
-            className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs font-medium transition-colors hover:bg-gray-50"
-            style={{ color: 'var(--text-secondary)' }}
-            title={isArchiveView ? 'Restore this incident to the active list' : 'Archive this verified incident'}
+            disabled={hasQueuedArchive}
+            onClick={(e) => hasQueuedArchive ? undefined : isArchiveView ? onUnarchive(inc.incident_id, e) : onArchive(inc.incident_id, e)}
+            className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${
+              hasQueuedArchive
+                ? 'cursor-not-allowed border-amber-200 bg-amber-50 text-amber-600'
+                : 'border-gray-200 bg-white hover:bg-gray-50'
+            }`}
+            style={{ color: hasQueuedArchive ? undefined : 'var(--text-secondary)' }}
+            title={
+              hasQueuedArchive
+                ? `An archive ${isArchiveView ? 'restore' : 'action'} is already queued — it will sync when back online`
+                : isArchiveView ? 'Restore this incident to the active list' : 'Archive this verified incident'
+            }
           >
             <Archive className="h-3.5 w-3.5" aria-hidden />
-            {isArchiveView ? 'Unarchive' : 'Archive'}
+            {archiveButtonLabel}
           </button>
         </div>
       )}

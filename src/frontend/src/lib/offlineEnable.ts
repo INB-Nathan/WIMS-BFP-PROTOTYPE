@@ -18,9 +18,11 @@ import {
   fetchRegionalIncidentOfflineAware,
 } from './api/offlineRegional';
 import { getConnectivitySnapshot } from './connectivity';
-
-const OFFLINE_ENABLED_KEY = 'wims:offline_enabled';
-const OFFLINE_BANNER_DISMISSED_KEY = 'wims:offline_banner_dismissed';
+import {
+  isOfflineModeEnabled,
+  markOfflineModeEnabled,
+  clearOfflineModeEnabled,
+} from './offlineModeFlags';
 
 // Cap how many full detail records we pull so enabling offline mode stays quick
 // and doesn't hammer the API. List items are always cached (cheap); details are
@@ -41,28 +43,8 @@ export interface OfflineEnableResult {
   error?: string;
 }
 
-export function isOfflineModeEnabled(): boolean {
-  try { return localStorage.getItem(OFFLINE_ENABLED_KEY) === 'true'; } catch { return false; }
-}
-
-export function markOfflineModeEnabled(): void {
-  try { localStorage.setItem(OFFLINE_ENABLED_KEY, 'true'); } catch { /* private mode */ }
-}
-
-export function clearOfflineModeEnabled(): void {
-  try {
-    localStorage.removeItem(OFFLINE_ENABLED_KEY);
-    localStorage.removeItem(OFFLINE_BANNER_DISMISSED_KEY);
-  } catch { /* private mode */ }
-}
-
-export function isOfflineBannerDismissed(): boolean {
-  try { return localStorage.getItem(OFFLINE_BANNER_DISMISSED_KEY) === 'true'; } catch { return false; }
-}
-
-export function dismissOfflineBanner(): void {
-  try { localStorage.setItem(OFFLINE_BANNER_DISMISSED_KEY, 'true'); } catch { /* private mode */ }
-}
+// Flag helpers (isOfflineModeEnabled, markOfflineModeEnabled, clearOfflineModeEnabled)
+// imported from offlineModeFlags to avoid circular dependency.
 
 /**
  * Download the JS chunks needed for offline encoding. Resolving these import()

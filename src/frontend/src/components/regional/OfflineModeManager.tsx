@@ -8,10 +8,9 @@ import { useAuth } from '@/context/AuthContext';
 import { useNetworkStatus } from '@/lib/useNetworkStatus';
 import {
   enableOfflineMode,
-  isOfflineModeEnabled,
-  clearOfflineModeEnabled,
   type OfflineEnableProgress,
 } from '@/lib/offlineEnable';
+import { isOfflineModeEnabled, clearOfflineModeEnabled } from '@/lib/offlineModeFlags';
 import { clearAllOfflineData, setActiveOfflineUser } from '@/lib/offlineStore';
 
 /**
