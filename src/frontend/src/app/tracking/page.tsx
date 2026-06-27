@@ -1,7 +1,12 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { fetchReportStatus, fetchReportTimeline, registerNotification, fetchMyReports, submitFollowup, type CivilianFollowupItem, type CivilianReportTimelineItem, type CivilianReportTrackingResponse, type MyReportItem } from '@/lib/api';
+import { registerNotification, submitFollowup, type CivilianFollowupItem, type CivilianReportTimelineItem, type CivilianReportTrackingResponse, type MyReportItem } from '@/lib/api';
+import {
+  fetchMyReportsOfflineAware,
+  fetchReportStatusOfflineAware,
+  fetchReportTimelineOfflineAware,
+} from '@/lib/api/offlineCivilianReads';
 import { getMessagingToken } from '@/lib/firebase';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -206,17 +211,20 @@ export default function ReportTrackerPage() {
     setTimeline([]);
     setFollowups([]);
     try {
-      const result = await fetchReportStatus(id.trim(), currentDeviceId);
-      setData(result);
+      const result = await fetchReportStatusOfflineAware(id.trim(), currentDeviceId);
+      setData(result.response);
+      if (result.fromCache) {
+        setFetchError(null); // clear any stale error when serving from cache
+      }
       try {
-        const timelineResult = await fetchReportTimeline(id.trim(), currentDeviceId);
-        setTimeline(timelineResult.timeline);
-        setFollowups(timelineResult.followups);
+        const timelineResult = await fetchReportTimelineOfflineAware(id.trim(), currentDeviceId);
+        setTimeline(timelineResult.response.timeline);
+        setFollowups(timelineResult.response.followups);
       } catch {
         setTimeline([]);
         setFollowups([]);
       }
-      if (localStorage.getItem(notifyKey(result.report_id)) === 'true') {
+      if (localStorage.getItem(notifyKey(result.response.report_id)) === 'true') {
         setNotifyStatus('enabled');
       }
     } catch (err: unknown) {
@@ -277,8 +285,8 @@ export default function ReportTrackerPage() {
   // Fetch this device's report history on mount — used to determine ownership
   useEffect(() => {
     if (!deviceId) return;
-    fetchMyReports(deviceId!)
-      .then((res) => setMyReports(res.reports))
+    fetchMyReportsOfflineAware(deviceId!)
+      .then((res) => setMyReports(res.response.reports))
       .catch(() => setMyReports([]));
   }, [deviceId]);
 
@@ -295,9 +303,9 @@ export default function ReportTrackerPage() {
       setFollowupSuccess(true);
       // Refresh timeline to show the new follow-up
       try {
-        const timelineResult = await fetchReportTimeline(data.report_id, currentDeviceId);
-        setTimeline(timelineResult.timeline);
-        setFollowups(timelineResult.followups);
+        const timelineResult = await fetchReportTimelineOfflineAware(data.report_id, currentDeviceId);
+        setTimeline(timelineResult.response.timeline);
+        setFollowups(timelineResult.response.followups);
       } catch {
         // Timeline refresh is best-effort
       }

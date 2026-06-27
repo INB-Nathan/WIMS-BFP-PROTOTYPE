@@ -165,7 +165,10 @@ export default function ValidatorOperationalMapPage() {
         </div>
 
         {loading && (
-          <span className="text-xs text-slate-400 animate-pulse">Loading...</span>
+          <span className="inline-flex items-center gap-2 text-xs text-slate-400" aria-label="Loading map data">
+            <span className="inline-block h-2 w-2 rounded-full bg-slate-300 animate-pulse" />
+            <span className="inline-block h-3 w-12 animate-pulse rounded bg-slate-200" />
+          </span>
         )}
       </div>
 

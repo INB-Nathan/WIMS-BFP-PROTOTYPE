@@ -1,13 +1,28 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fetchReportStatus, type CivilianReportTrackingResponse } from '@/lib/api';
 
 vi.mock('@/lib/api', () => ({
-  fetchReportStatus: vi.fn(),
-  fetchMyReports: vi.fn().mockResolvedValue({ reports: [{ report_id: 42 }] }),
   registerNotification: vi.fn(),
-  fetchReportTimeline: vi.fn().mockResolvedValue({ timeline: [], followups: [] }),
   submitFollowup: vi.fn(),
+}));
+
+vi.mock('@/lib/api/offlineCivilianReads', () => ({
+  fetchMyReportsOfflineAware: vi.fn().mockResolvedValue({
+    response: { reports: [{ report_id: 42 }] },
+    fromCache: false,
+  }),
+  fetchReportStatusOfflineAware: vi.fn().mockResolvedValue({
+    response: {
+      report_id: 42,
+      status: 'ACTIONED',
+      created_at: '2026-05-19T08:00:00Z',
+    },
+    fromCache: false,
+  }),
+  fetchReportTimelineOfflineAware: vi.fn().mockResolvedValue({
+    response: { timeline: [], followups: [] },
+    fromCache: false,
+  }),
 }));
 
 vi.mock('@/lib/firebase', () => ({
@@ -30,11 +45,15 @@ describe('ReportTrackerPage', () => {
   });
 
   it('loads report status from the id query parameter', async () => {
-    vi.mocked(fetchReportStatus).mockResolvedValue({
-      report_id: 42,
-      status: 'ACTIONED',
-      created_at: '2026-05-19T08:00:00Z',
-    } as unknown as CivilianReportTrackingResponse);
+    const mockFetchReportStatus = (await import('@/lib/api/offlineCivilianReads')).fetchReportStatusOfflineAware as ReturnType<typeof vi.fn>;
+    mockFetchReportStatus.mockResolvedValue({
+      response: {
+        report_id: 42,
+        status: 'ACTIONED',
+        created_at: '2026-05-19T08:00:00Z',
+      },
+      fromCache: false,
+    });
     localStorage.setItem('wims_civilian_device_id', 'device-a');
     window.history.pushState({}, '', '/tracking?id=42');
 
@@ -42,16 +61,20 @@ describe('ReportTrackerPage', () => {
     render(<ReportTrackerPage />);
 
     expect(screen.getByDisplayValue('42')).toBeDefined();
-    await waitFor(() => expect(fetchReportStatus).toHaveBeenCalledWith('42', 'device-a'));
+    await waitFor(() => expect(mockFetchReportStatus).toHaveBeenCalledWith('42', 'device-a'));
     expect(await screen.findByText('ACTIONED')).toBeDefined();
   });
 
   it('uses neutral active-operation copy for linked reports', async () => {
-    vi.mocked(fetchReportStatus).mockResolvedValue({
-      report_id: 42,
-      status: 'LINKED',
-      created_at: '2026-05-19T08:00:00Z',
-    } as unknown as CivilianReportTrackingResponse);
+    const mockFetchReportStatus = (await import('@/lib/api/offlineCivilianReads')).fetchReportStatusOfflineAware as ReturnType<typeof vi.fn>;
+    mockFetchReportStatus.mockResolvedValue({
+      response: {
+        report_id: 42,
+        status: 'LINKED',
+        created_at: '2026-05-19T08:00:00Z',
+      },
+      fromCache: false,
+    });
     localStorage.setItem('wims_civilian_device_id', 'device-a');
     window.history.pushState({}, '', '/tracking?id=42');
 
@@ -64,11 +87,15 @@ describe('ReportTrackerPage', () => {
   });
 
   it('renders the bilingual 911 emergency boundary on a PENDING report (not only REJECTED_*)', async () => {
-    vi.mocked(fetchReportStatus).mockResolvedValue({
-      report_id: 42,
-      status: 'PENDING',
-      created_at: '2026-05-19T08:00:00Z',
-    } as unknown as CivilianReportTrackingResponse);
+    const mockFetchReportStatus = (await import('@/lib/api/offlineCivilianReads')).fetchReportStatusOfflineAware as ReturnType<typeof vi.fn>;
+    mockFetchReportStatus.mockResolvedValue({
+      response: {
+        report_id: 42,
+        status: 'PENDING',
+        created_at: '2026-05-19T08:00:00Z',
+      },
+      fromCache: false,
+    });
     localStorage.setItem('wims_civilian_device_id', 'device-a');
     window.history.pushState({}, '', '/tracking?id=42');
 

@@ -8,12 +8,18 @@ import { usePathname } from 'next/navigation';
 import { registerServiceWorker } from '@/lib/swRegistration';
 import { useNetworkStatus } from '@/lib/useNetworkStatus';
 import { maybePruneCaches } from '@/lib/offlineStore';
+import { usePreloadDashboardData } from '@/lib/usePreloadDashboardData';
 
 export function LayoutShell({ children }: { children: ReactNode }) {
     const { user, loading, loggingOut, login } = useAuth();
     const { isOnline } = useNetworkStatus();
     const pathname = usePathname();
     const [sidebarOpen, setSidebarOpen] = useState(false);
+
+    // Preload dashboard data as soon as auth resolves. This fires before
+    // the dashboard page mounts, so the IndexedDB cache is warm by the time
+    // the ghost panels swap to real content.
+    usePreloadDashboardData();
 
     useEffect(() => {
         registerServiceWorker();

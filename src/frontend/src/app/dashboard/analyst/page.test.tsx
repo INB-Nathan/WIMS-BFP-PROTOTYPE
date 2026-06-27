@@ -230,7 +230,7 @@ describe('Analyst dashboard page', () => {
     });
   });
 
-  it('shows loading state initially', () => {
+  it('shows ghost loading panels initially', () => {
     vi.mocked(useAuth).mockReturnValue({
       user: null,
       loading: true,
@@ -241,9 +241,10 @@ describe('Analyst dashboard page', () => {
       refreshSession: vi.fn(),
     });
 
-    render(<AnalystDashboardPage />);
+    const { container } = render(<AnalystDashboardPage />);
 
-    expect(screen.getByText(/loading/i)).toBeInTheDocument();
+    // Ghost panels render with aria-hidden — assert skeleton cards appear
+    expect(container.querySelectorAll('[aria-hidden="true"]').length).toBeGreaterThan(0);
   });
 
   it('shows access denied state for 403', async () => {
