@@ -34,6 +34,8 @@ import {
     retrySyncOp,
     deleteSyncOp,
     FailedSyncOp,
+    BackupFile,
+    listBackups,
 } from '@/lib/api';
 import { useNetworkStatus } from '@/lib/useNetworkStatus';
 import { getConnectivitySnapshot, subscribeConnectivity, probeConnectivity } from '@/lib/connectivity';
@@ -68,6 +70,8 @@ import {
     Trash2,
     ToggleLeft,
     ToggleRight,
+    ArrowRight,
+    Bookmark,
 } from 'lucide-react';
 
 interface AdminUser {
@@ -321,6 +325,11 @@ export default function AdminSystemPage() {
     const [retryingOpId, setRetryingOpId] = useState<string | null>(null);
     const [deletingOpId, setDeletingOpId] = useState<string | null>(null);
 
+    // Backup Manager state (GAP-A01/A02)
+    const [backups, setBackups] = useState<BackupFile[]>([]);
+    const [loadingBackups, setLoadingBackups] = useState(false);
+    const [backupError, setBackupError] = useState<string | null>(null);
+
     // Client-side filtered & paginated users (#346)
     const filteredUsers = useMemo(() => {
         return users.filter((u) => {
@@ -481,6 +490,7 @@ export default function AdminSystemPage() {
             loadSessions();
             loadScheduledReports();
             loadFailedSyncs();
+            loadBackupSummary();
         }
     }, [role]);
 
@@ -515,6 +525,20 @@ export default function AdminSystemPage() {
             setRegions([]);
         }
     };
+
+    const loadBackupSummary = useCallback(async () => {
+        setLoadingBackups(true);
+        setBackupError(null);
+        try {
+            const data = await listBackups();
+            setBackups(data);
+        } catch (err) {
+            setBackupError((err as { message?: string })?.message ?? 'Failed to load backups');
+            setBackups([]);
+        } finally {
+            setLoadingBackups(false);
+        }
+    }, []);
 
     const loadScheduledReports = async () => {
         setLoadingReports(true);
@@ -2104,6 +2128,131 @@ export default function AdminSystemPage() {
                     {scheduledReports.length === 0 && !loadingReports && (
                         <div className="p-8 text-center text-gray-500">
                             No scheduled reports. Click &ldquo;New Schedule&rdquo; to create one.
+                        </div>
+                    )}
+                </div>
+            </section>
+
+            {/* Backup Manager (GAP-A01/A02) */}
+            <section id="backup" className="card overflow-hidden">
+                <div className="card-header flex items-center justify-between" style={{ borderLeft: '4px solid var(--sidebar-bg)' }}>
+                    <div className="flex items-center gap-2">
+                        <Bookmark className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />
+                        <span>Backup Manager</span>
+                    </div>
+                    <a
+                        href="/admin/backups"
+                        className="px-4 py-2 rounded-md text-sm font-medium text-white inline-flex items-center gap-2"
+                        style={{ backgroundColor: 'var(--sidebar-bg)' }}
+                    >
+                        <ArrowRight className="w-4 h-4" />
+                        Open Backup Manager
+                    </a>
+                </div>
+
+                {/* Cadence nudge — if no backup in 7+ days */}
+                {(() => {
+                    if (backups.length === 0) return null;
+                    const latestBackup = backups[0];
+                    const daysSinceLastBackup = latestBackup.created_at
+                        ? (Date.now() - new Date(latestBackup.created_at).getTime()) / (1000 * 60 * 60 * 24)
+                        : 999;
+                    if (daysSinceLastBackup < 7) return null;
+                    return (
+                        <div className="mx-4 mt-4 p-3 rounded-md text-sm font-medium bg-amber-50 border border-amber-200 text-amber-800 flex items-center gap-2">
+                            <AlertTriangle className="w-4 h-4" />
+                            <span>No backup taken in <strong>{Math.round(daysSinceLastBackup)}</strong> days &mdash; consider{' '}
+                                <a href="/admin/backups" className="underline font-semibold hover:opacity-80">triggering one</a>.
+                            </span>
+                        </div>
+                    );
+                })()}
+
+                {/* Summary stats row */}
+                <div className="grid grid-cols-3 gap-0 border-b border-gray-100">
+                    <div className="p-4 text-center border-r border-gray-100">
+                        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Last Backup</div>
+                        <div className="text-sm font-bold text-gray-900">
+                            {loadingBackups ? '—' : backups.length > 0
+                                ? (() => {
+                                    const secs = (Date.now() - new Date(backups[0].created_at).getTime()) / 1000;
+                                    if (secs < 60) return `${Math.round(secs)} sec ago`;
+                                    if (secs < 3600) return `${Math.round(secs / 60)} min ago`;
+                                    if (secs < 86400) return `${Math.round(secs / 3600)} hr ago`;
+                                    return `${Math.round(secs / 86400)} days ago`;
+                                })()
+                                : '—'
+                            }
+                        </div>
+                        <div className="text-xs text-gray-400 mt-0.5">{backups[0]?.created_at ? new Date(backups[0].created_at).toLocaleString() : ''}</div>
+                    </div>
+                    <div className="p-4 text-center border-r border-gray-100">
+                        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Total Backups</div>
+                        <div className="text-sm font-bold text-gray-900">{loadingBackups ? '—' : backups.length} / 100</div>
+                        <div className="text-xs text-gray-400 mt-0.5">Slots used</div>
+                    </div>
+                    <div className="p-4 text-center">
+                        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Storage Used</div>
+                        <div className="text-sm font-bold text-gray-900">
+                            {loadingBackups
+                                ? '—'
+                                : backups.length > 0
+                                    ? `${(backups.reduce((sum, b) => sum + b.size_bytes, 0) / (1024 * 1024)).toFixed(1)} MB`
+                                    : '—'
+                            }
+                        </div>
+                        <div className="text-xs text-gray-400 mt-0.5">
+                            {backups.length > 1 ? `~${((backups.reduce((sum, b) => sum + b.size_bytes, 0) / backups.length) / (1024 * 1024)).toFixed(0)} MB avg` : ''}
+                        </div>
+                    </div>
+                </div>
+
+                {/* Latest Backup Details */}
+                <div className="p-4">
+                    {loadingBackups ? (
+                        <div className="p-6 text-center text-gray-400">Loading backups…</div>
+                    ) : backupError ? (
+                        <div className="p-6 text-center text-red-500">
+                            {backupError}
+                            <button onClick={loadBackupSummary} className="ml-2 underline text-sm">Retry</button>
+                        </div>
+                    ) : backups.length === 0 ? (
+                        <div className="p-6 text-center">
+                            <p className="text-sm text-gray-500">No backups created yet.</p>
+                            <a href="/admin/backups" className="text-sm font-medium mt-2 inline-flex items-center gap-1" style={{ color: 'var(--bfp-maroon)' }}>
+                                <ArrowRight className="w-3 h-3" />
+                                Trigger your first backup in the Backup Manager
+                            </a>
+                        </div>
+                    ) : (
+                        <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                            <div className="flex items-center justify-between mb-3">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="font-mono text-sm font-medium text-gray-900">{backups[0].filename}</span>
+                                    <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${backups[0].provider === 'openbao_transit' ? 'bg-blue-100 text-blue-800' : backups[0].provider === 'env_aesgcm' ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-600'}`}>
+                                        {backups[0].provider === 'openbao_transit' ? 'OpenBao WIMSBAO1' : backups[0].provider === 'env_aesgcm' ? 'Legacy AES' : 'Unknown'}
+                                    </span>
+                                </div>
+                                <span className="text-sm font-medium text-gray-700 whitespace-nowrap">{(backups[0].size_bytes / (1024 * 1024)).toFixed(1)} MB</span>
+                            </div>
+                            {backups[0].manifest ? (
+                                <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm">
+                                    <div className="text-gray-600">
+                                        Last incident: <span className="font-medium text-gray-900">{backups[0].manifest.last_updates?.incident ? new Date(backups[0].manifest.last_updates.incident).toLocaleString() : '—'}</span>
+                                    </div>
+                                    <div className="text-gray-600">
+                                        Last citizen report: <span className="font-medium text-gray-900">{backups[0].manifest.last_updates?.citizen_report ? new Date(backups[0].manifest.last_updates.citizen_report).toLocaleString() : '—'}</span>
+                                    </div>
+                                    <div className="text-gray-600">
+                                        Records: <span className="font-medium text-gray-900">{backups[0].manifest.record_counts?.incidents ?? '—'} incidents &middot; {backups[0].manifest.record_counts?.citizens ?? '—'} citizens</span>
+                                    </div>
+                                    <div className="text-gray-600">
+                                        Users: <span className="font-medium text-gray-900">{backups[0].manifest.record_counts?.users ?? '—'}</span>
+                                    </div>
+                                </div>
+                            ) : (
+                                <p className="text-sm text-gray-400 italic">No manifest &mdash; backup data unavailable (legacy backup)</p>
+                            )}
                         </div>
                     )}
                 </div>

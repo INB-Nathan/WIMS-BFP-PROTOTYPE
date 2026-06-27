@@ -22,6 +22,7 @@ celery_app = Celery(
         "tasks.ip_blocklist",
         "tasks.monitoring",
         "tasks.notifications",
+        "tasks.scheduled_backup",
         "tasks.suricata",
     ],
 )
@@ -38,6 +39,7 @@ celery_app.conf.imports = (
     "tasks.kms_rotation",
     "tasks.monitoring",
     "tasks.notifications",
+    "tasks.scheduled_backup",
     "tasks.scheduled_reports",
     "tasks.suricata",
 )
@@ -109,6 +111,10 @@ celery_app.conf.update(
             "schedule": 60.0,
         },
         # Issue #88: Check due scheduled reports periodically (default 300s)
+        "execute-scheduled-backup": {
+            "task": "tasks.scheduled_backup.execute_due_backup",
+            "schedule": 300.0,  # every 5 minutes
+        },
         "execute-scheduled-reports": {
             "task": "tasks.scheduled_reports.execute_due_reports",
             "schedule": SCHEDULE_CHECK_INTERVAL,

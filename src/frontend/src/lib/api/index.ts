@@ -9,6 +9,7 @@ export { API_BASE, ApiRequestError, apiFetch, errorMessageFromJson } from './tra
 export { publicApiFetch } from './public-transport';
 
 export * from './admin';
+export * from './backup';
 export * from './analytics';
 export { fetchAnalystIncidentWildlandDetailOfflineAware } from './analytics';
 export * from './breach';
