@@ -8,7 +8,7 @@ import {
   Flame, Building2, TreePine, Car, ChevronLeft, ChevronRight, Trees,
   Home, Users, Layers, Truck, CalendarDays, Archive, Clock,
 } from 'lucide-react';
-import { apiFetch, fetchRegionalStats, type RegionalIncidentListItem } from '@/lib/api';
+import { apiFetch, type RegionalIncidentListItem } from '@/lib/api';
 import { fetchRegionalIncidentsOfflineAware } from '@/lib/api/offlineRegional';
 import {
   archiveEncoderIncidentOfflineAware,
@@ -36,12 +36,14 @@ import { formatIncidentDate, isDateOnly, getDateBounds as getDateBoundsUtil, cat
 import { useScrollSafeUpdate } from '@/lib/useScrollSafeUpdate';
 import { useHoverHint } from '@/lib/useHoverHint';
 import { EmptyState } from '@/components/ui';
+import { fetchRegionalStatsOfflineAware } from '@/lib/api/offlineRegionalStats';
 import { RegionalPageHeader } from '@/components/regional/RegionalPageHeader';
 import { NotificationToasts } from '@/components/regional/NotificationToasts';
 import { IncidentCard } from '@/components/regional/IncidentCard';
 import { SyncNotificationModal } from '@/components/regional/SyncNotificationModal';
 import { WildlandFireBreakdown } from '@/components/regional/WildlandFireBreakdown';
 import { OfflineModeManager } from '@/components/regional/OfflineModeManager';
+import { GhostIncidentCard, GhostStatCard, GhostIncidentRow } from '@/components/ui/GhostIncidentCard';
 
 interface RegionalStatsPayload {
   total_incidents?: number;
@@ -214,8 +216,12 @@ export default function RegionalDashboardPage() {
   }, [specificDateDraft, specificDateDraftIsValid, updateFiltersWithoutScrollShift]);
 
   const loadStats = useCallback(async () => {
-    const statsData = await fetchRegionalStats(statsDateBounds);
-    setStats(statsData);
+    try {
+      const result = await fetchRegionalStatsOfflineAware(statsDateBounds);
+      setStats(result.response);
+    } catch {
+      // Stats errors surface via empty cards
+    }
   }, [statsDateBounds]);
 
   const loadIncidents = useCallback(async () => {
@@ -356,10 +362,12 @@ export default function RegionalDashboardPage() {
     }
   };
 
-  if (loading || !canAccessRegional) {
+  // Show ghost panels while auth is loading — keeps layout stable
+  // and avoids a jarring flash from "Loading Dashboard…" to full UI.
+  if (!canAccessRegional && !loading) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center text-gray-500">
-        Loading Dashboard…
+        Redirecting…
       </div>
     );
   }
@@ -640,19 +648,31 @@ export default function RegionalDashboardPage() {
           {/* Period filter */}
           <StatsDateFilterChips value={statsDateFilter} onChange={setStatsDateFilter} />
 
-          {/* Incident type stats */}
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-            {incidentCards.map((card) => (
-              <StatCard key={card.key} card={card} />
-            ))}
-          </div>
+          {/* Incident type stats — show ghost cards while loading */}
+          {!stats ? (
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+              <GhostStatCard />
+              <GhostStatCard />
+              <GhostStatCard />
+              <GhostStatCard />
+              <GhostStatCard />
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+                {incidentCards.map((card) => (
+                  <StatCard key={card.key} card={card} />
+                ))}
+              </div>
 
-          {/* Affected count stats */}
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-            {affectedCards.map((card) => (
-              <StatCard key={card.key} card={card} />
-            ))}
-          </div>
+              {/* Affected count stats */}
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+                {affectedCards.map((card) => (
+                  <StatCard key={card.key} card={card} />
+                ))}
+              </div>
+            </>
+          )}
         </>
       )}
 
@@ -895,9 +915,13 @@ export default function RegionalDashboardPage() {
 
         {/* Incident list */}
         {useCardView ? (
+          /* ── Ghost card state: show pulsing skeleton cards while loading ── */
           incidentsLoading && incidents.length === 0 ? (
-            <div className="px-5 py-12 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
-              Loading incidents...
+            <div className="grid min-h-[420px] gap-4 p-5 lg:grid-cols-2">
+              <GhostIncidentCard />
+              <GhostIncidentCard />
+              <GhostIncidentCard />
+              <GhostIncidentCard />
             </div>
           ) : !incidentsLoading && incidents.length === 0 && queuedOps.length === 0 ? (
             <EmptyState
@@ -962,11 +986,7 @@ export default function RegionalDashboardPage() {
             </thead>
             <tbody>
               {incidentsLoading ? (
-                <tr>
-                  <td colSpan={7} className="px-5 py-12 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
-                    Loading incidents…
-                  </td>
-                </tr>
+                <GhostIncidentRow />
               ) : incidents.length === 0 && queuedOps.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-5 py-12">
