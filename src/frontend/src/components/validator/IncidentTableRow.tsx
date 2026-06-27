@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import type { MouseEvent } from "react";
 import { Archive } from "lucide-react";
@@ -15,8 +15,6 @@ interface Props {
   selectedIds: Set<number>;
   acceptingId: number | null;
   runtimeDuplicates: Map<number, number>;
-  queuedIncidentIds: Set<number>;
-  isOnline: boolean;
   onRowClick: (incidentId: number) => void;
   onTogglePending: (inc: ValidatorIncident, checked: boolean) => void;
   onHoverStart: (incidentId: number, e: MouseEvent<HTMLElement>) => void;
@@ -37,8 +35,6 @@ export function IncidentTableRow({
   selectedIds,
   acceptingId,
   runtimeDuplicates,
-  queuedIncidentIds,
-  isOnline,
   onRowClick,
   onTogglePending,
   onHoverStart,
@@ -52,7 +48,6 @@ export function IncidentTableRow({
   onReject,
 }: Props) {
   const baseColor = idx % 2 === 0 ? '#FFFFFF' : '#FAFAFA';
-  const isQueued = queuedIncidentIds.has(inc.incident_id);
 
   return (
     <tr
@@ -67,7 +62,7 @@ export function IncidentTableRow({
       tabIndex={0}
       role="link"
       aria-label={`View incident ${inc.incident_id}`}
-      className="cursor-pointer transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[#C62828] focus-visible:ring-inset"
+      className="cursor-pointer transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[#1A3263] focus-visible:ring-inset"
       style={{ backgroundColor: baseColor, borderBottom: '1px solid var(--border-color)' }}
       onMouseEnter={(e) => {
         (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bfp-red-light)';
@@ -128,19 +123,11 @@ export function IncidentTableRow({
         {formatClassification(inc.general_category)}
       </td>
       <td className="px-4 py-4 text-sm" style={{ color: 'var(--text-secondary)' }}>
-        {inc.alarm_level ?? "—"}
+        {inc.alarm_level ?? "â€”"}
       </td>
       <td className="px-4 py-4 whitespace-nowrap">
         <div className="flex gap-1.5 items-center">
-          {isQueued ? (
-            <span
-              className="inline-flex items-center gap-1 rounded-full border border-amber-300 px-2.5 py-1 text-xs font-semibold"
-              style={{ backgroundColor: '#FEF3C7', color: '#92400E' }}
-              title="This incident has a pending queued action waiting for sync"
-            >
-              Queued
-            </span>
-          ) : isArchiveView ? (
+          {isArchiveView ? (
             <>
               <button
                 onClick={(e) => { e.stopPropagation(); onUnarchive(inc); }}
@@ -153,10 +140,9 @@ export function IncidentTableRow({
               </button>
               <button
                 onClick={(e) => { e.stopPropagation(); onDelete(inc); }}
-                disabled={!isOnline}
-                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs rounded-lg border border-red-200 bg-white font-medium transition-colors hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                style={{ color: '#991B1B' }}
-                title={!isOnline ? 'Go online to delete' : 'Permanently delete this archived incident'}
+                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs rounded-lg border border-red-200 bg-white font-medium transition-colors hover:bg-red-50"
+                style={{ color: '#1A3263' }}
+                title="Permanently delete this archived incident"
               >
                 Delete
               </button>
@@ -193,15 +179,15 @@ export function IncidentTableRow({
                   onMouseEnter={(e) => { if (acceptingId !== inc.incident_id) (e.currentTarget as HTMLElement).style.backgroundColor = '#15803D'; }}
                   onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#16A34A'; }}
                 >
-                  {acceptingId === inc.incident_id ? "…" : "Accept"}
+                  {acceptingId === inc.incident_id ? "â€¦" : "Accept"}
                 </button>
               )}
               <button
                 onClick={(e) => { e.stopPropagation(); onReject(inc); }}
                 className="px-2.5 py-1 text-xs rounded-lg font-medium text-white transition-colors"
-                style={{ backgroundColor: '#991B1B' }}
+                style={{ backgroundColor: '#1A3263' }}
                 onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--bfp-red-dark)'; }}
-                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#991B1B'; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#1A3263'; }}
               >
                 Reject
               </button>
@@ -212,3 +198,4 @@ export function IncidentTableRow({
     </tr>
   );
 }
+

@@ -3,7 +3,7 @@
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import type { TypeDistributionItem } from '@/lib/api';
 
-const COLORS = ['#991b1b', '#dc2626', '#ef4444', '#f87171', '#fca5a5', '#b91c1c'];
+const COLORS = ['#1A3263', '#547792', '#FAB95B', '#7A9BB0', '#E8B87A', '#142849'];
 
 export interface TypeDistributionChartProps {
   data: TypeDistributionItem[];

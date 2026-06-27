@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useMemo, useState, useCallback, type MouseEvent, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
@@ -56,13 +56,6 @@ import { getShortRegionName, PH_REGIONS } from '@/lib/ph-regions';
 import { useAutoSync } from '@/lib/useAutoSync';
 import { useNetworkStatus } from '@/lib/useNetworkStatus';
 import { WidgetGrid, AddWidgetDropdown, FreshnessDot, FilterChips, type FilterChip } from '@/components/dashboard';
-import {
-  GhostAnalystKpiCard,
-  GhostChartPanel,
-  GhostMapPanel,
-  GhostMetricTiles,
-  GhostIncidentTable,
-} from '@/components/ui/GhostAnalystPanel';
 import { useDashboardWidgets } from '@/hooks/useDashboardWidgets';
 
 const HeatmapViewer = dynamic(
@@ -214,7 +207,7 @@ type DashboardCacheMeta = Partial<Record<
   number
 >>;
 
-/** Default comparative windows: last 30 days split into Range A then Range B (ranges may overlap — server does not enforce ordering). */
+/** Default comparative windows: last 30 days split into Range A then Range B (ranges may overlap â€” server does not enforce ordering). */
 function initialComparativeRanges(): {
   rangeAStart: string;
   rangeAEnd: string;
@@ -531,8 +524,8 @@ export default function AnalystDashboardPage() {
     if (incidentType) chips.push({ key: 'incidentType', label: `Type: ${incidentType}`, onRemove: () => setIncidentType('') });
     if (alarmLevel) chips.push({ key: 'alarmLevel', label: `Alarm: ${alarmLevel}`, onRemove: () => setAlarmLevel('') });
     if (casualtySeverity) chips.push({ key: 'casualtySeverity', label: `Casualty: ${casualtySeverity}`, onRemove: () => setCasualtySeverity('') });
-    if (damageMin) chips.push({ key: 'damageMin', label: `Damage ≥ ₱${Number(damageMin).toLocaleString()}`, onRemove: () => setDamageMin('') });
-    if (damageMax) chips.push({ key: 'damageMax', label: `Damage ≤ ₱${Number(damageMax).toLocaleString()}`, onRemove: () => setDamageMax('') });
+    if (damageMin) chips.push({ key: 'damageMin', label: `Damage â‰¥ â‚±${Number(damageMin).toLocaleString()}`, onRemove: () => setDamageMin('') });
+    if (damageMax) chips.push({ key: 'damageMax', label: `Damage â‰¤ â‚±${Number(damageMax).toLocaleString()}`, onRemove: () => setDamageMax('') });
     return chips;
   }, [startDate, endDate, regionId, regions, province, municipality, incidentType, alarmLevel, casualtySeverity, damageMin, damageMax]);
 
@@ -583,33 +576,8 @@ export default function AnalystDashboardPage() {
 
   if (loading) {
     return (
-      <div className="space-y-6 p-6" aria-hidden="true">
-        {/* Ghost KPI strip */}
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <GhostAnalystKpiCard />
-          <GhostAnalystKpiCard />
-          <GhostAnalystKpiCard />
-          <GhostAnalystKpiCard />
-        </div>
-        {/* Ghost workflow links */}
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          <div className="animate-pulse h-20 rounded-md border border-gray-200 bg-white" />
-          <div className="animate-pulse h-20 rounded-md border border-gray-200 bg-white" />
-          <div className="animate-pulse h-20 rounded-md border border-gray-200 bg-white" />
-        </div>
-        {/* Ghost chart area */}
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6">
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <GhostChartPanel />
-              <GhostChartPanel />
-            </div>
-            <GhostChartPanel />
-          </div>
-          <div className="space-y-6">
-            <GhostMapPanel />
-          </div>
-        </div>
+      <div className="flex items-center justify-center min-h-[40vh] text-gray-500">
+        Loading...
       </div>
     );
   }
@@ -633,14 +601,14 @@ export default function AnalystDashboardPage() {
 
   return (
     <div className="space-y-6">
-      {/* ── Offline banner ── */}
+      {/* â”€â”€ Offline banner â”€â”€ */}
       {exportUnavailableOffline && (
         <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
           You are offline. Cached analyst reads are available; analytics exports are unavailable until reconnect.
         </div>
       )}
 
-      {/* ── Page header (matches ValidatorPageHeader / RegionalPageHeader pattern) ── */}
+      {/* â”€â”€ Page header (matches ValidatorPageHeader / RegionalPageHeader pattern) â”€â”€ */}
       <div className="rounded-md border border-gray-200 bg-white px-5 py-4 shadow-sm">
         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div className="min-w-0">
@@ -668,15 +636,7 @@ export default function AnalystDashboardPage() {
         </div>
       </div>
 
-      {/* ── KPI strip — ghost while loading ── */}
-      {loadingData ? (
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <GhostAnalystKpiCard />
-          <GhostAnalystKpiCard />
-          <GhostAnalystKpiCard />
-          <GhostAnalystKpiCard />
-        </div>
-      ) : (
+      {/* â”€â”€ KPI strip â”€â”€ */}
       <div
         className="grid grid-cols-2 gap-3 rounded-md border border-gray-200 bg-white p-4 shadow-sm lg:grid-cols-4"
         role="group"
@@ -739,9 +699,8 @@ export default function AnalystDashboardPage() {
           </div>
         </div>
       </div>
-      )}
 
-      {/* ── Analyst Workflows (moved up — primary entry points) ── */}
+      {/* â”€â”€ Analyst Workflows (moved up â€” primary entry points) â”€â”€ */}
       <div className="overflow-hidden rounded-md border border-gray-200 bg-white shadow-sm">
         <PanelHeader
           icon={<BarChart3 className="h-5 w-5" />}
@@ -759,7 +718,7 @@ export default function AnalystDashboardPage() {
             >
               <span
                 className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-white transition-transform group-hover:scale-105"
-                style={{ backgroundColor: '#991B1B' }}
+                style={{ backgroundColor: '#1A3263' }}
                 aria-hidden="true"
               >
                 {workflow.icon}
@@ -777,7 +736,7 @@ export default function AnalystDashboardPage() {
         </div>
       </div>
 
-      {/* ── Customizable widget grid ── */}
+      {/* â”€â”€ Customizable widget grid â”€â”€ */}
       {ANALYST_ROLES.includes(role ?? '') && (
         <>
           <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -805,7 +764,7 @@ export default function AnalystDashboardPage() {
         </>
       )}
 
-      {/* ── Filter bar with progressive disclosure ── */}
+      {/* â”€â”€ Filter bar with progressive disclosure â”€â”€ */}
       <div className="overflow-hidden rounded-md border border-gray-200 bg-gray-50">
         <PanelHeader
           icon={<Filter className="h-5 w-5" />}
@@ -987,7 +946,7 @@ export default function AnalystDashboardPage() {
                       type="number"
                       value={damageMax}
                       onChange={(e) => setDamageMax(e.target.value)}
-                      placeholder="∞"
+                      placeholder="âˆž"
                       min="0"
                       className="w-full rounded-md border border-gray-300 bg-white py-2 px-3 text-sm text-gray-900"
                       aria-label="Damage max"
@@ -1042,13 +1001,13 @@ export default function AnalystDashboardPage() {
             </div>
           )}
 
-          {/* Apply / Clear buttons — always visible */}
+          {/* Apply / Clear buttons â€” always visible */}
           <div className="flex flex-wrap items-center gap-2 pt-2">
             <button
               onClick={handleApplyFilters}
               disabled={loadingData}
               aria-label="Apply filters"
-              className="inline-flex items-center justify-center gap-2 rounded-md bg-[#991B1B] px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-[#7f1d1d] disabled:opacity-70"
+              className="inline-flex items-center justify-center gap-2 rounded-md bg-[#1A3263] px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-[#142849] disabled:opacity-70"
             >
               <Search className="h-4 w-4" />
               Apply filters
@@ -1071,28 +1030,14 @@ export default function AnalystDashboardPage() {
       )}
 
       {loadingData && !heatmap && (
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6">
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <GhostChartPanel />
-              <GhostChartPanel />
-            </div>
-            <GhostChartPanel />
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-              <GhostChartPanel />
-              <GhostChartPanel />
-            </div>
-            <GhostIncidentTable />
-          </div>
-          <div className="space-y-6">
-            <GhostMapPanel />
-          </div>
+        <div className="flex items-center justify-center min-h-[200px] text-gray-500">
+          <RefreshCw className="w-8 h-8 animate-spin" />
         </div>
       )}
 
       {!loadingData && heatmap !== null && (
         <>
-          {/* ── Charts group, then incident list ── */}
+          {/* â”€â”€ Charts group, then incident list â”€â”€ */}
           <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6">
             <div className="space-y-6">
               {/* Charts: Trend + Comparative */}
@@ -1169,14 +1114,14 @@ export default function AnalystDashboardPage() {
                         title={exportUnavailableOffline ? 'Unavailable offline' : undefined}
                         aria-label={`Export ${format === 'excel' ? 'Excel' : format.toUpperCase()}`}
                         className="inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-semibold text-white transition-colors disabled:opacity-50"
-                        style={{ backgroundColor: '#991B1B' }}
+                        style={{ backgroundColor: '#1A3263' }}
                         onMouseEnter={(e) => {
                           if (!exportUnavailableOffline) {
-                            (e.currentTarget as HTMLElement).style.backgroundColor = '#7f1d1d';
+                            (e.currentTarget as HTMLElement).style.backgroundColor = '#142849';
                           }
                         }}
                         onMouseLeave={(e) => {
-                          (e.currentTarget as HTMLElement).style.backgroundColor = '#991B1B';
+                          (e.currentTarget as HTMLElement).style.backgroundColor = '#1A3263';
                         }}
                       >
                         <Download className="h-4 w-4" aria-hidden="true" />
@@ -1263,10 +1208,10 @@ export default function AnalystDashboardPage() {
                                 {r.total_incidents.toLocaleString()}
                               </td>
                               <td className="px-3 py-2 text-right tabular-nums text-gray-700">
-                                {r.avg_response_time == null ? '—' : `${Number(r.avg_response_time).toFixed(1)} min`}
+                                {r.avg_response_time == null ? 'â€”' : `${Number(r.avg_response_time).toFixed(1)} min`}
                               </td>
                               <td className="px-3 py-2 text-right text-gray-700">
-                                {r.top_type ?? '—'}
+                                {r.top_type ?? 'â€”'}
                               </td>
                             </tr>
                           ))}
@@ -1335,7 +1280,7 @@ export default function AnalystDashboardPage() {
                 </div>
               </div>
 
-              {/* ── Incident list ── */}
+              {/* â”€â”€ Incident list â”€â”€ */}
               <AnalystIncidentList
                 filters={appliedIncidentFilters}
                 prominent
@@ -1374,8 +1319,8 @@ export default function AnalystDashboardPage() {
               incidentType && `Type: ${incidentType}`,
               alarmLevel && `Alarm: ${alarmLevel}`,
               casualtySeverity && `Casualty: ${casualtySeverity}`,
-              damageMin && `Damage Min: ₱${Number(damageMin).toLocaleString()}`,
-              damageMax && `Damage Max: ₱${Number(damageMax).toLocaleString()}`,
+              damageMin && `Damage Min: â‚±${Number(damageMin).toLocaleString()}`,
+              damageMax && `Damage Max: â‚±${Number(damageMax).toLocaleString()}`,
             ].filter(Boolean).join(' | ') || 'No filters (all data)'
           }
           onClose={() => setExportModal(null)}
@@ -1384,3 +1329,4 @@ export default function AnalystDashboardPage() {
     </div>
   );
 }
+

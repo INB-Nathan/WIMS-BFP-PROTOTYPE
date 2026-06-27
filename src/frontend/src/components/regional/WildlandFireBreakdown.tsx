@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 interface WildlandTypeStat {
   fire_type: string | null;
@@ -11,7 +11,7 @@ interface Props {
 }
 
 const WILDLAND_TYPES = [
-  { type: 'fire', label: 'Fire', color: '#991B1B' },
+  { type: 'fire', label: 'Fire', color: '#1A3263' },
   { type: 'agricultural land fire', label: 'Agricultural Fire', color: '#65a30d' },
   { type: 'forest fire', label: 'Forest Fire', color: '#166534' },
   { type: 'grassland fire', label: 'Grassland Fire', color: '#84cc16' },
@@ -66,3 +66,4 @@ export function WildlandFireBreakdown({ wildlandTotal, byWildlandType }: Props) 
     </section>
   );
 }
+

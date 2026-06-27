@@ -1,7 +1,7 @@
-"use client";
+﻿"use client";
 
 /**
- * /dashboard/validator — NATIONAL_VALIDATOR incident queue.
+ * /dashboard/validator â€” NATIONAL_VALIDATOR incident queue.
  */
 
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
@@ -11,7 +11,7 @@ import {
   Archive, CalendarDays,
 } from "lucide-react";
 import {
-  apiFetch, ApiRequestError,
+  apiFetch, ApiRequestError, fetchValidatorStats,
   submitVerificationOfflineAware,
   archiveIncidentOfflineAware,
   unarchiveIncidentOfflineAware,
@@ -28,7 +28,6 @@ import { useScrollSafeUpdate } from "@/lib/useScrollSafeUpdate";
 import { useHoverHint } from "@/lib/useHoverHint";
 import { StatCard, StatsDateFilterChips, StickyBanner, EmptyState } from "@/components/ui";
 import type { StatsDateFilterValue } from "@/components/ui";
-import { fetchValidatorStatsOfflineAware } from "@/lib/api/offlineValidatorStats";
 import { WidgetGrid, AddWidgetDropdown } from "@/components/dashboard";
 import { useDashboardWidgets } from "@/hooks/useDashboardWidgets";
 import { ValidatorPageHeader } from "@/components/validator/ValidatorPageHeader";
@@ -39,8 +38,6 @@ import { BulkApproveConfirmModal } from "@/components/validator/BulkApproveConfi
 import { BulkDuplicateModal } from "@/components/validator/BulkDuplicateModal";
 import { IncidentTableRow } from "@/components/validator/IncidentTableRow";
 import type { ValidatorIncident, ActionType } from "@/components/validator/types";
-import { GhostStatCard } from "@/components/ui/GhostIncidentCard";
-import { GhostValidatorTable } from "@/components/ui/GhostValidatorRow";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -98,7 +95,6 @@ export default function ValidatorDashboard() {
   const [error, setError] = useState<string | null>(null);
   const [cacheMeta, setCacheMeta] = useState<{ cachedAt?: number } | null>(null);
   const [queuedValidatorOpsCount, setQueuedValidatorOpsCount] = useState(0);
-  const [queuedIncidentIds, setQueuedIncidentIds] = useState<Set<number>>(new Set());
   const [syncNotification, setSyncNotification] = useState<string | null>(null);
 
   const [statusFilter, setStatusFilter] = useState<string>(STATUS_FILTER_ALL);
@@ -113,7 +109,7 @@ export default function ValidatorDashboard() {
 
   const [statsDateFilter, setStatsDateFilter] = useState<StatsDateFilterValue>("week" as StatsDateFilterValue);
 
-  // Stats visibility — hidden by default each login; persisted across page navigations.
+  // Stats visibility â€” hidden by default each login; persisted across page navigations.
   const [showStats, setShowStats] = useState<boolean>(() => {
     try {
       const stored = sessionStorage.getItem('wims:validator_show_stats');
@@ -167,7 +163,7 @@ export default function ValidatorDashboard() {
   const [validatorDupTarget, setValidatorDupTarget] = useState<ValidatorIncident | null>(null);
   const [validatorDupMatchedId, setValidatorDupMatchedId] = useState<number | null>(null);
   const [validatorDupConfidence, setValidatorDupConfidence] = useState<'LIKELY' | 'POSSIBLE' | null>(null);
-  // Runtime-detected duplicates: populated when Accept returns 409. Maps incident_id → matched_incident_id.
+  // Runtime-detected duplicates: populated when Accept returns 409. Maps incident_id â†’ matched_incident_id.
   const [runtimeDuplicates, setRuntimeDuplicates] = useState<Map<number, number>>(new Map());
   const [newIncidentBanner, setNewIncidentBanner] = useState(false);
   const [confirmAcceptTarget, setConfirmAcceptTarget] = useState<ValidatorIncident | null>(null);
@@ -218,22 +214,17 @@ export default function ValidatorDashboard() {
 
   const { hoverHint, clearHoverHint, scheduleHoverHint, hideHoverHintOnMove } = useHoverHint();
 
-  // ── Widget customization ────────────────────────────────────────────────
+  // â”€â”€ Widget customization â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const widgetConfig = useDashboardWidgets("NATIONAL_VALIDATOR");
 
   const refreshQueuedValidatorOpsCount = useCallback(async () => {
     try {
       const pending = await getPendingIncidents();
-      const filtered = pending.filter((op) => op.opType === 'verify' || op.opType === 'archive_action');
-      setQueuedValidatorOpsCount(filtered.length);
-      setQueuedIncidentIds(new Set(
-        filtered
-          .filter((op) => (op.payload as { incident_id?: number })?.incident_id != null)
-          .map((op) => (op.payload as { incident_id: number }).incident_id),
-      ));
+      setQueuedValidatorOpsCount(
+        pending.filter((op) => op.opType === 'verify' || op.opType === 'archive_action').length,
+      );
     } catch {
       setQueuedValidatorOpsCount(0);
-      setQueuedIncidentIds(new Set());
     }
   }, []);
 
@@ -285,7 +276,7 @@ export default function ValidatorDashboard() {
     try {
       const result = await archiveIncidentOfflineAware(inc.incident_id);
       if (result.queued) {
-        setSyncNotification('Archive queued — will sync when online.');
+        // Queued for sync â€” refresh UI to reflect pending state
         await fetchQueue();
         return;
       }
@@ -300,7 +291,6 @@ export default function ValidatorDashboard() {
     try {
       const result = await unarchiveIncidentOfflineAware(inc.incident_id);
       if (result.queued) {
-        setSyncNotification('Unarchive queued — will sync when online.');
         await fetchQueue();
         return;
       }
@@ -330,7 +320,6 @@ export default function ValidatorDashboard() {
         null,
       );
       if (result.queued) {
-        setSyncNotification('Accept queued — will sync when online.');
         await fetchQueue();
         return;
       }
@@ -369,7 +358,7 @@ export default function ValidatorDashboard() {
     try {
       for (const inc of toProcess) {
         processedCount++;
-        setBulkProgress(`Processing ${processedCount} / ${toProcess.length}…`);
+        setBulkProgress(`Processing ${processedCount} / ${toProcess.length}â€¦`);
         const hasDup = inc.is_duplicate || isBatchDuplicate(inc, acceptedSoFar);
         if (hasDup) {
           const decision = await waitForBulkDupDecision(inc);
@@ -455,9 +444,7 @@ export default function ValidatorDashboard() {
       }
       // Keep the pending-count badge in sync after every queue refresh.
       void refreshQueuedValidatorOpsCount();
-      void fetchValidatorStatsOfflineAware(statsDateBoundsRef.current)
-        .then((r) => setStats(r.response))
-        .catch(() => {});
+      void fetchValidatorStats(statsDateBoundsRef.current).then(setStats).catch(() => {});
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to load queue");
     } finally {
@@ -467,13 +454,11 @@ export default function ValidatorDashboard() {
 
   useEffect(() => { fetchQueue(); }, [fetchQueue]);
 
-  // Skip the very first fire — fetchQueue already calls fetchValidatorStats on mount.
+  // Skip the very first fire â€” fetchQueue already calls fetchValidatorStats on mount.
   // Subsequent fires (statsDateFilter change) still update stats without a full queue refetch.
   useEffect(() => {
     if (statsInitialMountRef.current) { statsInitialMountRef.current = false; return; }
-    fetchValidatorStatsOfflineAware(statsDateBounds)
-      .then((r) => setStats(r.response))
-      .catch(() => { /* non-critical */ });
+    fetchValidatorStats(statsDateBounds).then(setStats).catch(() => { /* non-critical */ });
   }, [statsDateBounds]);
 
   useEffect(() => {
@@ -494,14 +479,14 @@ export default function ValidatorDashboard() {
     const handler = () => {
       // Task 10: sync-completion eviction trigger. Self-gated by an internal
       // 1h timestamp so this is cheap to call on every sync event. Wrapped
-      // in try/catch + void — eviction is best-effort and must never block
+      // in try/catch + void â€” eviction is best-effort and must never block
       // the sync-complete handler's UI refresh.
       try {
         void maybePruneCaches();
       } catch {
         // noop
       }
-      setSyncNotification('Offline validator actions synced. Refreshing queue…');
+      setSyncNotification('Offline validator actions synced. Refreshing queueâ€¦');
       void refreshQueuedValidatorOpsCount();
       fetchQueue();
     };
@@ -519,7 +504,7 @@ export default function ValidatorDashboard() {
     setActionLoading(true);
     setActionError(null);
 
-    // force=true (accept_replace override) stays online-only for now — the sync
+    // force=true (accept_replace override) stays online-only for now â€” the sync
     // engine does not yet replay force-override verifications.
     if (force) {
       const url = `/regional/incidents/${actionTarget.incident_id}/verification?force=true`;
@@ -563,7 +548,7 @@ export default function ValidatorDashboard() {
           : undefined,
       );
       if (result.queued) {
-        setSyncNotification(`${effectiveAction === 'accept' ? 'Accept' : effectiveAction === 'reject' ? 'Reject' : effectiveAction === 'accept_replace' ? 'Accept (replace)' : 'Action'} queued — will sync when online.`);
+        // Queued for offline sync â€” refresh UI to reflect pending state
         await fetchQueue();
         setActionTarget(null);
         setActionType(null);
@@ -639,7 +624,7 @@ export default function ValidatorDashboard() {
 
   return (
     <div className="space-y-6 pb-8" style={{ backgroundColor: 'var(--content-bg)' }}>
-      {/* ── Sticky notification toast (visible while scrolling) ── */}
+      {/* â”€â”€ Sticky notification toast (visible while scrolling) â”€â”€ */}
       {newIncidentBanner && (
         <StickyBanner
           tone="blue"
@@ -689,11 +674,11 @@ export default function ValidatorDashboard() {
         >
           Showing cached data
           {cacheMeta.cachedAt ? ` from ${new Date(cacheMeta.cachedAt).toLocaleTimeString()}` : ''}.
-          {' '}This may not reflect the latest server state. Go online to refresh and queue offline actions.
+          {' '}Reconnect to see the latest queue.
         </StickyBanner>
       )}
 
-      {/* ── Page header ── */}
+      {/* â”€â”€ Page header â”€â”€ */}
       <ValidatorPageHeader
         loading={loading}
         onRefresh={fetchQueue}
@@ -703,11 +688,10 @@ export default function ValidatorDashboard() {
         selectedCount={selectedIds.size}
         bulkLoading={bulkLoading}
         bulkProgress={bulkProgress}
-        onSyncNow={autoSync.syncNow}
         onBulkApprove={() => setShowBulkConfirmModal(true)}
       />
 
-      {/* ── Stats toggle + date filter chips ── */}
+      {/* â”€â”€ Stats toggle + date filter chips â”€â”€ */}
       <div className="flex items-center gap-3 flex-wrap">
         <button
           onClick={toggleStats}
@@ -717,22 +701,13 @@ export default function ValidatorDashboard() {
             : { backgroundColor: 'var(--card-bg)', color: 'var(--text-secondary)', borderColor: 'var(--border-color)' }
           }
         >
-          {showStats ? '▲ Hide Stats' : '▼ Show Stats'}
+          {showStats ? 'â–² Hide Stats' : 'â–¼ Show Stats'}
         </button>
         {showStats && <StatsDateFilterChips value={statsDateFilter} onChange={setStatsDateFilter} />}
       </div>
 
-      {/* ── Incident stats cards — ghost while loading ── */}
-      {showStats && !stats && (
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-          <GhostStatCard />
-          <GhostStatCard />
-          <GhostStatCard />
-          <GhostStatCard />
-          <GhostStatCard />
-        </div>
-      )}
-      {showStats && stats && incidentCards.length > 0 && (
+      {/* â”€â”€ Incident stats cards â”€â”€ */}
+      {showStats && incidentCards.length > 0 && (
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
           {incidentCards.map((card) => (
             <StatCard key={card.key} card={card} />
@@ -740,7 +715,7 @@ export default function ValidatorDashboard() {
         </div>
       )}
 
-      {/* ── Affected count cards ── */}
+      {/* â”€â”€ Affected count cards â”€â”€ */}
       {showStats && affectedCards.length > 0 && (
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
           {affectedCards.map((card) => (
@@ -749,7 +724,7 @@ export default function ValidatorDashboard() {
         </div>
       )}
 
-      {/* ── Customizable widget grid ── */}
+      {/* â”€â”€ Customizable widget grid â”€â”€ */}
       <WidgetToolbar
         role="NATIONAL_VALIDATOR"
         widgets={widgetConfig.widgets}
@@ -763,7 +738,7 @@ export default function ValidatorDashboard() {
         onRemoveWidget={widgetConfig.removeWidget}
       />
 
-      {/* ── Error/bulk banners ── */}
+      {/* â”€â”€ Error/bulk banners â”€â”€ */}
       {bulkError && (
         <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{bulkError}</div>
       )}
@@ -774,7 +749,7 @@ export default function ValidatorDashboard() {
         <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">Delete failed: {deleteError}</div>
       )}
 
-      {/* ── Incident table section ── */}
+      {/* â”€â”€ Incident table section â”€â”€ */}
       <section
         className="rounded-2xl overflow-hidden"
         style={{ backgroundColor: 'var(--card-bg)', boxShadow: 'var(--card-shadow)', border: '1px solid var(--border-color)' }}
@@ -800,7 +775,7 @@ export default function ValidatorDashboard() {
                     disabled={loading || isArchiveView}
                     className="relative rounded-full border px-4 py-1.5 text-sm font-semibold transition-colors disabled:opacity-50"
                     style={active
-                      ? { backgroundColor: '#FEE2E2', borderColor: '#FCA5A5', color: '#991B1B' }
+                      ? { backgroundColor: '#FEE2E2', borderColor: '#FCA5A5', color: '#1A3263' }
                       : { backgroundColor: '#fff', borderColor: '#e5e7eb', color: 'var(--text-secondary)' }
                     }
                     onMouseEnter={(e) => {
@@ -814,7 +789,7 @@ export default function ValidatorDashboard() {
                     {showPendingIndicator && (
                       <span
                         className="absolute -right-2 -top-2 inline-flex min-w-5 items-center justify-center rounded-full px-1.5 py-0.5 text-[11px] font-bold leading-none text-white ring-2 ring-white"
-                        style={{ backgroundColor: '#991B1B' }}
+                        style={{ backgroundColor: '#1A3263' }}
                         aria-label="Pending incidents available"
                       >
                         {pendingCount.toLocaleString()}
@@ -826,7 +801,7 @@ export default function ValidatorDashboard() {
             </div>
 
             <select
-              className="min-h-9 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium transition-colors focus:border-[#C62828] focus:outline-none"
+              className="min-h-9 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium transition-colors focus:border-[#1A3263] focus:outline-none"
               style={{ color: 'var(--text-primary)' }}
               value={regionFilter}
               onChange={(e) => updateFiltersWithoutScrollShift(() => { setRegionFilter(e.target.value); setPage(0); })}
@@ -838,12 +813,12 @@ export default function ValidatorDashboard() {
             </select>
 
             <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-              {loading ? <span className="inline-block h-3 w-16 animate-pulse rounded bg-gray-200 align-middle" /> : `${total.toLocaleString()} total`}
+              {loading ? 'Loadingâ€¦' : `${total.toLocaleString()} total`}
             </span>
 
             <div className="ml-auto flex flex-wrap items-center gap-3">
               <select
-                className="min-h-9 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium transition-colors focus:border-[#C62828] focus:outline-none"
+                className="min-h-9 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium transition-colors focus:border-[#1A3263] focus:outline-none"
                 style={{ color: 'var(--text-primary)' }}
                 value={dateFilter}
                 onChange={(e) => updateFiltersWithoutScrollShift(() => {
@@ -863,7 +838,7 @@ export default function ValidatorDashboard() {
                 <CalendarDays className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" aria-hidden />
                 <input
                   type="date"
-                  className="min-h-9 rounded-lg border border-gray-200 bg-white py-2 pl-9 pr-3 text-sm font-medium transition-colors focus:border-[#C62828] focus:outline-none"
+                  className="min-h-9 rounded-lg border border-gray-200 bg-white py-2 pl-9 pr-3 text-sm font-medium transition-colors focus:border-[#1A3263] focus:outline-none"
                   style={{ color: 'var(--text-primary)' }}
                   value={specificDateDraft}
                   onChange={(e) => setSpecificDateDraft(e.target.value)}
@@ -880,7 +855,7 @@ export default function ValidatorDashboard() {
               <button
                 type="button"
                 className="min-h-9 rounded-lg px-3 py-2 text-sm font-semibold text-white transition-colors disabled:opacity-50"
-                style={{ backgroundColor: '#991B1B' }}
+                style={{ backgroundColor: '#1A3263' }}
                 onClick={applySpecificDateFilter}
                 disabled={loading || !specificDateDraftIsValid}
               >
@@ -893,28 +868,9 @@ export default function ValidatorDashboard() {
           </p>
         </div>
 
-        {/* Ghost table rows while loading — pulsing skeleton */}
+        {/* Loading / error states */}
         {loading && (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr style={{ backgroundColor: '#FAFAFA', borderBottom: '1px solid var(--border-color)' }}>
-                  <th className="px-4 py-3 w-8"></th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider whitespace-nowrap" style={{ color: 'var(--text-muted)' }}>Submitted</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Status</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Region</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Station</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider whitespace-nowrap" style={{ color: 'var(--text-muted)' }}>Call Received</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Category</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Alarm</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                <GhostValidatorTable />
-              </tbody>
-            </table>
-          </div>
+          <div className="py-14 text-center text-sm" style={{ color: 'var(--text-muted)' }}>Loadingâ€¦</div>
         )}
         {error && !loading && (
           <div className="border-b border-red-100 bg-red-50 px-5 py-3 text-sm text-red-800">{error}</div>
@@ -975,8 +931,6 @@ export default function ValidatorDashboard() {
                       setValidatorDupMatchedId(inc.duplicate_of ?? runtimeDuplicates.get(inc.incident_id)!);
                     }}
                     onAccept={(inc) => setConfirmAcceptTarget(inc)}
-                    queuedIncidentIds={queuedIncidentIds}
-                    isOnline={networkStatus.isOnline}
                     onReject={(inc) => openAction(inc, "reject")}
                   />
                 ))}
@@ -1087,7 +1041,7 @@ export default function ValidatorDashboard() {
   );
 }
 
-// ── Widget toolbar ──────────────────────────────────────────────────────────
+// â”€â”€ Widget toolbar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function WidgetToolbar({
   role,
@@ -1125,3 +1079,4 @@ function WidgetToolbar({
     </div>
   );
 }
+

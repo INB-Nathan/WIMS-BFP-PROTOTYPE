@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
@@ -324,7 +324,7 @@ export function AnalystIncidentList({
               onClick={analyzeSelected}
               disabled={selectedCount === 0}
               className="rounded-md px-3 py-1.5 font-semibold text-white disabled:opacity-50"
-              style={{ backgroundColor: '#991B1B' }}
+              style={{ backgroundColor: '#1A3263' }}
             >
               Analyze selected
             </button>
@@ -508,7 +508,7 @@ export function AnalystIncidentList({
               <Link
                 href={`/dashboard/analyst/incidents/${selected.incident_id}`}
                 className="inline-flex w-full items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-semibold text-white"
-                style={{ backgroundColor: '#991B1B' }}
+                style={{ backgroundColor: '#1A3263' }}
               >
                 Open Full Page
                 <ExternalLink className="h-4 w-4" />
@@ -520,3 +520,4 @@ export function AnalystIncidentList({
     </section>
   );
 }
+

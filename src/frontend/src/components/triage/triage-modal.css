@@ -1,5 +1,5 @@
-/* =========================================================================
-   Triage Inspection Modal — Operations Console Aesthetic
+﻿/* =========================================================================
+   Triage Inspection Modal â€” Operations Console Aesthetic
    BFP Civil Defense Intelligence. Bricolage Grotesque display,
    JetBrains Mono for IDs/timestamps, BFP maroon dominant.
    ========================================================================= */
@@ -9,7 +9,7 @@
   inset: 0;
   z-index: 1000;
   background:
-    radial-gradient(ellipse at top, rgba(153, 27, 27, 0.18), transparent 60%),
+    radial-gradient(ellipse at top, rgba(26, 50, 99, 0.18), transparent 60%),
     radial-gradient(ellipse at bottom right, rgba(15, 23, 42, 0.55), rgba(15, 23, 42, 0.85));
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
@@ -58,9 +58,9 @@
   position: relative;
   padding: 1.1rem 1.4rem 0.9rem;
   background:
-    linear-gradient(180deg, #1A0A0A 0%, #2C1212 100%);
+    linear-gradient(180deg, #0e1e3d 0%, #1A3263 100%);
   color: #F8F4ED;
-  border-bottom: 1px solid #5C1B1B;
+  border-bottom: 1px solid #1a3e6e;
   overflow: hidden;
 }
 
@@ -445,7 +445,7 @@
 }
 
 .triage-tab:hover {
-  background: rgba(153, 27, 27, 0.05);
+  background: rgba(26, 50, 99, 0.05);
   color: #1F2937;
 }
 
@@ -473,7 +473,7 @@
   display: inline-flex;
   align-items: center;
   padding: 1px 6px;
-  background: #991B1B;
+  background: #1A3263;
   color: #FFFFFF;
   border-radius: 999px;
   font-family: 'JetBrains Mono', ui-monospace, monospace;
@@ -501,12 +501,12 @@
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
 }
 
-.triage-tab--active .triage-tab__stripe { background: #991B1B; }
-.triage-tab--active .triage-tab__icon { color: #991B1B; }
+.triage-tab--active .triage-tab__stripe { background: #1A3263; }
+.triage-tab--active .triage-tab__icon { color: #1A3263; }
 .triage-tab--active .triage-tab__shortcut {
-  background: #991B1B;
+  background: #1A3263;
   color: #F8F4ED;
-  border-color: #991B1B;
+  border-color: #1A3263;
 }
 
 /* -------------------------------------------------------------------------
@@ -573,10 +573,10 @@
 }
 
 .triage-card--selected {
-  border-color: #991B1B;
+  border-color: #1A3263;
   border-left-width: 4px;
-  box-shadow: 0 2px 8px rgba(153, 27, 27, 0.12);
-  background: linear-gradient(90deg, rgba(153, 27, 27, 0.04) 0%, transparent 40%);
+  box-shadow: 0 2px 8px rgba(26, 50, 99, 0.12);
+  background: linear-gradient(90deg, rgba(26, 50, 99, 0.04) 0%, transparent 40%);
 }
 
 .triage-card--terminal {
@@ -613,8 +613,8 @@
 }
 
 .triage-card__checkbox:checked + .triage-card__checkbox-pill {
-  background: #991B1B;
-  border-color: #991B1B;
+  background: #1A3263;
+  border-color: #1A3263;
 }
 
 .triage-card__checkbox:disabled + .triage-card__checkbox-pill {
@@ -648,7 +648,7 @@
   gap: 1px;
 }
 
-.triage-card__id-hash { color: #991B1B; }
+.triage-card__id-hash { color: #1A3263; }
 .triage-card__id-num { letter-spacing: 0.02em; }
 
 .triage-card__status-row {
@@ -685,7 +685,7 @@
 .triage-card__status--rejected_duplicate,
 .triage-card__status--rejected_insufficient {
   background: #FEE2E2;
-  color: #991B1B;
+  color: #B91C1C;
 }
 
 .triage-card__link {
@@ -799,8 +799,8 @@
 
 .triage-card__correct:hover {
   background: #F3F4F6;
-  border-color: #991B1B;
-  color: #991B1B;
+  border-color: #1A3263;
+  color: #1A3263;
 }
 
 /* -------------------------------------------------------------------------
@@ -826,7 +826,7 @@
   font-weight: 700;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: #991B1B;
+  color: #1A3263;
 }
 
 .triage-panel__eyebrow--warn { color: #B45309; }
@@ -852,8 +852,8 @@
   align-items: baseline;
   gap: 0.5rem;
   padding: 0.6rem 0.8rem;
-  background: linear-gradient(90deg, rgba(153, 27, 27, 0.08), rgba(153, 27, 27, 0.02));
-  border-left: 3px solid #991B1B;
+  background: linear-gradient(90deg, rgba(26, 50, 99, 0.08), rgba(153, 27, 27, 0.02));
+  border-left: 3px solid #1A3263;
   border-radius: 6px;
 }
 
@@ -861,7 +861,7 @@
   font-family: 'Bricolage Grotesque', 'Inter', sans-serif;
   font-size: 1.5rem;
   font-weight: 700;
-  color: #991B1B;
+  color: #1A3263;
   line-height: 1;
 }
 
@@ -947,7 +947,7 @@
 
 .triage-status-card--standard .triage-status-card__icon { background: #DBEAFE; color: #1D4ED8; }
 .triage-status-card--caution   .triage-status-card__icon { background: #FEF3C7; color: #B45309; }
-.triage-status-card--destructive .triage-status-card__icon { background: #FEE2E2; color: #991B1B; }
+.triage-status-card--destructive .triage-status-card__icon { background: #FEE2E2; color: #B91C1C; }
 
 .triage-status-card--active {
   border-width: 2px;
@@ -956,7 +956,7 @@
 
 .triage-status-card--standard.triage-status-card--active { border-color: #1D4ED8; color: #1D4ED8; }
 .triage-status-card--caution.triage-status-card--active   { border-color: #B45309; color: #B45309; }
-.triage-status-card--destructive.triage-status-card--active { border-color: #991B1B; color: #991B1B; }
+.triage-status-card--destructive.triage-status-card--active { border-color: #B91C1C; color: #B91C1C; }
 
 /* -------------------------------------------------------------------------
    FORM FIELDS
@@ -985,7 +985,7 @@
 }
 
 .triage-field__optional { color: #6B7280; }
-.triage-field__required { color: #991B1B; }
+.triage-field__required { color: #1A3263; }
 
 .triage-field__hint {
   margin: 0;
@@ -1019,8 +1019,8 @@
 .triage-textarea:focus,
 .triage-input:focus {
   outline: none;
-  border-color: #991B1B;
-  box-shadow: 0 0 0 3px rgba(153, 27, 27, 0.12);
+  border-color: #1A3263;
+  box-shadow: 0 0 0 3px rgba(26, 50, 99, 0.12);
 }
 
 .triage-textarea--audit {
@@ -1147,7 +1147,7 @@
   font-size: 0.55rem;
   font-weight: 700;
   letter-spacing: 0.08em;
-  color: #991B1B;
+  color: #1A3263;
   margin-bottom: 0.15rem;
 }
 
@@ -1168,7 +1168,7 @@
 }
 
 .triage-citizen-preview[data-tone="caution"]       .triage-citizen-preview__status { color: #B45309; }
-.triage-citizen-preview[data-tone="destructive"]   .triage-citizen-preview__status { color: #991B1B; }
+.triage-citizen-preview[data-tone="destructive"]   .triage-citizen-preview__status { color: #B91C1C; }
 
 /* -------------------------------------------------------------------------
    COMMIT BUTTON
@@ -1180,24 +1180,24 @@
   align-items: center;
   gap: 0.6rem;
   padding: 0.7rem 0.9rem;
-  background: #991B1B;
+  background: #1A3263;
   color: #FFFFFF;
-  border: 1px solid #7F1D1D;
+  border: 1px solid #142849;
   border-radius: 8px;
   font-size: 0.82rem;
   font-weight: 600;
   cursor: pointer;
   transition: background 0.15s ease, transform 0.05s ease, box-shadow 0.15s ease;
-  box-shadow: 0 1px 3px rgba(153, 27, 27, 0.2);
+  box-shadow: 0 1px 3px rgba(26, 50, 99, 0.2);
 }
 
-.triage-commit:hover { background: #7F1D1D; box-shadow: 0 3px 8px rgba(153, 27, 27, 0.3); }
+.triage-commit:hover { background: #142849; box-shadow: 0 3px 8px rgba(26, 50, 99, 0.3); }
 .triage-commit:active { transform: translateY(1px); }
 .triage-commit:disabled { background: #D1D5DB; border-color: #D1D5DB; cursor: not-allowed; box-shadow: none; }
 
-.triage-commit--standard    { background: #991B1B; border-color: #7F1D1D; }
+.triage-commit--standard    { background: #1A3263; border-color: #142849; }
 .triage-commit--caution     { background: #B45309; border-color: #92400E; }
-.triage-commit--destructive { background: #7F1D1D; border-color: #581818; }
+.triage-commit--destructive { background: #B91C1C; border-color: #991B1B; }
 
 .triage-commit kbd {
   padding: 1px 5px;
@@ -1249,7 +1249,7 @@
 .triage-target__id {
   font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-weight: 700;
-  color: #991B1B;
+  color: #1A3263;
 }
 
 .triage-target__hint { color: #6B7280; font-size: 0.72rem; }
@@ -1270,7 +1270,7 @@
 
 .triage-split-preview__arrow {
   align-self: center;
-  color: #991B1B;
+  color: #1A3263;
   width: 18px;
   height: 18px;
 }
@@ -1337,7 +1337,7 @@
 .triage-split-col__id {
   font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-weight: 700;
-  color: #991B1B;
+  color: #1A3263;
 }
 
 .triage-split-col__cat { color: #4B5563; font-size: 0.65rem; }
@@ -1357,7 +1357,7 @@
 
 .triage-merge-flow__arrow {
   align-self: center;
-  color: #991B1B;
+  color: #1A3263;
   width: 18px;
   height: 18px;
 }
@@ -1373,7 +1373,7 @@
 }
 
 .triage-merge-card--source   { border-color: #F59E0B; background: #FFFBEB; }
-.triage-merge-card--target   { border-color: #991B1B; background: #FEF2F2; }
+.triage-merge-card--target   { border-color: #1A3263; background: #EAF0F8; }
 .triage-merge-card--empty    { border-style: dashed; opacity: 0.7; }
 
 .triage-merge-card__label {
@@ -1393,7 +1393,7 @@
 }
 
 .triage-merge-card--source .triage-merge-card__id { color: #92400E; }
-.triage-merge-card--target .triage-merge-card__id { color: #991B1B; }
+.triage-merge-card--target .triage-merge-card__id { color: #1A3263; }
 
 .triage-merge-card__placeholder { color: #9CA3AF; font-weight: 400; }
 .triage-merge-card__subtitle { font-size: 0.7rem; color: #4B5563; }
@@ -1438,19 +1438,19 @@
   transition: border-color 0.12s ease, background 0.12s ease;
 }
 
-.triage-candidate:hover { border-color: #991B1B; }
+.triage-candidate:hover { border-color: #1A3263; }
 
 .triage-candidate--active {
-  border-color: #991B1B;
-  background: linear-gradient(90deg, rgba(153, 27, 27, 0.05), transparent);
-  box-shadow: inset 3px 0 0 #991B1B;
+  border-color: #1A3263;
+  background: linear-gradient(90deg, rgba(26, 50, 99, 0.05), transparent);
+  box-shadow: inset 3px 0 0 #1A3263;
 }
 
 .triage-candidate__head {
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
-  color: #991B1B;
+  color: #1A3263;
 }
 
 .triage-candidate__id {
@@ -1536,7 +1536,7 @@
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  background: #991B1B;
+  background: #1A3263;
   border: 2px solid #FAF7F2;
   margin-top: 4px;
   box-shadow: 0 0 0 1px #D6C9A8;
@@ -1579,8 +1579,8 @@
 }
 
 .triage-activity__prev { color: #6B7280; }
-.triage-activity__arrow { color: #991B1B; }
-.triage-activity__next { color: #991B1B; font-weight: 700; }
+.triage-activity__arrow { color: #1A3263; }
+.triage-activity__next { color: #1A3263; font-weight: 700; }
 
 .triage-activity__note {
   margin: 0.25rem 0 0;
@@ -1646,7 +1646,7 @@
 
 .triage-confirm__icon--standard    { background: #DBEAFE; color: #1D4ED8; }
 .triage-confirm__icon--caution     { background: #FEF3C7; color: #B45309; }
-.triage-confirm__icon--destructive { background: #FEE2E2; color: #991B1B; }
+.triage-confirm__icon--destructive { background: #FEE2E2; color: #B91C1C; }
 
 .triage-confirm__title {
   margin: 0 0 0.4rem;
@@ -1749,9 +1749,9 @@
   transition: background 0.15s ease;
 }
 
-.triage-confirm__commit--standard    { background: #991B1B; border-color: #7F1D1D; }
+.triage-confirm__commit--standard    { background: #1A3263; border-color: #142849; }
 .triage-confirm__commit--caution     { background: #B45309; border-color: #92400E; }
-.triage-confirm__commit--destructive { background: #7F1D1D; border-color: #581818; }
+.triage-confirm__commit--destructive { background: #B91C1C; border-color: #991B1B; }
 .triage-confirm__commit kbd {
   padding: 1px 4px;
   background: rgba(255, 255, 255, 0.18);
@@ -1789,3 +1789,4 @@
 .triage-modal__rail::-webkit-scrollbar-thumb:hover {
   background: rgba(15, 23, 42, 0.32);
 }
+

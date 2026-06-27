@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { RefreshCw, FileText, Upload, ChevronDown, ChevronUp } from "lucide-react";
@@ -44,13 +44,13 @@ export function RegionalPageHeader({
         <Link
           href="/afor/create"
           className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-white transition-colors"
-          style={{ backgroundColor: "#991B1B" }}
+          style={{ backgroundColor: "#1A3263" }}
           onMouseEnter={(e) => {
             (e.currentTarget as HTMLElement).style.backgroundColor =
               "var(--bfp-red-dark)";
           }}
           onMouseLeave={(e) => {
-            (e.currentTarget as HTMLElement).style.backgroundColor = "#991B1B";
+            (e.currentTarget as HTMLElement).style.backgroundColor = "#1A3263";
           }}
         >
           <FileText className="h-3.5 w-3.5" aria-hidden />
@@ -100,3 +100,4 @@ export function RegionalPageHeader({
     </div>
   );
 }
+

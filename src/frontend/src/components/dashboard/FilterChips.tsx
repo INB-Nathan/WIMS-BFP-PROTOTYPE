@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { X } from 'lucide-react';
 
@@ -21,7 +21,7 @@ export function FilterChips({ chips, onClearAll }: FilterChipsProps) {
       {chips.map((chip) => (
         <span
           key={chip.key}
-          className="inline-flex items-center gap-1 rounded-full border border-[#991B1B]/30 bg-red-50 px-2.5 py-1 text-xs font-medium text-[#991B1B]"
+          className="inline-flex items-center gap-1 rounded-full border border-[#1A3263]/30 bg-red-50 px-2.5 py-1 text-xs font-medium text-[#1A3263]"
         >
           {chip.label}
           <button
@@ -46,3 +46,4 @@ export function FilterChips({ chips, onClearAll }: FilterChipsProps) {
     </div>
   );
 }
+

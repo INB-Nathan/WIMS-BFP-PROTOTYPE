@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState } from "react";
 import { IncidentDiffPanel } from "@/components/IncidentDiffPanel";
@@ -41,7 +41,7 @@ export function ActionModal({
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl p-6 max-h-[90vh] overflow-y-auto">
         {(isUpdateRequest || isDuplicateIncident) && (
           <button onClick={onClose} className="mb-3 text-sm font-medium flex items-center gap-1" style={{ color: 'var(--bfp-red)' }}>
-            ← Back
+            â† Back
           </button>
         )}
 
@@ -51,7 +51,7 @@ export function ActionModal({
             : "Reject Incident"}
         </h2>
         <p className="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>
-          Incident #{target.incident_id} · {target.fire_station_name ?? "Unknown station"}
+          Incident #{target.incident_id} Â· {target.fire_station_name ?? "Unknown station"}
         </p>
 
         <div className="mb-4">
@@ -103,8 +103,8 @@ export function ActionModal({
               Reason for rejection <span style={{ color: 'var(--bfp-red)' }}>*</span>
             </label>
             <textarea
-              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm h-24 resize-none focus:outline-none focus:border-[#C62828]"
-              placeholder="Required for rejection…"
+              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm h-24 resize-none focus:outline-none focus:border-[#1A3263]"
+              placeholder="Required for rejectionâ€¦"
               value={notes}
               onChange={(e) => onNotesChange(e.target.value)}
               disabled={loading}
@@ -117,9 +117,9 @@ export function ActionModal({
         {isDuplicateIncident && (type === "accept" || type === "accept_replace") ? (
           <div className="flex flex-wrap gap-2 justify-end mt-4">
             <button onClick={onClose} disabled={loading} className="px-4 py-2 text-sm border rounded-lg hover:bg-gray-50 disabled:opacity-40">Back</button>
-            <button onClick={() => { onSetActionType("reject"); }} disabled={loading} className="px-4 py-2 text-sm rounded-lg text-white disabled:opacity-50" style={{ backgroundColor: '#991B1B' }}>Reject</button>
-            <button onClick={() => { onSetActionType("accept_replace"); onSubmit(false, "accept_replace"); }} disabled={loading} className="px-4 py-2 text-sm rounded-lg bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50">{loading ? "Saving…" : "Replace Original"}</button>
-            <button onClick={() => { onSetActionType("accept"); onSubmit(true, "accept"); }} disabled={loading} className="px-4 py-2 text-sm rounded-lg text-white disabled:opacity-50" style={{ backgroundColor: '#16A34A' }}>{loading ? "Saving…" : "Accept as New"}</button>
+            <button onClick={() => { onSetActionType("reject"); }} disabled={loading} className="px-4 py-2 text-sm rounded-lg text-white disabled:opacity-50" style={{ backgroundColor: '#1A3263' }}>Reject</button>
+            <button onClick={() => { onSetActionType("accept_replace"); onSubmit(false, "accept_replace"); }} disabled={loading} className="px-4 py-2 text-sm rounded-lg bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50">{loading ? "Savingâ€¦" : "Replace Original"}</button>
+            <button onClick={() => { onSetActionType("accept"); onSubmit(true, "accept"); }} disabled={loading} className="px-4 py-2 text-sm rounded-lg text-white disabled:opacity-50" style={{ backgroundColor: '#16A34A' }}>{loading ? "Savingâ€¦" : "Accept as New"}</button>
           </div>
         ) : (
           <div className="flex justify-end gap-3 mt-4">
@@ -128,9 +128,9 @@ export function ActionModal({
               onClick={() => onSubmit()}
               disabled={loading || (type === "reject" && !notes.trim())}
               className="px-4 py-2 text-sm rounded-lg text-white disabled:opacity-50"
-              style={{ backgroundColor: type === "accept" || type === "accept_replace" ? '#16A34A' : '#991B1B' }}
+              style={{ backgroundColor: type === "accept" || type === "accept_replace" ? '#16A34A' : '#1A3263' }}
             >
-              {loading ? "Saving…" : "Confirm"}
+              {loading ? "Savingâ€¦" : "Confirm"}
             </button>
           </div>
         )}
@@ -138,3 +138,4 @@ export function ActionModal({
     </div>
   );
 }
+

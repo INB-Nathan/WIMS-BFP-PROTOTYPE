@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import Link from 'next/link';
@@ -8,7 +8,7 @@ import {
   Flame, Building2, TreePine, Car, ChevronLeft, ChevronRight, Trees,
   Home, Users, Layers, Truck, CalendarDays, Archive, Clock,
 } from 'lucide-react';
-import { apiFetch, type RegionalIncidentListItem } from '@/lib/api';
+import { apiFetch, fetchRegionalStats, type RegionalIncidentListItem } from '@/lib/api';
 import { fetchRegionalIncidentsOfflineAware } from '@/lib/api/offlineRegional';
 import {
   archiveEncoderIncidentOfflineAware,
@@ -36,14 +36,12 @@ import { formatIncidentDate, isDateOnly, getDateBounds as getDateBoundsUtil, cat
 import { useScrollSafeUpdate } from '@/lib/useScrollSafeUpdate';
 import { useHoverHint } from '@/lib/useHoverHint';
 import { EmptyState } from '@/components/ui';
-import { fetchRegionalStatsOfflineAware } from '@/lib/api/offlineRegionalStats';
 import { RegionalPageHeader } from '@/components/regional/RegionalPageHeader';
 import { NotificationToasts } from '@/components/regional/NotificationToasts';
 import { IncidentCard } from '@/components/regional/IncidentCard';
 import { SyncNotificationModal } from '@/components/regional/SyncNotificationModal';
 import { WildlandFireBreakdown } from '@/components/regional/WildlandFireBreakdown';
 import { OfflineModeManager } from '@/components/regional/OfflineModeManager';
-import { GhostIncidentCard, GhostStatCard, GhostIncidentRow } from '@/components/ui/GhostIncidentCard';
 
 interface RegionalStatsPayload {
   total_incidents?: number;
@@ -137,7 +135,7 @@ export default function RegionalDashboardPage() {
   const [cachedDetailIds, setCachedDetailIds] = useState<Set<number>>(new Set());
   const [syncNotification, setSyncNotification] = useState<SyncedIncidentSummary[] | null>(null);
 
-  // Stats visibility — hidden by default each login; persisted across page navigations.
+  // Stats visibility â€” hidden by default each login; persisted across page navigations.
   // Auto-collapsed when offline (stats can't refresh and would be misleading).
   const [showStats, setShowStats] = useState<boolean>(() => {
     try {
@@ -150,7 +148,7 @@ export default function RegionalDashboardPage() {
   }, [isOnline]);
 
   // Pre-cache the RSC payload and JS chunks for offline-capable routes.
-  // Fires on mount unconditionally — router.prefetch silently fails when offline,
+  // Fires on mount unconditionally â€” router.prefetch silently fails when offline,
   // so no guard needed. Firing early (not waiting for isOnline state) avoids the
   // race condition where the user goes offline before the health probe resolves.
   useEffect(() => {
@@ -163,10 +161,10 @@ export default function RegionalDashboardPage() {
     router.prefetch('/home');
     // Warm the incident-detail route. The page is 'use client' (no server data
     // fetch), so prefetching any concrete id caches the SAME shell/RSC that the
-    // SW keys canonically — making every incident, including offline-created
+    // SW keys canonically â€” making every incident, including offline-created
     // local IDs, viewable offline even when the encoder has no server incidents.
     router.prefetch('/dashboard/regional/incidents/1');
-  }, [router]); // router is stable — this runs once on mount
+  }, [router]); // router is stable â€” this runs once on mount
   const toggleStats = () => {
     setShowStats((prev) => {
       const next = !prev;
@@ -201,7 +199,7 @@ export default function RegionalDashboardPage() {
   const updateFiltersWithoutScrollShift = useScrollSafeUpdate();
   const { hoverHint, clearHoverHint, scheduleHoverHint, hideHoverHintOnMove } = useHoverHint();
 
-  // ── Widget customization ────────────────────────────────────────────────
+  // â”€â”€ Widget customization â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const widgetConfig = useDashboardWidgets(
     role === 'NATIONAL_VALIDATOR' ? 'NATIONAL_VALIDATOR' : 'REGIONAL_ENCODER',
   );
@@ -216,12 +214,8 @@ export default function RegionalDashboardPage() {
   }, [specificDateDraft, specificDateDraftIsValid, updateFiltersWithoutScrollShift]);
 
   const loadStats = useCallback(async () => {
-    try {
-      const result = await fetchRegionalStatsOfflineAware(statsDateBounds);
-      setStats(result.response);
-    } catch {
-      // Stats errors surface via empty cards
-    }
+    const statsData = await fetchRegionalStats(statsDateBounds);
+    setStats(statsData);
   }, [statsDateBounds]);
 
   const loadIncidents = useCallback(async () => {
@@ -316,7 +310,7 @@ export default function RegionalDashboardPage() {
       const { incidents } = (e as CustomEvent<{ incidents: SyncedIncidentSummary[] }>).detail;
       // Task 10: sync-completion eviction trigger. Self-gated by an internal
       // 1h timestamp so this is cheap to call on every sync event. Wrapped
-      // in try/catch + void — eviction is best-effort and must never block
+      // in try/catch + void â€” eviction is best-effort and must never block
       // the sync-complete handler's UI refresh.
       try {
         void maybePruneCaches();
@@ -362,12 +356,10 @@ export default function RegionalDashboardPage() {
     }
   };
 
-  // Show ghost panels while auth is loading — keeps layout stable
-  // and avoids a jarring flash from "Loading Dashboard…" to full UI.
-  if (!canAccessRegional && !loading) {
+  if (loading || !canAccessRegional) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center text-gray-500">
-        Redirecting…
+        Loading Dashboardâ€¦
       </div>
     );
   }
@@ -410,7 +402,7 @@ export default function RegionalDashboardPage() {
     try {
       const result = await archiveEncoderIncidentOfflineAware(incidentId, encoderArchiveContext());
       if (result.queued) {
-        setArchiveError('Archive queued — it will sync when you reconnect.');
+        setArchiveError('Archive queued â€” it will sync when you reconnect.');
         return;
       }
       await loadIncidents();
@@ -425,7 +417,7 @@ export default function RegionalDashboardPage() {
     try {
       const result = await unarchiveEncoderIncidentOfflineAware(incidentId, encoderArchiveContext());
       if (result.queued) {
-        setArchiveError('Unarchive queued — it will sync when you reconnect.');
+        setArchiveError('Unarchive queued â€” it will sync when you reconnect.');
         return;
       }
       await loadIncidents();
@@ -463,13 +455,13 @@ export default function RegionalDashboardPage() {
     const p = op.payload as Record<string, unknown>;
     const ns = (p.incident_nonsensitive_details ?? {}) as Record<string, unknown>;
     const sens = (p.incident_sensitive_details ?? {}) as Record<string, unknown>;
-    const category = String(ns.general_category ?? p.general_category ?? '—');
-    const station = String(ns.fire_station_name ?? p.fire_station_name ?? '—');
+    const category = String(ns.general_category ?? p.general_category ?? 'â€”');
+    const station = String(ns.fire_station_name ?? p.fire_station_name ?? 'â€”');
     const location = [
       sens.street_address ?? p.street_address,
       ns.city_municipality ?? p.city_municipality,
       ns.province_district ?? p.province_district,
-    ].filter(Boolean).join(', ') || '—';
+    ].filter(Boolean).join(', ') || 'â€”';
     const savedAt = new Date(op.createdAt).toLocaleString('en-PH', {
       month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
     });
@@ -522,7 +514,7 @@ export default function RegionalDashboardPage() {
       icon: Flame,
       value: stats?.total_incidents?.toLocaleString() ?? '0',
       iconBg: '#FEE2E2',
-      iconColor: '#991B1B',
+      iconColor: '#1A3263',
     },
     {
       key: 'STRUCTURAL',
@@ -604,7 +596,7 @@ export default function RegionalDashboardPage() {
   return (
     <div className="space-y-6 pb-8" style={{ backgroundColor: 'var(--content-bg)' }}>
 
-      {/* ── Sync notification modal ── */}
+      {/* â”€â”€ Sync notification modal â”€â”€ */}
       {syncNotification && (
         <SyncNotificationModal
           incidents={syncNotification}
@@ -612,7 +604,7 @@ export default function RegionalDashboardPage() {
         />
       )}
 
-      {/* ── Archive error banner ── */}
+      {/* â”€â”€ Archive error banner â”€â”€ */}
       {archiveError && (
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {archiveError}
@@ -633,7 +625,7 @@ export default function RegionalDashboardPage() {
         onShowRejected={showRejectedAndScroll}
       />
 
-      {/* ── Page header ── */}
+      {/* â”€â”€ Page header â”€â”€ */}
       <RegionalPageHeader
         showStats={showStats}
         onToggleStats={toggleStats}
@@ -642,41 +634,29 @@ export default function RegionalDashboardPage() {
         onRefreshAll={refreshAll}
       />
 
-      {/* ── Stats section (collapsible, auto-hidden when offline) ── */}
+      {/* â”€â”€ Stats section (collapsible, auto-hidden when offline) â”€â”€ */}
       {showStats && (
         <>
           {/* Period filter */}
           <StatsDateFilterChips value={statsDateFilter} onChange={setStatsDateFilter} />
 
-          {/* Incident type stats — show ghost cards while loading */}
-          {!stats ? (
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-              <GhostStatCard />
-              <GhostStatCard />
-              <GhostStatCard />
-              <GhostStatCard />
-              <GhostStatCard />
-            </div>
-          ) : (
-            <>
-              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-                {incidentCards.map((card) => (
-                  <StatCard key={card.key} card={card} />
-                ))}
-              </div>
+          {/* Incident type stats */}
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+            {incidentCards.map((card) => (
+              <StatCard key={card.key} card={card} />
+            ))}
+          </div>
 
-              {/* Affected count stats */}
-              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-                {affectedCards.map((card) => (
-                  <StatCard key={card.key} card={card} />
-                ))}
-              </div>
-            </>
-          )}
+          {/* Affected count stats */}
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+            {affectedCards.map((card) => (
+              <StatCard key={card.key} card={card} />
+            ))}
+          </div>
         </>
       )}
 
-      {/* ── Customizable widget grid ── */}
+      {/* â”€â”€ Customizable widget grid â”€â”€ */}
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-muted)' }}>
           Dashboard Widgets
@@ -701,7 +681,7 @@ export default function RegionalDashboardPage() {
         onRemoveWidget={widgetConfig.removeWidget}
       />
 
-      {/* ── Stale cache banner — only shown when confirmed offline ── */}
+      {/* â”€â”€ Stale cache banner â€” only shown when confirmed offline â”€â”€ */}
       {isFromCache && !isOnline && (
         <div
           className="flex items-start gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800"
@@ -712,7 +692,7 @@ export default function RegionalDashboardPage() {
             <span className="font-semibold">Showing cached data</span>
             {cachedAt !== undefined && (
               <span className="ml-1 font-normal">
-                — last updated {formatCacheAge(cachedAt)}
+                â€” last updated {formatCacheAge(cachedAt)}
               </span>
             )}
             <span className="ml-1 font-normal text-amber-700">
@@ -723,13 +703,13 @@ export default function RegionalDashboardPage() {
       )}
 
 
-      {/* ── Offline Work quick link ── */}
+      {/* â”€â”€ Offline Work quick link â”€â”€ */}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold text-gray-900">Offline Work</h2>
           <p className="text-sm text-gray-500">
             {queuedOps.length + failedCount + conflictCount > 0
-              ? `${queuedOps.length} pending · ${failedCount} failed · ${conflictCount} conflicts`
+              ? `${queuedOps.length} pendingÂ Â· ${failedCount} failedÂ Â· ${conflictCount} conflicts`
               : 'No pending offline work.'}
           </p>
         </div>
@@ -747,7 +727,7 @@ export default function RegionalDashboardPage() {
         </Link>
       </div>
 
-      {/* ── Incidents section ── */}
+      {/* â”€â”€ Incidents section â”€â”€ */}
       <section
         ref={incidentsSectionRef}
         className="rounded-2xl overflow-hidden"
@@ -767,8 +747,8 @@ export default function RegionalDashboardPage() {
             </div>
             <p className="text-sm whitespace-nowrap" style={{ color: 'var(--text-secondary)' }} aria-live="polite">
               {incidentsLoading
-                ? 'Loading…'
-                : `${fromRow}–${toRow} of ${incidentsTotal.toLocaleString()}`}
+                ? 'Loadingâ€¦'
+                : `${fromRow}â€“${toRow} of ${incidentsTotal.toLocaleString()}`}
             </p>
           </div>
 
@@ -790,7 +770,7 @@ export default function RegionalDashboardPage() {
                   disabled={incidentsLoading || isArchiveView}
                   className="relative rounded-full border px-4 py-1.5 text-sm font-semibold transition-colors disabled:opacity-50"
                   style={active
-                    ? { backgroundColor: '#FEE2E2', borderColor: '#FCA5A5', color: '#991B1B' }
+                    ? { backgroundColor: '#FEE2E2', borderColor: '#FCA5A5', color: '#1A3263' }
                     : { backgroundColor: '#fff', borderColor: '#e5e7eb', color: 'var(--text-secondary)' }
                   }
                   onMouseEnter={(e) => {
@@ -814,7 +794,7 @@ export default function RegionalDashboardPage() {
           {/* Secondary filters row */}
           <div className="mt-4 flex flex-wrap items-center gap-3">
             <select
-              className="min-h-9 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium transition-colors focus:border-[#C62828] focus:outline-none"
+              className="min-h-9 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium transition-colors focus:border-[#1A3263] focus:outline-none"
               style={{ color: 'var(--text-primary)' }}
               value={categoryFilter}
               onChange={(e) => updateFiltersWithoutScrollShift(() => { setCategoryFilter(e.target.value); setPageIndex(0); })}
@@ -827,7 +807,7 @@ export default function RegionalDashboardPage() {
             </select>
 
             <select
-              className="min-h-9 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium transition-colors focus:border-[#C62828] focus:outline-none"
+              className="min-h-9 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium transition-colors focus:border-[#1A3263] focus:outline-none"
               style={{ color: 'var(--text-primary)' }}
               value={String(size)}
               onChange={(e) => updateFiltersWithoutScrollShift(() => { setPageSize(Number(e.target.value)); setPageIndex(0); })}
@@ -860,7 +840,7 @@ export default function RegionalDashboardPage() {
 
             <div className="ml-auto flex flex-wrap items-center gap-3">
               <select
-                className="min-h-9 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium transition-colors focus:border-[#C62828] focus:outline-none"
+                className="min-h-9 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium transition-colors focus:border-[#1A3263] focus:outline-none"
                 style={{ color: 'var(--text-primary)' }}
                 value={dateFilter}
                 onChange={(e) => updateFiltersWithoutScrollShift(() => {
@@ -880,7 +860,7 @@ export default function RegionalDashboardPage() {
                 <CalendarDays className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" aria-hidden />
                 <input
                   type="date"
-                  className="min-h-9 rounded-lg border border-gray-200 bg-white py-2 pl-9 pr-3 text-sm font-medium transition-colors focus:border-[#C62828] focus:outline-none"
+                  className="min-h-9 rounded-lg border border-gray-200 bg-white py-2 pl-9 pr-3 text-sm font-medium transition-colors focus:border-[#1A3263] focus:outline-none"
                   style={{ color: 'var(--text-primary)' }}
                   value={specificDateDraft}
                   onChange={(e) => setSpecificDateDraft(e.target.value)}
@@ -897,7 +877,7 @@ export default function RegionalDashboardPage() {
               <button
                 type="button"
                 className="min-h-9 rounded-lg px-3 py-2 text-sm font-semibold text-white transition-colors disabled:opacity-50"
-                style={{ backgroundColor: '#991B1B' }}
+                style={{ backgroundColor: '#1A3263' }}
                 onClick={applySpecificDateFilter}
                 disabled={incidentsLoading || !specificDateDraftIsValid}
               >
@@ -915,13 +895,9 @@ export default function RegionalDashboardPage() {
 
         {/* Incident list */}
         {useCardView ? (
-          /* ── Ghost card state: show pulsing skeleton cards while loading ── */
           incidentsLoading && incidents.length === 0 ? (
-            <div className="grid min-h-[420px] gap-4 p-5 lg:grid-cols-2">
-              <GhostIncidentCard />
-              <GhostIncidentCard />
-              <GhostIncidentCard />
-              <GhostIncidentCard />
+            <div className="px-5 py-12 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
+              Loading incidents...
             </div>
           ) : !incidentsLoading && incidents.length === 0 && queuedOps.length === 0 ? (
             <EmptyState
@@ -986,7 +962,11 @@ export default function RegionalDashboardPage() {
             </thead>
             <tbody>
               {incidentsLoading ? (
-                <GhostIncidentRow />
+                <tr>
+                  <td colSpan={7} className="px-5 py-12 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
+                    Loading incidentsâ€¦
+                  </td>
+                </tr>
               ) : incidents.length === 0 && queuedOps.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-5 py-12">
@@ -1062,7 +1042,7 @@ export default function RegionalDashboardPage() {
                     role={rowOfflineUncached ? 'row' : 'link'}
                     aria-disabled={rowOfflineUncached || undefined}
                     aria-label={`View incident ${inc.incident_id}`}
-                    className={rowOfflineUncached ? 'cursor-not-allowed opacity-60 transition-colors outline-none' : 'cursor-pointer transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[#C62828] focus-visible:ring-inset'}
+                    className={rowOfflineUncached ? 'cursor-not-allowed opacity-60 transition-colors outline-none' : 'cursor-pointer transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[#1A3263] focus-visible:ring-inset'}
                     style={{
                       backgroundColor: idx % 2 === 0 ? '#FFFFFF' : '#FAFAFA',
                       borderBottom: '1px solid var(--border-color)',
@@ -1096,11 +1076,11 @@ export default function RegionalDashboardPage() {
                     </td>
                     <td className="px-5 py-4 text-sm" style={{ color: 'var(--text-secondary)' }}>
                       <div className="flex items-center gap-2">
-                        <span>{inc.fire_station_name || '—'}</span>
+                        <span>{inc.fire_station_name || 'â€”'}</span>
                       </div>
                     </td>
                     <td className="px-5 py-4 text-sm" style={{ color: 'var(--text-secondary)' }}>
-                      {inc.location_display ?? '—'}
+                      {inc.location_display ?? 'â€”'}
                     </td>
                     <td className="px-5 py-4 whitespace-nowrap text-sm" style={{ color: 'var(--text-secondary)' }}>
                       {formatIncidentDate(inc.updated_at)}
@@ -1206,4 +1186,5 @@ export default function RegionalDashboardPage() {
     </div>
   );
 }
+
 

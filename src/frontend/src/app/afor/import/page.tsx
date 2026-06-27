@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { Fragment, useState, useCallback, useEffect, useMemo, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -41,11 +41,11 @@ const AFOR_IMPORT_UPLOAD_NAV_LINKS: readonly SectionDotNavLink[] = [
   { id: 'afor-import-upload', label: 'Upload' },
 ];
 
-// ── Types ────────────────────────────────────────────────────────────────────
+// â”€â”€ Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 type PersonnelOnDuty = Record<string, string | { name?: string; contact?: string }>;
 type OtherPerson = { name: string; designation: string };
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function isNetworkError(err: unknown): boolean {
   if (err instanceof TypeError) return true;
   if (err instanceof Error) {
@@ -69,7 +69,7 @@ function isValidWgs84(lat: number, lng: number): boolean {
   );
 }
 
-// ── FIX 4: Narrative rendered as ordered bullet list ─────────────────────────
+// â”€â”€ FIX 4: Narrative rendered as ordered bullet list â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function NarrativeReport({ text }: { text: string }) {
   const paragraphs = text.split('\n').map((s) => s.trim()).filter(Boolean);
   if (!paragraphs.length) return <span className="text-gray-400 text-sm">N/A</span>;
@@ -82,7 +82,7 @@ function NarrativeReport({ text }: { text: string }) {
   );
 }
 
-// ── FIX 5: Personnel on Duty section ─────────────────────────────────────────
+// â”€â”€ FIX 5: Personnel on Duty section â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function PersonnelSection({ pod, others }: { pod: PersonnelOnDuty; others: OtherPerson[] }) {
   const simpleKeys = ['engine_commander', 'shift_in_charge', 'nozzleman', 'lineman', 'engine_crew', 'driver', 'pump_operator'] as const;
   const complexKeys = ['safety_officer', 'fire_arson_investigator'] as const;
@@ -142,7 +142,7 @@ function PersonnelSection({ pod, others }: { pod: PersonnelOnDuty; others: Other
   );
 }
 
-// ── FIX 6: Problems Encountered grid ─────────────────────────────────────────
+// â”€â”€ FIX 6: Problems Encountered grid â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function ProblemsGrid({ selected }: { selected: string[] }) {
   const selectedSet = new Set((selected ?? []).map((s) => normalizeProblemLabel(String(s))));
   return (
@@ -154,8 +154,8 @@ function ProblemsGrid({ selected }: { selected: string[] }) {
         return (
           <div key={label} className="flex items-center gap-2 py-1">
             {checked
-              ? <span className="text-green-600 text-base">✅</span>
-              : <span className="text-gray-400 text-base">—</span>}
+              ? <span className="text-green-600 text-base">âœ…</span>
+              : <span className="text-gray-400 text-base">â€”</span>}
             <span className={`text-sm ${checked ? 'font-bold text-gray-900' : 'text-gray-400'}`}>
               {label}
             </span>
@@ -166,7 +166,7 @@ function ProblemsGrid({ selected }: { selected: string[] }) {
   );
 }
 
-// ── Data preview expandable panel ────────────────────────────────────────────
+// â”€â”€ Data preview expandable panel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function RowDetailPanel({ rowData, formKind }: { rowData: Record<string, unknown>; formKind: string }) {
   const [open, setOpen] = useState(false);
 
@@ -373,13 +373,13 @@ function RowDetailPanel({ rowData, formKind }: { rowData: Record<string, unknown
             </div>
           )}
 
-          {/* Personnel on Duty — FIX 5 */}
+          {/* Personnel on Duty â€” FIX 5 */}
           <div>
             <h4 className="text-xs font-bold uppercase text-gray-500 mb-2">Personnel on Duty</h4>
             <PersonnelSection pod={pod} others={others} />
           </div>
 
-          {/* Narrative Report — FIX 4 */}
+          {/* Narrative Report â€” FIX 4 */}
           {narrative && (
             <div>
               <h4 className="text-xs font-bold uppercase text-gray-500 mb-2">Narrative Report</h4>
@@ -387,7 +387,7 @@ function RowDetailPanel({ rowData, formKind }: { rowData: Record<string, unknown
             </div>
           )}
 
-          {/* Problems Encountered — FIX 6 */}
+          {/* Problems Encountered â€” FIX 6 */}
           <div>
             <h4 className="text-xs font-bold uppercase text-gray-500 mb-2">Problems Encountered</h4>
             <ProblemsGrid selected={problems} />
@@ -398,7 +398,7 @@ function RowDetailPanel({ rowData, formKind }: { rowData: Record<string, unknown
   );
 }
 
-// ── FIX 9: Geocoding hook ─────────────────────────────────────────────────────
+// â”€â”€ FIX 9: Geocoding hook â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function useGeocoding(address: string, city: string, province = '') {
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [autoDetected, setAutoDetected] = useState(false);
@@ -433,7 +433,7 @@ function useGeocoding(address: string, city: string, province = '') {
         }
       })
       .catch(() => {
-        // Geocoding failed or aborted silently — user can set manually
+        // Geocoding failed or aborted silently â€” user can set manually
       });
 
     return () => controller.abort();
@@ -442,7 +442,7 @@ function useGeocoding(address: string, city: string, province = '') {
   return { coords, autoDetected };
 }
 
-// ── Main page component ──────────────────────────────────────────────────────
+// â”€â”€ Main page component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function AforImportPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -609,13 +609,13 @@ function AforImportPage() {
         return;
       }
 
-      // No valid rows — show preview so encoder can see all errors
+      // No valid rows â€” show preview so encoder can see all errors
       setPreviewData(data);
       setCommitLatStr('');
       setCommitLngStr('');
     } catch (err: unknown) {
       const msg = isNetworkError(err)
-        ? 'Connection lost. File upload requires an internet connection — reconnect and try again.'
+        ? 'Connection lost. File upload requires an internet connection â€” reconnect and try again.'
         : (err as { message?: string }).message || 'Failed to upload and parse the file.';
       if (isNetworkError(err)) markConnectivityOffline();
       setError(msg);
@@ -673,7 +673,7 @@ function AforImportPage() {
       return;
     }
 
-    // Block Wildland AFOR commit — dedicated import is deprecated/out of scope
+    // Block Wildland AFOR commit â€” dedicated import is deprecated/out of scope
     if (previewData.form_kind === 'WILDLAND_AFOR') {
       setError('Dedicated Wildland AFOR import is deprecated/out of scope. Encode wildland incidents through Manual Entry.');
       return;
@@ -759,7 +759,7 @@ function AforImportPage() {
       );
       if (res.status === 'ok') {
         if (res.total_committed === 0) {
-          setError('No rows were committed — all duplicates were skipped.');
+          setError('No rows were committed â€” all duplicates were skipped.');
         } else {
           setCommittedIds(res.incident_ids ?? []);
         }
@@ -844,9 +844,9 @@ function AforImportPage() {
               onClick={handleSubmitAll}
               disabled={isSubmittingAll}
               className="px-5 py-2 text-sm font-bold text-white rounded-md disabled:opacity-50"
-              style={{ backgroundColor: '#991B1B' }}
+              style={{ backgroundColor: '#1A3263' }}
             >
-              {isSubmittingAll ? 'Submitting…' : 'Submit All for Review'}
+              {isSubmittingAll ? 'Submittingâ€¦' : 'Submit All for Review'}
             </button>
           </div>
         </div>
@@ -908,7 +908,7 @@ function AforImportPage() {
                   onClick={handleUpload}
                   disabled={isUploading}
                   className="px-6 py-2 text-sm font-bold text-white rounded-md flex items-center gap-2 transition-colors disabled:opacity-70"
-                  style={{ backgroundColor: '#991B1B' }}
+                  style={{ backgroundColor: '#1A3263' }}
                 >
                   {isUploading ? <><RefreshCw className="w-4 h-4 animate-spin" /> Analyzing...</> : 'Analyze File'}
                 </button>
@@ -943,7 +943,7 @@ function AforImportPage() {
                 {autoDetected && isValidWgs84(commitLat, commitLng) && (
                   <div className="flex items-center gap-1.5 px-2 py-1 bg-green-50 border border-green-200 rounded text-xs text-green-700 font-medium">
                     <MapPin className="w-3 h-3" />
-                    Location auto-detected — drag to adjust
+                    Location auto-detected â€” drag to adjust
                   </div>
                 )}
               </div>
@@ -1016,7 +1016,7 @@ function AforImportPage() {
                   onClick={handleCommit}
                   disabled={isCommitting || previewData.valid_rows === 0 || !coordsReady}
                   className="px-6 py-2 text-sm font-bold text-white rounded-md flex items-center gap-2 transition-colors disabled:opacity-50"
-                  style={{ backgroundColor: '#991B1B' }}
+                  style={{ backgroundColor: '#1A3263' }}
                 >
                   {isCommitting
                     ? <><RefreshCw className="w-4 h-4 animate-spin" /> Committing...</>
@@ -1089,7 +1089,7 @@ function AforImportPage() {
                         ? wl.call_received_at.substring(0, 16)
                         : wl?.call_received_at != null
                           ? String(wl.call_received_at).substring(0, 16)
-                          : '—';
+                          : 'â€”';
                     const ns = row.data.incident_nonsensitive_details as Record<string, unknown> | undefined;
                     return (
                       <Fragment key={`${row.status}-${i}`}>
@@ -1165,8 +1165,9 @@ function AforImportPage() {
 
 export default function AforImportPageWrapper() {
   return (
-    <Suspense fallback={<div className="p-6 text-gray-500">Loading…</div>}>
+    <Suspense fallback={<div className="p-6 text-gray-500">Loadingâ€¦</div>}>
       <AforImportPage />
     </Suspense>
   );
 }
+

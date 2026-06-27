@@ -260,7 +260,7 @@ def _write_afor_pdf(path: str, data: dict[str, Any]) -> None:
     )
 
     styles = getSampleStyleSheet()
-    maroon = colors.HexColor("#7f1d1d")
+    maroon = colors.HexColor("#1A3263")
     light_gray = colors.HexColor("#f3f4f6")
 
     doc = SimpleDocTemplate(
@@ -984,7 +984,7 @@ def _write_pdf(path: str, rows: list[dict[str, Any]], columns: list[str]) -> Non
     table.setStyle(
         TableStyle(
             [
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#7f1d1d")),
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1A3263")),
                 ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
                 ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
                 ("FONTSIZE", (0, 0), (-1, -1), 7),

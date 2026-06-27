@@ -1,10 +1,13 @@
 {
   "theme": {
     "colors": {
-      "theme-brand-dark": "#7f1d1d",
-      "theme-brand-primary": "#991b1b",
-      "theme-brand-accent": "#b91c1c",
-      "theme-brand-light": "#fee2e2",
+      "theme-brand-dark": "#142849",
+      "theme-brand-primary": "#1A3263",
+      "theme-brand-accent": "#547792",
+      "theme-brand-light": "#E8E2DB",
+      "theme-secondary": "#547792",
+      "theme-accent": "#FAB95B",
+      "theme-surface-alt": "#E8E2DB",
       "theme-surface-hover": "#f9fafb"
     },
     "spacing": {

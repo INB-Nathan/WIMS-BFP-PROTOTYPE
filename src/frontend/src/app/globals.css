@@ -8,17 +8,20 @@
   --foreground: #171717;
   --theme-gradient-fire: linear-gradient(to right, #facc15, #f97316, #ef4444);
 
-  /* BFP Red design tokens */
-  --bfp-red: #C62828;
-  --bfp-red-dark: #8E1B1B;
-  --bfp-red-light: #FDECEC;
+  /* Brand design tokens */
+  --bfp-red: #1A3263;
+  --bfp-red-dark: #142849;
+  --bfp-red-light: #E8E2DB;
+  --wims-secondary: #547792;
+  --wims-accent: #FAB95B;
+  --wims-surface-alt: #E8E2DB;
 
   /* Sidebar */
-  --sidebar-bg: #5A1515;
+  --sidebar-bg: #1A3263;
   --sidebar-hover: rgba(255, 255, 255, 0.08);
-  --sidebar-active-bg: #FDECEC;
-  --sidebar-active-border: #C62828;
-  --sidebar-active-text: #C62828;
+  --sidebar-active-bg: #E8E2DB;
+  --sidebar-active-border: #1A3263;
+  --sidebar-active-text: #1A3263;
   --sidebar-text: rgba(255, 255, 255, 0.87);
   --sidebar-text-muted: rgba(255, 255, 255, 0.45);
   --sidebar-width: 256px;
@@ -35,17 +38,17 @@
   --text-secondary: #768192;
   --text-muted: #9da5b1;
 
-  --bfp-maroon: #C62828;
-  --bfp-maroon-dark: #8E1B1B;
-  --bfp-gradient: linear-gradient(135deg, #991B1B 0%, #7f1d1d 100%);
+  --bfp-maroon: #1A3263;
+  --bfp-maroon-dark: #142849;
+  --bfp-gradient: linear-gradient(135deg, #1A3263 0%, #142849 100%);
 
   /* UI Refactoring tokens */
   --card-elevated-shadow: 0 4px 16px rgba(0, 0, 0, 0.10), 0 1px 4px rgba(0, 0, 0, 0.06);
   --card-elevated-border: #e8ebf0;
   --step-inactive: #d1d5db;
-  --step-active: #991b1b;
+  --step-active: #1A3263;
   --step-complete: #166534;
-  --focus-ring: 0 0 0 3px rgba(153, 27, 27, 0.20);
+  --focus-ring: 0 0 0 3px rgba(26, 50, 99, 0.20);
   --bilingual-color: #6b7280;
   --calm-amber-bg: rgba(251, 191, 36, 0.12);
   --calm-amber-border: rgba(251, 191, 36, 0.50);
@@ -64,10 +67,13 @@
   --font-sans: var(--font-geist-sans, ui-sans-serif, system-ui);
   --font-mono: var(--font-geist-mono, ui-monospace, SFMono-Regular);
 
-  --color-theme-brand-dark: #8E1B1B;
-  --color-theme-brand-primary: #C62828;
-  --color-theme-brand-accent: #D32F2F;
-  --color-theme-brand-light: #FDECEC;
+  --color-theme-brand-dark: #142849;
+  --color-theme-brand-primary: #1A3263;
+  --color-theme-brand-accent: #547792;
+  --color-theme-brand-light: #E8E2DB;
+  --color-theme-secondary: #547792;
+  --color-theme-accent: #FAB95B;
+  --color-theme-surface-alt: #E8E2DB;
   --color-theme-surface-hover: #f9fafb;
 
   --color-theme-surface-subtle: #F8F9FB;
@@ -81,11 +87,11 @@
   --color-theme-accent-dark: #ef4444;
   --color-theme-text-secondary: #768192;
 
-  --color-sidebar-bg: #5A1515;
+  --color-sidebar-bg: #1A3263;
   --color-content-bg: #F8F9FB;
   --color-card-bg: #ffffff;
   --color-border: #e5e7eb;
-  --color-bfp-maroon: #C62828;
+  --color-bfp-maroon: #1A3263;
 
   --spacing-auth-container: calc(100vh - var(--spacing-32, initial));
 }
@@ -145,7 +151,7 @@ body {
   position: relative;
   width: 45%;
   min-height: 100vh;
-  background: #992222 !important;
+  background: #1A3263 !important;
   display: flex !important;
   align-items: center;
   justify-content: center;
@@ -291,19 +297,19 @@ body {
   font-size: 0.875rem;
   font-weight: 700;
   color: #ffffff !important;
-  background: linear-gradient(135deg, #992222 0%, #7f1d1d 100%) !important;
+  background: linear-gradient(135deg, #1A3263 0%, #142849 100%) !important;
   border: none !important;
   border-radius: 8px !important;
   cursor: pointer;
   text-transform: uppercase !important;
   letter-spacing: 0.05em;
-  box-shadow: 0 2px 8px rgba(153,34,34,0.3) !important;
+  box-shadow: 0 2px 8px rgba(26, 50, 99, 0.3) !important;
   transition: all 0.2s ease;
 }
 
 .wims-button:hover {
-  background: linear-gradient(135deg, #7f1d1d 0%, #6b1a1a 100%) !important;
-  box-shadow: 0 4px 16px rgba(153,34,34,0.4) !important;
+  background: linear-gradient(135deg, #142849 0%, #0e1e3d 100%) !important;
+  box-shadow: 0 4px 16px rgba(26, 50, 99, 0.4) !important;
   transform: translateY(-1px);
 }
 
@@ -395,12 +401,12 @@ body {
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 .form-input:hover {
-  border-color: var(--bfp-maroon, #991b1b);
+  border-color: var(--bfp-maroon, #1A3263);
 }
 .form-input:focus {
   outline: none;
-  border-color: var(--bfp-maroon, #991b1b);
-  box-shadow: var(--focus-ring, 0 0 0 3px rgba(153, 27, 27, 0.20));
+  border-color: var(--bfp-maroon, #1A3263);
+  box-shadow: var(--focus-ring, 0 0 0 3px rgba(26, 50, 99, 0.20));
 }
 
 .card-header {

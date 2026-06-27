@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { formatClassification } from "@/lib/afor-utils";
 import type { SyncedIncidentSummary } from "@/lib/useAutoSync";
@@ -90,7 +90,7 @@ export function SyncNotificationModal({
             type="button"
             onClick={onConfirm}
             className="rounded-lg px-5 py-2 text-sm font-semibold text-white transition-colors hover:bg-red-900"
-            style={{ backgroundColor: "#991B1B" }}
+            style={{ backgroundColor: "#1A3263" }}
           >
             Confirm
           </button>
@@ -99,3 +99,4 @@ export function SyncNotificationModal({
     </div>
   );
 }
+
