@@ -236,9 +236,7 @@ def _backfill_verified_data_hash(db: Session) -> None:
                 verification_status=vstatus or "VERIFIED",
             )
             db.execute(
-                text(
-                    "UPDATE wims.fire_incidents SET data_hash = :h WHERE incident_id = :iid"
-                ),
+                text("UPDATE wims.fire_incidents SET data_hash = :h WHERE incident_id = :iid"),
                 {"h": h, "iid": incident_id},
             )
             updated += 1
