@@ -23,6 +23,10 @@ export interface ParsedNarrative {
   recommendedAction: string | null;
   /** Parsed confidence value (from `confidence` or `xai_confidence` field), if present. */
   confidence: number | null;
+  /** Parsed confidence_breakdown object, if found. */
+  confidenceBreakdown: { anomalyDetection: number; classification: number; overall: number } | null;
+  /** Parsed sources array, if found. */
+  sources: string[] | null;
   /** True when we successfully parsed a complete JSON object. */
   isStructured: boolean;
 }
@@ -40,6 +44,7 @@ function extractPartialFields(text: string): Partial<ParsedNarrative> | null {
     [/"log_evidence"\s*:\s*"([^"]*(?:\\.[^"]*)*)"?/i, 'logEvidence'],
     [/"risk_assessment"\s*:\s*"([^"]*(?:\\.[^"]*)*)"?/i, 'riskAssessment'],
     [/"recommended_action"\s*:\s*"([^"]*(?:\\.[^"]*)*)"?/i, 'recommendedAction'],
+    [/"sources"\s*:\s*\[([^\]]*)\]/i, 'sources'],
   ];
 
   for (const [pattern, targetKey] of patterns) {
@@ -59,6 +64,39 @@ function extractPartialFields(text: string): Partial<ParsedNarrative> | null {
     if (!isNaN(val)) {
       result.confidence = val;
       found = true;
+    }
+  }
+
+  // Try extracting confidence_breakdown object
+  const breakdownMatch = text.match(/"confidence_breakdown"\s*:\s*\{([^}]*)\}/i);
+  if (breakdownMatch) {
+    const inner = breakdownMatch[1];
+    // Use (0?\.\d+|\d+) to capture both decimal (0.97) and integer (1, 0) confidence values
+    const adMatch = inner.match(/"anomaly_detection"\s*:\s*(0?\.\d+|\d+)/i);
+    const clMatch = inner.match(/"classification"\s*:\s*(0?\.\d+|\d+)/i);
+    const ovMatch = inner.match(/"overall"\s*:\s*(0?\.\d+|\d+)/i);
+    const ad = adMatch ? parseFloat(adMatch[1]) : null;
+    const cl = clMatch ? parseFloat(clMatch[1]) : null;
+    const ov = ovMatch ? parseFloat(ovMatch[1]) : null;
+    if (ad !== null || cl !== null || ov !== null) {
+      (result as Record<string, unknown>).confidenceBreakdown = {
+        anomalyDetection: ad ?? 0,
+        classification: cl ?? 0,
+        overall: ov ?? 0,
+      };
+      found = true;
+    }
+  }
+
+  // Convert raw sources string match to string[] via JSON parse or comma split
+  // NOTE: cast through unknown to avoid TS error (sources is typed string[] | null)
+  const rawSources = (result as Record<string, unknown>).sources;
+  if (typeof rawSources === 'string') {
+    try {
+      result.sources = JSON.parse(`[${rawSources}]`) as string[];
+    } catch {
+      // Simple comma split fallback
+      result.sources = rawSources.replace(/["'\[\]]/g, '').split(',').map(s => s.trim()).filter(Boolean);
     }
   }
 
@@ -86,6 +124,8 @@ export function normalizeNarrative(raw: string | null): ParsedNarrative {
     riskAssessment: null,
     recommendedAction: null,
     confidence: null,
+    confidenceBreakdown: null,
+    sources: null,
     isStructured: false,
   };
 
@@ -108,6 +148,14 @@ export function normalizeNarrative(raw: string | null): ParsedNarrative {
         confidence:
           typeof parsed.xai_confidence === 'number' ? parsed.xai_confidence :
           typeof parsed.confidence === 'number' ? parsed.confidence : null,
+        confidenceBreakdown: parsed.confidence_breakdown
+          ? {
+              anomalyDetection: parsed.confidence_breakdown.anomaly_detection ?? null,
+              classification: parsed.confidence_breakdown.classification ?? null,
+              overall: parsed.confidence_breakdown.overall ?? null,
+            }
+          : null,
+        sources: Array.isArray(parsed.sources) ? parsed.sources : null,
         isStructured: true,
       };
     }
@@ -131,6 +179,14 @@ export function normalizeNarrative(raw: string | null): ParsedNarrative {
           confidence:
             typeof parsed.xai_confidence === 'number' ? parsed.xai_confidence :
             typeof parsed.confidence === 'number' ? parsed.confidence : null,
+          confidenceBreakdown: parsed.confidence_breakdown
+            ? {
+                anomalyDetection: parsed.confidence_breakdown.anomaly_detection ?? null,
+                classification: parsed.confidence_breakdown.classification ?? null,
+                overall: parsed.confidence_breakdown.overall ?? null,
+              }
+            : null,
+          sources: Array.isArray(parsed.sources) ? parsed.sources : null,
           isStructured: true,
         };
       }
