@@ -41,7 +41,7 @@ export function ActionModal({
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl p-6 max-h-[90vh] overflow-y-auto">
         {(isUpdateRequest || isDuplicateIncident) && (
           <button onClick={onClose} className="mb-3 text-sm font-medium flex items-center gap-1" style={{ color: 'var(--bfp-red)' }}>
-            â† Back
+            ← Back
           </button>
         )}
 

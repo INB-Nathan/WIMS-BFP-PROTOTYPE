@@ -105,7 +105,7 @@ body#keycloak-bg.login-pf {
     width: 45%;
     min-height: 100vh;
 <<<<<<< HEAD
-    background: #ffffff;
+    background: #1A3263;
 =======
     background: #1A3263;
 >>>>>>> d8259420d6c002b19c2aaaaac0a2465f1d167acc
@@ -123,7 +123,7 @@ body#keycloak-bg.login-pf {
     position: absolute;
     inset: 0;
     opacity: 0.04;
-    background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%231A3263' fill-opacity='1'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+    background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='1'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
     pointer-events: none;
 }
 
@@ -157,7 +157,7 @@ body#keycloak-bg.login-pf {
     font-family: 'Inter', sans-serif !important;
     font-size: 1.75rem;
     font-weight: 700;
-    color: #1A3263 !important;
+    color: #ffffff !important;
     line-height: 1.3;
     margin: 0 0 0.5rem 0;
 }
@@ -165,14 +165,14 @@ body#keycloak-bg.login-pf {
 .wims-brand-subtitle {
     font-family: 'Inter', sans-serif !important;
     font-size: 0.95rem;
-    color: rgba(26,50,99,0.65) !important;
+    color: rgba(255,255,255,0.75) !important;
     margin: 0 0 1.5rem 0;
 }
 
 .wims-brand-tagline {
     font-family: 'Inter', sans-serif !important;
     font-size: 0.8rem;
-    color: rgba(26,50,99,0.45) !important;
+    color: #9da5b1 !important;
     letter-spacing: 0.05em;
     text-transform: uppercase;
     display: flex;
@@ -203,7 +203,7 @@ body#keycloak-bg.login-pf {
     max-height: 100vh !important;
     overflow: hidden !important;
     padding: clamp(0.5rem, 1.4vh, 1rem) clamp(0.75rem, 4vw, 4.5rem) !important;
-    background: #1A3263 !important;
+    background: transparent !important;
     font-family: 'Inter', sans-serif !important;
 }
 
@@ -925,7 +925,7 @@ p {
 #kc-footer-wrapper {
     font-family: 'Inter', sans-serif !important;
     text-align: center !important;
-    color: rgba(255,255,255,0.55) !important;
+    color: #9da5b1 !important;
     font-size: 12px !important;
     margin-top: 24px !important;
 }

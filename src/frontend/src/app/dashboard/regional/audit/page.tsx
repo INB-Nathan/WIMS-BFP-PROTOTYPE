@@ -112,7 +112,7 @@ export default function EncoderAuditPage() {
           className="text-sm font-medium px-4 py-2 rounded-lg text-white"
           style={{ backgroundColor: 'var(--bfp-maroon)' }}
         >
-          â† Back to Dashboard
+          ← Back to Dashboard
         </Link>
       </div>
     );
@@ -188,7 +188,7 @@ export default function EncoderAuditPage() {
               className="flex items-center gap-1 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
               style={{ backgroundColor: 'var(--bfp-maroon)', color: '#ffffff' }}
             >
-              â†º Refresh
+              ↺ Refresh
             </button>
           </div>
 
@@ -267,7 +267,7 @@ export default function EncoderAuditPage() {
               className="px-3 py-1 border rounded disabled:opacity-40"
               style={{ borderColor: 'var(--border-color)' }}
             >
-              â† Prev
+              ← Prev
             </button>
             <span>
               Page {page + 1} of {totalPages} ({total} entries)

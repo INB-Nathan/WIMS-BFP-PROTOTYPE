@@ -1171,10 +1171,10 @@ export default function AdminSystemPage() {
                                         {systemMetrics.network ? (
                                             <>
                                                 <div className="text-sm font-medium mt-1" style={{ color: 'var(--text-primary)' }}>
-                                                    â†‘ {(systemMetrics.network.bytes_sent / 1048576).toFixed(1)} MB sent
+                                                    ↑ {(systemMetrics.network.bytes_sent / 1048576).toFixed(1)} MB sent
                                                 </div>
                                                 <div className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
-                                                    â†“ {(systemMetrics.network.bytes_recv / 1048576).toFixed(1)} MB recv
+                                                    ↓ {(systemMetrics.network.bytes_recv / 1048576).toFixed(1)} MB recv
                                                 </div>
                                             </>
                                         ) : (
@@ -2662,7 +2662,7 @@ export default function AdminSystemPage() {
                                     <span>User created successfully!</span>
                                 </div>
                                 <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 space-y-3">
-                                    <p className="text-sm text-amber-800 font-medium">{createdUser.note ?? 'âš  Distribute this temporary password to the user securely. They must change it on first login.'}</p>
+                                    <p className="text-sm text-amber-800 font-medium">{createdUser.note ?? '⚠ Distribute this temporary password to the user securely. They must change it on first login.'}</p>
                                     <div>
                                         <p className="text-xs text-gray-500 mb-1">Username</p>
                                         <p className="text-sm bg-white border border-gray-200 rounded px-3 py-1.5">{createdUser.username}</p>
