@@ -12,6 +12,7 @@ import {
   fetchHeatmapData,
   fetchTrendData,
   fetchComparativeData,
+  fetchAnalystIncidentList,
   commitAforImport,
   fetchRegionalIncidents,
   fetchRegionalIncident,
@@ -412,6 +413,7 @@ describe('Analytics API wrappers', () => {
         start_date: '2024-01-01',
         end_date: '2024-01-31',
         region_id: 5,
+        fire_station: 'Makati Central Fire Station',
         alarm_level: '1',
         incident_type: 'STRUCTURAL',
       });
@@ -421,6 +423,7 @@ describe('Analytics API wrappers', () => {
       expect(u.searchParams.get('start_date')).toBe('2024-01-01');
       expect(u.searchParams.get('end_date')).toBe('2024-01-31');
       expect(u.searchParams.get('region_id')).toBe('5');
+      expect(u.searchParams.get('fire_station')).toBe('Makati Central Fire Station');
       expect(u.searchParams.get('alarm_level')).toBe('1');
       expect(u.searchParams.get('incident_type')).toBe('STRUCTURAL');
     });
@@ -472,6 +475,32 @@ describe('Analytics API wrappers', () => {
       });
 
       await expect(fetchHeatmapData({})).rejects.toThrow();
+    });
+  });
+
+  describe('fetchAnalystIncidentList', () => {
+    it('serializes fire_station alongside existing analyst-list filters', async () => {
+      const responseBody = { incidents: [], total: 0, page: 1, page_size: 25 };
+      fetchSpy.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve(responseBody),
+        text: () => Promise.resolve(JSON.stringify(responseBody)),
+      });
+
+      await fetchAnalystIncidentList({
+        region_id: 4,
+        municipality: 'Makati',
+        fire_station: 'Makati Central Fire Station',
+        incident_ids: [12, 18],
+      });
+
+      const [url] = fetchSpy.mock.calls[0];
+      const u = new URL(url, 'http://localhost');
+      expect(u.pathname).toMatch(/\/api\/incidents\/analyst-list$/);
+      expect(u.searchParams.get('region_id')).toBe('4');
+      expect(u.searchParams.get('municipality')).toBe('Makati');
+      expect(u.searchParams.get('fire_station')).toBe('Makati Central Fire Station');
+      expect(u.searchParams.get('incident_ids')).toBe('12,18');
     });
   });
 
