@@ -55,14 +55,6 @@ function formatHitlAction(action: string): string {
   return HITL_ACTION_LABELS[action] ?? action.replaceAll('_', ' ').toLowerCase();
 }
 
-function hitlErrorMessage(error: unknown): string {
-  const message = (error as { message?: string })?.message ?? 'Request failed';
-  if (/Request failed:\s*500/i.test(message)) {
-    return 'Server failed while applying the threat decision. The alert was not updated; please retry or check backend logs.';
-  }
-  return message;
-}
-
 // ---------------------------------------------------------------------------
 // Inline SVG icon components (no external icon dependency)
 // ---------------------------------------------------------------------------
@@ -418,7 +410,7 @@ export function SuricataAlertModal({ log, onClose, onDecisionComplete }: Suricat
     } catch (e: unknown) {
       setHitlMessage({
         type: 'error',
-        text: hitlErrorMessage(e),
+        text: (e as { message?: string })?.message ?? 'Request failed',
       });
     } finally {
       setIsSubmitting(false);
@@ -1048,35 +1040,9 @@ export function SuricataAlertModal({ log, onClose, onDecisionComplete }: Suricat
 
   // ── Threat Decision Row ──────────────────────────────────────────────
 
-  const renderRelatedEvidenceButton = () => (
-    <button
-      onClick={handleViewRelatedEvidence}
-      disabled={isSubmitting}
-      className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold border transition-opacity ${
-        isSubmitting
-          ? 'border-gray-300 text-gray-400 opacity-70 cursor-not-allowed'
-          : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-      }`}
-    >
-      {isLoadingEvidence ? (
-        <IconSpinner className="w-4 h-4" />
-      ) : (
-        <IconSearch />
-      )}
-      {isLoadingEvidence ? 'Loading\u2026' : 'View Related Evidence'}
-    </button>
-  );
-
   const renderDecisionRow = () => {
     if (isReviewed) {
-      return (
-        <>
-          {renderReviewedBanner()}
-          <div className="mt-3">
-            {renderRelatedEvidenceButton()}
-          </div>
-        </>
-      );
+      return renderReviewedBanner();
     }
 
     return (
@@ -1144,7 +1110,23 @@ export function SuricataAlertModal({ log, onClose, onDecisionComplete }: Suricat
             {isSubmitting ? 'Applying\u2026' : 'Request More Info'}
           </button>
 
-          {renderRelatedEvidenceButton()}
+          {/* View Related Evidence */}
+          <button
+            onClick={handleViewRelatedEvidence}
+            disabled={isSubmitting}
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold border transition-opacity ${
+              isSubmitting
+                ? 'border-gray-300 text-gray-400 opacity-70 cursor-not-allowed'
+                : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+            }`}
+          >
+            {isLoadingEvidence ? (
+              <IconSpinner className="w-4 h-4" />
+            ) : (
+              <IconSearch />
+            )}
+            {isLoadingEvidence ? 'Loading\u2026' : 'View Related Evidence'}
+          </button>
 
           {/* Create Incident */}
           <button
