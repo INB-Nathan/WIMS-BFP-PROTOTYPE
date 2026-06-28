@@ -186,7 +186,7 @@ function PanelHeader({
   return (
     <div className="flex flex-col gap-3 border-b border-gray-200 bg-white px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex min-w-0 items-start gap-3">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md" style={{ backgroundColor: '#FFF8EC', color: '#FAB95B' }}>
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md" style={{ backgroundColor: '#FFF8EC', color: '#547792' }}>
           {icon}
         </div>
         <div className="min-w-0">
@@ -714,7 +714,7 @@ export default function AnalystDashboardPage() {
               href={workflow.href}
               onClick={(event) => openWorkflow(event, workflow.slug)}
               aria-label={`Open ${workflow.title} workflow`}
-              className="group flex items-start gap-3 rounded-md border border-gray-200 bg-white p-4 shadow-sm transition-all hover:border-red-300 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:ring-offset-2"
+              className="group flex items-start gap-3 rounded-md border border-gray-200 bg-white p-4 shadow-sm transition-all hover:border-[#1A3263] hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1A3263] focus-visible:ring-offset-2"
             >
               <span
                 className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-white transition-transform group-hover:scale-105"
@@ -1095,7 +1095,7 @@ export default function AnalystDashboardPage() {
               <div className="rounded-md border border-gray-200 bg-white px-5 py-4 shadow-sm">
                 <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                   <div className="flex items-start gap-3">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-md" style={{ backgroundColor: '#FFF8EC', color: '#FAB95B' }}>
+                    <div className="flex h-9 w-9 items-center justify-center rounded-md" style={{ backgroundColor: '#FFF8EC', color: '#547792' }}>
                       <FileDown className="h-5 w-5" />
                     </div>
                     <div>

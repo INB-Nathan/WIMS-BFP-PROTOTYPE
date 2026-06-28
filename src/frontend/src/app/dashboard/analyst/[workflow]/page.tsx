@@ -162,7 +162,7 @@ function Panel({
     <section className="overflow-hidden rounded-md border border-gray-200 bg-white shadow-sm">
       <div className="flex flex-col gap-3 border-b border-gray-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex min-w-0 items-start gap-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md" style={{ backgroundColor: '#FFF8EC', color: '#FAB95B' }}>
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md" style={{ backgroundColor: '#FFF8EC', color: '#547792' }}>
             {icon}
           </div>
           <div className="min-w-0">
@@ -479,7 +479,7 @@ export default function AnalystWorkflowPage() {
         </Link>
         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div className="flex min-w-0 items-start gap-3">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md" style={{ backgroundColor: '#FFF8EC', color: '#FAB95B' }}>
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md" style={{ backgroundColor: '#FFF8EC', color: '#547792' }}>
               <WorkflowIcon className="h-6 w-6" />
             </div>
             <div className="min-w-0">

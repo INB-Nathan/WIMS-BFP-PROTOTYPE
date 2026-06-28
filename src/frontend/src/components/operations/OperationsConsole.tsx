@@ -51,7 +51,7 @@ export function OperationsConsole({
         className="order-2 space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
       >
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.2em] text-red-700">Operations</p>
+          <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#1A3263]">Operations</p>
           <h2 className="text-lg font-black text-slate-950">Board</h2>
         </div>
         <div className="space-y-2">
@@ -62,7 +62,7 @@ export function OperationsConsole({
               onClick={() => onSelectOperation(op.operation_id)}
               className={`w-full rounded-xl border p-3 text-left transition ${
                 selectedOperation?.operation_id === op.operation_id
-                  ? 'border-red-300 bg-red-50 shadow-sm'
+                  ? 'border-[#1A3263] bg-[#EBF0F7] shadow-sm'
                   : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
               }`}
             >
@@ -92,7 +92,7 @@ export function OperationsConsole({
                 <button
                   type="button"
                   onClick={() => setShowReportSearch((value) => !value)}
-                  className="inline-flex items-center gap-1 rounded-md border border-red-200 px-2 py-1 text-xs font-bold text-red-700 hover:bg-red-50"
+                  className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-bold hover:bg-[#EBF0F7]" style={{ borderColor: '#1A3263', color: '#1A3263' }}
                 >
                   Add civilian reports
                 </button>

@@ -116,7 +116,7 @@ export function WidgetCard({ widget, onRemove, data, loading, error }: WidgetCar
             className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
             style={{ backgroundColor: "#FEE2E2" }}
           >
-            <IconComp className="w-5 h-5" style={{ color: "#1A3263" }} />
+            <IconComp className="w-5 h-5" style={{ color: "#547792" }} />
           </div>
           {onRemove && (
             <button
@@ -153,7 +153,7 @@ export function WidgetCard({ widget, onRemove, data, loading, error }: WidgetCar
             className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
             style={{ backgroundColor: "#FEE2E2" }}
           >
-            <IconComp className="w-5 h-5" style={{ color: "#1A3263" }} />
+            <IconComp className="w-5 h-5" style={{ color: "#547792" }} />
           </div>
           {onRemove && (
             <button

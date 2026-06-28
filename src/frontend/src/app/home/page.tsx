@@ -199,7 +199,7 @@ export default function HomePage() {
                 onClick={() => setActiveTab(tab)}
                 className={`rounded-md border px-3 py-1.5 text-sm font-medium ${
                   activeTab === tab
-                    ? 'border-red-300 bg-red-50 text-red-700'
+                    ? 'border-[#1A3263] bg-[#EBF0F7] text-[#1A3263]'
                     : 'border-slate-300 bg-white text-slate-700'
                 }`}
               >
@@ -346,7 +346,7 @@ function OperationFormModal({
         onSubmit={(e) => void handleSubmit(e)}
       >
         <div className="sticky top-0 z-10 border-b border-slate-200 bg-white px-5 py-4">
-          <p className="text-xs font-bold uppercase tracking-[0.18em] text-red-700">Operations</p>
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#1A3263]">Operations</p>
           <h3 className="text-lg font-black text-slate-950">
             {initial ? 'Edit Operation' : 'New Operation'}
           </h3>
@@ -475,7 +475,7 @@ function OperationFormModal({
                     <button
                       type="button"
                       onClick={() => { setLat(null); setLng(null); setRadius(null); }}
-                      className="text-xs font-bold text-red-600 hover:underline"
+                      className="text-xs font-bold hover:underline" style={{ color: '#1A3263' }}
                     >
                       Clear pin
                     </button>
@@ -506,7 +506,7 @@ function OperationFormModal({
                   <button
                     type="button"
                     onClick={() => setShowReportPicker((value) => !value)}
-                    className="rounded-md border border-red-200 px-2 py-1 text-xs font-bold text-red-700 hover:bg-red-50"
+                    className="rounded-md border px-2 py-1 text-xs font-bold hover:bg-[#EBF0F7]" style={{ borderColor: '#1A3263', color: '#1A3263' }}
                   >
                     {showReportPicker ? 'Hide' : 'Select civilian reports'}
                   </button>
