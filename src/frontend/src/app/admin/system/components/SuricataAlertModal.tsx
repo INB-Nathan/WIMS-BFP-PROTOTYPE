@@ -750,7 +750,7 @@ export function SuricataAlertModal({ log, onClose, onDecisionComplete }: Suricat
             AI Threat Analysis Complete
           </h4>
           <span className="text-[10px] text-gray-400 ml-auto">
-            {analysisState === 'complete' && `Completed in ${analysisElapsed.toFixed(1)}s \u00b7 Ollama qwen2.5:1.5b`}
+            {analysisState === 'complete' && `Completed in ${analysisElapsed.toFixed(1)}s \u00b7 Ollama qwen2.5:3b`}
           </span>
         </div>
 
