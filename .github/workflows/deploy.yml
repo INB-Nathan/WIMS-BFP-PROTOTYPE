@@ -230,7 +230,7 @@ jobs:
 
             # Pre-deploy DB connectivity check
             echo "Checking database connectivity..."
-            compose run --rm -T backend python -c "from database import get_engine; from sqlalchemy import text; engine = get_engine(); conn = engine.connect(); conn.execute(text('SELECT 1')); conn.close(); print('DB connection OK')" || { echo 'DB connectivity check failed — aborting deploy'; exit 1; }
+            compose exec -T postgres psql -U postgres -d wims -c "SELECT 1;" >/dev/null || { echo 'DB connectivity check failed — aborting deploy'; exit 1; }
 
             # Build and restart with retry. Stale Docker Compose renamed
             # containers (<hex>_wims-<service>) from a prior interrupted
