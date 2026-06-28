@@ -173,8 +173,9 @@ def test_analyze_threat_log_success(mock_system_admin, threat_log_row, db_sessio
     assert parsed["log_evidence"] == "Source IP 192.168.1.100 sent malicious payload."
     assert parsed["risk_assessment"] == "Potential SQL injection attempt."
     assert parsed["recommended_action"] == "Block source IP and investigate."
-    assert parsed["sources"] == ["Suricata EVE log", "Ollama"], \
+    assert parsed["sources"] == ["Suricata EVE log", "Ollama"], (
         f"Expected sources in narrative, got {parsed.get('sources')}"
+    )
     assert row[1] == 0.95, f"Expected xai_confidence 0.95, got {row[1]!r}"
     # Verify confidence_breakdown was persisted
     assert row[2] is not None, "xai_confidence_breakdown should not be null"
