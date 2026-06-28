@@ -13,6 +13,11 @@ import { AddWidgetDropdown } from "./AddWidgetDropdown";
 import { useDashboardWidgets } from "@/hooks/useDashboardWidgets";
 import type { WidgetDefinition } from "./widget-definitions";
 
+// ── Mock network status ───────────────────────────────────────────────────
+vi.mock("@/lib/useNetworkStatus", () => ({
+  useNetworkStatus: () => ({ isOnline: true, isReconnecting: false, isChecking: false }),
+}));
+
 // ── Mock widget API ───────────────────────────────────────────────────────
 const mockFetchWidgetData = vi.fn();
 vi.mock("@/lib/api/widgets", () => ({
