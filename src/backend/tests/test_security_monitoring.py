@@ -23,8 +23,9 @@ _ADMIN = {
 
 # Row tuple order: log_id(0), timestamp(1), source_ip(2), destination_ip(3),
 # suricata_sid(4), severity_level(5), raw_payload(6), xai_narrative(7),
-# xai_confidence(8), admin_action_taken(9), resolved_at(10), reviewed_by(11),
-# hitl_decision(12), classification(13), suricata_signature(14), suricata_category(15)
+# xai_confidence(8), xai_confidence_breakdown(9), admin_action_taken(10),
+# resolved_at(11), reviewed_by(12),
+# hitl_decision(13), classification(14), suricata_signature(15), suricata_category(16)
 _HIGH_ROW = (
     1,
     None,
@@ -35,6 +36,7 @@ _HIGH_ROW = (
     "{}",
     "narrative",
     0.9,
+    None,  # xai_confidence_breakdown
     None,
     None,
     None,
@@ -53,6 +55,7 @@ _CRITICAL_ROW = (
     "{}",
     None,
     None,
+    None,  # xai_confidence_breakdown
     None,
     None,
     None,
@@ -71,6 +74,7 @@ _LOW_ROW = (
     "{}",
     None,
     None,
+    None,  # xai_confidence_breakdown
     None,
     None,
     None,
