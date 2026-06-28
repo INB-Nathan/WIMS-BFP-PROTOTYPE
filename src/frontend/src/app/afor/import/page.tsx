@@ -27,6 +27,7 @@ import { useAuth } from '@/context/AuthContext';
 import { queueOfflineOp } from '@/lib/offlineStore';
 import { PH_REGIONS } from '@/lib/ph-regions';
 import { searchGeocode } from '@/lib/geocode';
+import Link from 'next/link';
 import { useNetworkStatus } from '@/lib/useNetworkStatus';
 import { markConnectivityOffline } from '@/lib/connectivity';
 
@@ -821,6 +822,21 @@ function AforImportPage() {
         )}
       </div>
 
+      {isOffline && (
+        <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+          <AlertCircle className="text-amber-600 w-5 h-5 flex-shrink-0 mt-0.5" aria-hidden />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-amber-800">You are offline</p>
+            <p className="text-xs text-amber-700 mt-0.5">
+              AFOR file import requires an internet connection — the server processes Excel files.{' '}
+              <Link href="/afor/create" className="underline font-medium hover:text-amber-900">
+                Switch to Manual AFOR Entry →
+              </Link>
+            </p>
+          </div>
+        </div>
+      )}
+
       {committedIds.length > 0 && (
         <div className="card p-6 border-green-300 bg-green-50 space-y-4">
           <div className="flex items-center gap-3">
@@ -906,7 +922,7 @@ function AforImportPage() {
                 </button>
                 <button
                   onClick={handleUpload}
-                  disabled={isUploading}
+                  disabled={isUploading || isOffline}
                   className="px-6 py-2 text-sm font-bold text-white rounded-md flex items-center gap-2 transition-colors disabled:opacity-70"
                   style={{ backgroundColor: '#991B1B' }}
                 >

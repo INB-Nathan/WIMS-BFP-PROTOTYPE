@@ -1280,6 +1280,64 @@ export async function getDraftOps(encoderId: string): Promise<OfflineOpDecrypted
     return result;
 }
 
+/**
+ * Get all unsynced create ops for an encoder as displayable draft summaries.
+ * Includes draft, pending, error, and failed statuses — any create op that
+ * hasn't been confirmed by the server yet. Sorted newest first.
+ * Used to show locally-created incidents in the drafts list while offline.
+ */
+export async function getDraftOpsForEncoder(encoderId: string): Promise<OfflineOpDecrypted[]> {
+    const db = await getDB();
+    const all: OfflineOp[] = await db.getAllFromIndex(OPS_STORE, 'by_encoder', encoderId);
+    const unsynced = all
+        .filter(
+            (op) =>
+                op.operation === 'create' &&
+                (['draft', 'pending', 'error', 'failed'] as OfflineSyncStatus[]).includes(op.syncStatus),
+        )
+        .sort((a, b) => b.createdAt - a.createdAt);
+    const result: OfflineOpDecrypted[] = [];
+    for (const op of unsynced) {
+        try {
+            const payload = await decryptPayload<Record<string, unknown>>(op.payload);
+            result.push({ ...op, payload });
+        } catch {
+            // Skip ops with decryption failures (e.g. key mismatch after device wipe)
+        }
+    }
+    return result;
+}
+
+/**
+ * Reconstruct a partial incident detail object from a locally-queued create op.
+ * Used as a third fallback when fetchRegionalIncidentOfflineAware returns null
+ * and the incident hasn't been synced to the server yet.
+ * Returns null if no matching op is found for this localId.
+ */
+export async function getOfflineOpAsIncidentDetail(
+    localId: string,
+    encoderId: string,
+): Promise<{ data: Record<string, unknown>; isLocalDraft: true } | null> {
+    const db = await getDB();
+    const all: OfflineOp[] = await db.getAllFromIndex(OPS_STORE, 'by_encoder', encoderId);
+    const op = all.find((o) => o.localId === localId && o.operation === 'create');
+    if (!op) return null;
+    try {
+        const payload = await decryptPayload<Record<string, unknown>>(op.payload);
+        return {
+            data: {
+                ...payload,
+                _localId: localId,
+                _syncStatus: op.syncStatus,
+                _queuedAt: op.createdAt,
+            },
+            isLocalDraft: true,
+        };
+    } catch {
+        return null;
+    }
+}
+
 async function _patchOp(localId: string, patch: Partial<OfflineOp>): Promise<void> {
     const db = await getDB();
     const tx = db.transaction(OPS_STORE, 'readwrite');
