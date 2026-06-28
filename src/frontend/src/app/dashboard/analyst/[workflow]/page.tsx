@@ -117,6 +117,7 @@ const WORKFLOWS = {
 
 type WorkflowSlug = keyof typeof WORKFLOWS;
 type Interval = (typeof INTERVALS)[number]['value'];
+type HeatmapSource = 'filtered' | 'selected';
 
 function isWorkflowSlug(value: string): value is WorkflowSlug {
   return value in WORKFLOWS;
@@ -223,6 +224,7 @@ export default function AnalystWorkflowPage() {
   const [appliedFilters, setAppliedFilters] = useState<AnalystIncidentListParams>({});
   const [selectedIncidentIds, setSelectedIncidentIds] = useState<number[]>([]);
   const [selectedSetActive, setSelectedSetActive] = useState(false);
+  const [heatmapSource, setHeatmapSource] = useState<HeatmapSource>('filtered');
   const [transferLoaded, setTransferLoaded] = useState(false);
   const [hydratedTransferId, setHydratedTransferId] = useState<string | null>();
 
@@ -413,6 +415,16 @@ export default function AnalystWorkflowPage() {
       ? { ...appliedFilters, incident_ids: selectedIncidentIds }
       : appliedFilters
   ), [appliedFilters, selectedIncidentIds, selectedSetActive]);
+  const displayedHeatmap = useMemo<HeatmapGeoJSON | null>(() => {
+    if (!heatmap) return null;
+    if (heatmapSource === 'filtered') return heatmap;
+    const selectedIdSet = new Set(selectedIncidentIds);
+    return {
+      ...heatmap,
+      features: heatmap.features.filter((feature) => selectedIdSet.has(feature.properties.incident_id)),
+    };
+  }, [heatmap, heatmapSource, selectedIncidentIds]);
+
   const totalTrendCount = trends?.data.reduce((sum, item) => sum + item.count, 0) ?? 0;
   const peakTrend = trends?.data.reduce<{ bucket: string | null; count: number } | null>((best, item) => {
     if (!best || item.count > best.count) return item;
@@ -747,14 +759,36 @@ export default function AnalystWorkflowPage() {
       )}
 
       {workflow === 'heatmap' && (
-        <Panel title="Map View" icon={<MapPinned className="h-5 w-5" />} description="Each marker represents one verified incident with coordinates in the current filter result.">
+        <Panel
+          title="Map View"
+          icon={<MapPinned className="h-5 w-5" />}
+          description="Each marker represents one verified incident with coordinates in the current filter result."
+          action={(
+            <div className="inline-flex rounded-md border border-gray-200 bg-gray-50 p-1 text-xs font-semibold text-gray-600">
+              <button
+                type="button"
+                onClick={() => setHeatmapSource('filtered')}
+                className={`rounded px-2.5 py-1.5 transition-colors ${heatmapSource === 'filtered' ? 'bg-white text-red-700 shadow-sm' : 'hover:text-gray-800'}`}
+              >
+                Filtered ({heatmap?.features.length ?? 0})
+              </button>
+              <button
+                type="button"
+                onClick={() => setHeatmapSource('selected')}
+                className={`rounded px-2.5 py-1.5 transition-colors ${heatmapSource === 'selected' ? 'bg-white text-red-700 shadow-sm' : 'hover:text-gray-800'}`}
+              >
+                Selected ({selectedIncidentIds.length})
+              </button>
+            </div>
+          )}
+        >
           <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <MetricTile label="Mapped Incidents" value={(heatmap?.features.length ?? 0).toLocaleString()} detail="Features returned by /analytics/heatmap" />
+            <MetricTile label="Mapped Incidents" value={(displayedHeatmap?.features.length ?? 0).toLocaleString()} detail={heatmapSource === 'selected' ? 'Selected incidents shown on map' : 'Filtered incidents shown on map'} />
             <MetricTile label="Map Mode" value="Point" detail="GeoJSON incident locations" />
-            <MetricTile label="Evidence" value="Table Below" detail="Same filters applied to incident records" />
+            <MetricTile label="Evidence" value={heatmapSource === 'selected' ? 'Selected Set' : 'Filtered Set'} detail="Incident evidence table remains below" />
           </div>
           <div className="overflow-hidden rounded-md border border-gray-200">
-            {heatmap ? <HeatmapViewer geojson={heatmap} /> : <div className="flex h-[520px] items-center justify-center text-gray-500">No map data loaded.</div>}
+            {displayedHeatmap ? <HeatmapViewer geojson={displayedHeatmap} emptyMessage={heatmapSource === 'selected' ? 'No selected incidents to display on map' : 'No incidents to display on map'} /> : <div className="flex h-[520px] items-center justify-center text-gray-500">No map data loaded.</div>}
           </div>
         </Panel>
       )}

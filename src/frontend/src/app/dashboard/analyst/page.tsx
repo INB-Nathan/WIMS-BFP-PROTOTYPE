@@ -93,6 +93,7 @@ const INTERVALS = [
 ];
 
 const ANALYST_ROLES = ['NATIONAL_ANALYST', 'SYSTEM_ADMIN'];
+type HeatmapSource = 'filtered' | 'selected';
 
 const WORKFLOW_LINKS: ReadonlyArray<{
   slug: AnalystWorkflowSlug;
@@ -289,6 +290,8 @@ export default function AnalystDashboardPage() {
   const [topNMetric, setTopNMetric] = useState('incidents');
   const [topNDimension, setTopNDimension] = useState('municipality');
   const [appliedIncidentFilters, setAppliedIncidentFilters] = useState<AnalystIncidentListParams>({});
+  const [selectedIncidentIds, setSelectedIncidentIds] = useState<number[]>([]);
+  const [heatmapSource, setHeatmapSource] = useState<HeatmapSource>('filtered');
 
   // Progressive disclosure: advanced filters collapsed by default
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
@@ -487,6 +490,16 @@ export default function AnalystDashboardPage() {
   const averageResponseTime = responseTime && responseTime.length > 0
     ? responseTime.reduce((sum, item) => sum + Number(item.avg_response_time || 0), 0) / responseTime.length
     : null;
+
+  const displayedHeatmap = useMemo<HeatmapGeoJSON | null>(() => {
+    if (!heatmap) return null;
+    if (heatmapSource === 'filtered') return heatmap;
+    const selectedIdSet = new Set(selectedIncidentIds);
+    return {
+      ...heatmap,
+      features: heatmap.features.filter((feature) => selectedIdSet.has(feature.properties.incident_id)),
+    };
+  }, [heatmap, heatmapSource, selectedIncidentIds]);
 
   const dashboardTransferFilters = useMemo<AnalystIncidentListParams>(() => ({
     start_date: startDate || undefined,
@@ -1341,6 +1354,8 @@ export default function AnalystDashboardPage() {
                 prominent
                 title="Incident Analysis Set"
                 description="Select verified incidents across pages, then send that selected set to a dedicated analyst workflow."
+                initialSelectedIncidentIds={selectedIncidentIds}
+                onSelectionChange={setSelectedIncidentIds}
               />
             </div>
 
@@ -1351,9 +1366,33 @@ export default function AnalystDashboardPage() {
                 title="Incident Heatmap"
                 description="Geographic clustering of verified incidents"
                 freshness={{ cachedAt: cacheMeta.heatmap, isOnline: networkStatus.isOnline }}
+                action={(
+                  <div className="inline-flex rounded-md border border-gray-200 bg-gray-50 p-1 text-xs font-semibold text-gray-600">
+                    <button
+                      type="button"
+                      onClick={() => setHeatmapSource('filtered')}
+                      className={`rounded px-2.5 py-1.5 transition-colors ${heatmapSource === 'filtered' ? 'bg-white text-red-700 shadow-sm' : 'hover:text-gray-800'}`}
+                    >
+                      Filtered ({heatmap?.features.length ?? 0})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setHeatmapSource('selected')}
+                      className={`rounded px-2.5 py-1.5 transition-colors ${heatmapSource === 'selected' ? 'bg-white text-red-700 shadow-sm' : 'hover:text-gray-800'}`}
+                    >
+                      Selected ({selectedIncidentIds.length})
+                    </button>
+                  </div>
+                )}
               />
               <div className="p-0">
-                <HeatmapViewer geojson={heatmap} className="h-[520px] lg:h-[calc(100vh-7rem)] lg:min-h-[600px] lg:max-h-[920px]" />
+                {displayedHeatmap && (
+                  <HeatmapViewer
+                    geojson={displayedHeatmap}
+                    className="h-[520px] lg:h-[calc(100vh-7rem)] lg:min-h-[600px] lg:max-h-[920px]"
+                    emptyMessage={heatmapSource === 'selected' ? 'No selected incidents to display on map' : 'No incidents to display on map'}
+                  />
+                )}
               </div>
             </div>
           </div>
