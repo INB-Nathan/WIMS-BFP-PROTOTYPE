@@ -17,7 +17,7 @@ import {
   fetchRegionalIncidentsOfflineAware,
   fetchRegionalIncidentOfflineAware,
 } from './api/offlineRegional';
-import { getConnectivitySnapshot } from './connectivity';
+import { isReachable } from './connectivity';
 import {
   isOfflineModeEnabled,
   markOfflineModeEnabled,
@@ -45,6 +45,7 @@ export interface OfflineEnableResult {
   cachedDetails: number;
   cachedList: number;
   error?: string;
+  warning?: string;
 }
 
 // Flag helpers (isOfflineModeEnabled, markOfflineModeEnabled, clearOfflineModeEnabled)
@@ -76,9 +77,11 @@ export async function enableOfflineMode(
     prefetch?: (href: string) => void;
     onProgress?: (p: OfflineEnableProgress) => void;
     signal?: AbortSignal;
+    /** Silent mode: best-effort cache warm (for auto-trigger on login). Never surfaces errors or toasts. */
+    silent?: boolean;
   } = {},
 ): Promise<OfflineEnableResult> {
-  const { prefetch, onProgress, signal } = opts;
+  const { prefetch, onProgress, signal, silent = false } = opts;
 
   if (!encoderId) {
     return { ok: false, cachedDetails: 0, cachedList: 0, error: 'No active encoder session.' };
@@ -86,7 +89,10 @@ export async function enableOfflineMode(
   if (signal?.aborted) {
     return { ok: false, cachedDetails: 0, cachedList: 0, error: 'Offline setup cancelled.' };
   }
-  if (!getConnectivitySnapshot().isOnline) {
+  // Use a live probe instead of the cached snapshot — the snapshot is stale
+  // on page load while the connectivity monitor is still in 'checking' state.
+  const reachable = await isReachable();
+  if (!reachable) {
     return { ok: false, cachedDetails: 0, cachedList: 0, error: 'You must be online to enable offline mode.' };
   }
 
@@ -113,6 +119,15 @@ export async function enableOfflineMode(
     );
     const items = response.items ?? [];
 
+    if (items.length === 0 && !silent) {
+      return {
+        ok: false,
+        cachedDetails: 0,
+        cachedList: 0,
+        error: 'No incidents found to cache. Ensure your account has incidents visible, then try again.',
+      };
+    }
+
     // 4. Pull full detail for a capped batch so detail/edit views work offline.
     const ids = items.slice(0, DETAIL_CACHE_CAP).map((i) => i.incident_id);
 
@@ -123,14 +138,15 @@ export async function enableOfflineMode(
     if (ids.length > 0) prefetch?.(`/dashboard/regional/incidents/${ids[0]}`);
 
     let done = 0;
+    let failed = 0;
     for (const id of ids) {
       if (signal?.aborted) throwCancelled();
       try {
         await fetchRegionalIncidentOfflineAware(id, encoderId);
+        done += 1;
       } catch {
-        // Skip individual failures — partial caching is still useful.
+        failed += 1;
       }
-      done += 1;
       onProgress?.({
         step: 'Caching incident details…',
         phase: 'details',
@@ -140,8 +156,22 @@ export async function enableOfflineMode(
       });
     }
 
+    if (failed > 0 && done === 0 && !silent) {
+      return {
+        ok: false,
+        cachedDetails: 0,
+        cachedList: items.length,
+        error: `Could not cache any incident details (all ${failed} failed). Try again when connected.`,
+      };
+    }
+
     markOfflineModeEnabled();
-    return { ok: true, cachedDetails: ids.length, cachedList: items.length };
+    return {
+      ok: true,
+      cachedDetails: done,
+      cachedList: items.length,
+      warning: failed > 0 ? `${failed} of ${ids.length} detail fetch${failed === 1 ? '' : 'es'} failed — partial offline cache.` : undefined,
+    };
   } catch (e: unknown) {
     // AbortError is intentional — return clean result, not a re-throw.
     if (e instanceof DOMException && e.name === 'AbortError') {

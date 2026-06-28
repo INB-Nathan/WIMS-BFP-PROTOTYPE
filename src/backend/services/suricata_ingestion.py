@@ -6,11 +6,16 @@ import json
 import logging
 import os
 import uuid
+from datetime import datetime, timezone
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from services.event_bus import publish_security_event_sync
+from services.security_rollups import (
+    record_security_threat_rollups,
+    should_store_raw_security_alert,
+)
 from utils.config import get_config
 
 logger = logging.getLogger(__name__)
@@ -54,6 +59,22 @@ _VALID_CLASSIFICATIONS = frozenset(
         "unclassified",
     }
 )
+
+
+def _parse_eve_timestamp(value: str | None) -> datetime | None:
+    """Parse Suricata EVE timestamps for rollup bucketing."""
+    if not value:
+        return None
+    normalized = value.replace("Z", "+00:00")
+    if len(normalized) >= 5 and normalized[-5] in ("+", "-") and normalized[-3] != ":":
+        normalized = f"{normalized[:-2]}:{normalized[-2:]}"
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def _classify_alert(alert: dict, severity_level: str) -> str:
@@ -267,6 +288,10 @@ def ingest_eve_file(path: str, *, db_session: Session | None = None) -> int:
                 if ev is None:
                     continue
                 row = eve_to_threat_log_row(ev, raw_payload=line, high_threshold=high_threshold)
+                event_timestamp = _parse_eve_timestamp(ev.get("timestamp"))
+                record_security_threat_rollups(db, row, event_timestamp=event_timestamp)
+                if not should_store_raw_security_alert(db, row):
+                    continue
                 log_id = _insert_row(db, row)
                 if log_id is not None:
                     inserted += 1

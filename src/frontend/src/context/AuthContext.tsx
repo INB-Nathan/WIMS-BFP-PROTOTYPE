@@ -14,6 +14,7 @@ import { createUserManager } from '@/lib/oidc';
 import { refreshToken } from '@/lib/auth-refresh';
 import { clearAllCachedIncidents, setActiveOfflineUser } from '@/lib/offlineStore';
 import { getConnectivitySnapshot } from '@/lib/connectivity';
+import { enableOfflineMode } from '@/lib/offlineEnable';
 
 export interface User {
   id: string;
@@ -36,6 +37,13 @@ interface AuthContextValue {
    * write/role-scoped operations behind a successful server re-check.
    */
   serverValidated: boolean;
+  /**
+   * True when the user identity is present in cache (even if the server hasn't
+   * re-confirmed it yet). Queued offline writes (create/update via offlineOps)
+   * are safe with only this flag — the server validates the JWT at sync time.
+   * Use `serverValidated` for operations that MUST reach the server immediately.
+   */
+  canQueueOfflineWrites: boolean;
   loading: boolean;
   loggingOut: boolean;
   login: () => Promise<void>;
@@ -110,7 +118,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const raw = localStorage.getItem(SESSION_CACHE_KEY);
       if (raw) {
-        const cached = JSON.parse(raw) as { user: Pick<User, 'id' | 'role'> };
+        const cached = JSON.parse(raw) as { user: Pick<User, 'id' | 'role' | 'assignedRegionId'> };
         if (cached.user) {
           setUser(cached.user);
           // Issue #5: cached user is OFFLINE READ-ONLY until a successful
@@ -145,7 +153,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // Bind offline storage to this account — wipes prior user's offline data
           // if a different uid is now logged in (item F12).
           if (data.user.id) void setActiveOfflineUser(data.user.id);
-          try { localStorage.setItem(SESSION_CACHE_KEY, JSON.stringify({ user: { id: data.user.id, role: data.user.role } })); } catch { /* private mode */ }
+          // Include assignedRegionId in the cache so encoders can create incidents
+          // offline even when their session can only be restored from localStorage.
+          try {
+            localStorage.setItem(SESSION_CACHE_KEY, JSON.stringify({
+              user: {
+                id: data.user.id,
+                role: data.user.role,
+                assignedRegionId: data.user.assignedRegionId ?? null,
+              },
+            }));
+          } catch { /* private mode */ }
           // Post-login role prefetch (Task 14): notify the active service worker
           // of the signed-in role so it can pre-warm that role's routes.
           notifyServiceWorkerOfRole(data.user.role);
@@ -221,6 +239,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [loggingOut, refreshAccessToken, user]);
+
+  // ─── Automatic offline cache warm-up (Track 2) ───────────────────────────────
+  // Fires once per browser session after the first successful server validation.
+  // Uses silent mode so failures are logged but never surfaced as UI errors or toasts.
+  // The sessionStorage guard prevents re-running on every token refresh.
+  useEffect(() => {
+    if (!serverValidated || !user?.id) return;
+    if (typeof sessionStorage === 'undefined') return;
+    if (sessionStorage.getItem('wims:preload_done')) return;
+    sessionStorage.setItem('wims:preload_done', '1');
+
+    enableOfflineMode(user.id, { silent: true }).catch((err) => {
+      console.warn('[AuthContext] background offline preload failed:', err);
+    });
+  }, [serverValidated, user?.id]);
 
   const login = useCallback(async () => {
     try {
@@ -304,6 +337,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user,
         isAuthenticated: !!user,
         serverValidated,
+        canQueueOfflineWrites: user !== null,
         loading,
         loggingOut,
         login,

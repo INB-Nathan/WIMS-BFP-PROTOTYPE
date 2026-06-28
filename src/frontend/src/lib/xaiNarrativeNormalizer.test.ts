@@ -173,4 +173,78 @@ describe('normalizeNarrative', () => {
     expect(result.isStructured).toBe(true);
     expect(result.anomalyDescription).toBe('Contains "quoted" text');
   });
+
+  // ── New fields: confidenceBreakdown + sources ──────────────────────────────
+
+  it('parses confidence_breakdown and sources from structured JSON', () => {
+    const input = JSON.stringify({
+      anomaly_description: 'Test anomaly',
+      log_evidence: 'Test evidence',
+      risk_assessment: 'Test risk',
+      recommended_action: 'Test action',
+      confidence: 0.95,
+      confidence_breakdown: { anomaly_detection: 0.97, classification: 0.94, overall: 0.96 },
+      sources: ['Suricata EVE log', 'Ollama', 'Threat intel'],
+    });
+    const result = normalizeNarrative(input);
+    expect(result.confidenceBreakdown).toEqual({
+      anomalyDetection: 0.97,
+      classification: 0.94,
+      overall: 0.96,
+    });
+    expect(result.sources).toEqual(['Suricata EVE log', 'Ollama', 'Threat intel']);
+    expect(result.isStructured).toBe(true);
+  });
+
+  it('handles partial confidence_breakdown with missing keys', () => {
+    const input = JSON.stringify({
+      confidence_breakdown: { anomaly_detection: 0.85 },
+    });
+    const result = normalizeNarrative(input);
+    expect(result.confidenceBreakdown).toEqual({
+      anomalyDetection: 0.85,
+      classification: null,
+      overall: null,
+    });
+  });
+
+  it('handles empty sources array', () => {
+    const input = JSON.stringify({
+      anomaly_description: 'Test',
+      sources: [],
+    });
+    const result = normalizeNarrative(input);
+    expect(result.sources).toEqual([]);
+  });
+
+  it('parses confidence_breakdown and sources from fenced JSON', () => {
+    const input = '\`\`\`json\n{"anomaly_description":"Fenced","confidence":0.8,"confidence_breakdown":{"anomaly_detection":0.82,"classification":0.79,"overall":0.80},"sources":["Suricata EVE log"]}\n\`\`\`';
+    const result = normalizeNarrative(input);
+    expect(result.isStructured).toBe(true);
+    expect(result.confidenceBreakdown).toEqual({
+      anomalyDetection: 0.82,
+      classification: 0.79,
+      overall: 0.80,
+    });
+    expect(result.sources).toEqual(['Suricata EVE log']);
+  });
+
+  it('extracts confidenceBreakdown via regex fallback from partial JSON', () => {
+    const input = '{"confidence_breakdown":{"anomaly_detection":0.92,"classification":0.88,"overall":0.90}}';
+    const result = normalizeNarrative(input);
+    // Should still parse via JSON path first since it's valid JSON
+    expect(result.isStructured).toBe(true);
+    expect(result.confidenceBreakdown).toEqual({
+      anomalyDetection: 0.92,
+      classification: 0.88,
+      overall: 0.90,
+    });
+  });
+
+  it('returns null confidenceBreakdown and sources for plain text', () => {
+    const input = 'This is plain text with no structured data.';
+    const result = normalizeNarrative(input);
+    expect(result.confidenceBreakdown).toBeNull();
+    expect(result.sources).toBeNull();
+  });
 });

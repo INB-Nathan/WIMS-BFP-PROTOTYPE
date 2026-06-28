@@ -1,4 +1,4 @@
-"""IDS-to-SLM AI Analysis via Ollama (qwen2.5:1.5b)."""
+"""IDS-to-SLM AI Analysis via Ollama (qwen2.5:3b)."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import time
 import httpx
 import redis.asyncio as aioredis
 import redis.exceptions
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -24,7 +24,7 @@ from utils.external_service import (
 from utils.metrics import AI_INFERENCE_DURATION
 
 logger = logging.getLogger("wims.ai_service")
-OLLAMA_MODEL = "qwen2.5:1.5b"
+OLLAMA_MODEL = "qwen2.5:3b"
 
 # ---------------------------------------------------------------------------
 # Ollama HTTP timeout (seconds). Override via OLLAMA_TIMEOUT env var.
@@ -154,7 +154,7 @@ async def _ollama_post_with_retry(payload: dict, call_label: str = "", db=None) 
         raise HTTPException(status_code=502, detail="Ollama transport error") from exc
 
 
-async def analyze_threat_log(log_id: int, db: Session) -> dict:
+async def analyze_threat_log(log_id: int, db: Session, request: Request | None = None) -> dict:
     """
     Fetch log from wims.security_threat_logs, send to Ollama for analysis,
     update xai_narrative and xai_confidence, return updated log dict.
@@ -197,7 +197,9 @@ async def analyze_threat_log(log_id: int, db: Session) -> dict:
         "'log_evidence' (string), "
         "'risk_assessment' (string), "
         "'recommended_action' (string), "
-        "'confidence' (float 0.0-1.0)."
+        "'confidence' (float 0.0-1.0), "
+        "'confidence_breakdown' (object with keys 'anomaly_detection', 'classification', 'overall', each float 0.0-1.0), "
+        "'sources' (array of strings indicating which data sources were used)."
     )
 
     payload = {
@@ -206,6 +208,10 @@ async def analyze_threat_log(log_id: int, db: Session) -> dict:
         "stream": False,
         "format": "json",
     }
+
+    if request is not None and await request.is_disconnected():
+        logger.info("Client disconnected before AI analysis of log %d", log_id)
+        raise HTTPException(status_code=499, detail="Client disconnected")
 
     _t0 = time.perf_counter()
     resp = await _ollama_post_with_retry(payload, call_label="analyze_threat_log", db=db)
@@ -218,11 +224,21 @@ async def analyze_threat_log(log_id: int, db: Session) -> dict:
     except json.JSONDecodeError:
         raise HTTPException(status_code=502, detail="Ollama returned invalid JSON")
 
+    if request is not None and await request.is_disconnected():
+        logger.info("Client disconnected during AI analysis of log %d, skipping DB write", log_id)
+        raise HTTPException(status_code=499, detail="Client disconnected")
+
+    # Extract sources
+    sources = parsed.get("sources", ["Suricata EVE log", "Ollama"])
+    if not isinstance(sources, list):
+        sources = ["Suricata EVE log", "Ollama"]
+
     narrative_data = {
         "anomaly_description": parsed.get("anomaly_description", ""),
         "log_evidence": parsed.get("log_evidence", ""),
         "risk_assessment": parsed.get("risk_assessment", ""),
         "recommended_action": parsed.get("recommended_action", ""),
+        "sources": sources,
     }
     narrative = json.dumps(narrative_data)
     try:
@@ -231,13 +247,30 @@ async def analyze_threat_log(log_id: int, db: Session) -> dict:
         confidence = 0.0
     confidence = max(0.0, min(1.0, confidence))
 
+    # Extract confidence breakdown
+    raw_breakdown = parsed.get("confidence_breakdown", {})
+    confidence_breakdown = {}
+    for key in ("anomaly_detection", "classification", "overall"):
+        val = raw_breakdown.get(key, confidence)
+        try:
+            confidence_breakdown[key] = max(0.0, min(1.0, float(val)))
+        except (TypeError, ValueError):
+            confidence_breakdown[key] = confidence
+
     db.execute(
         text("""
             UPDATE wims.security_threat_logs
-            SET xai_narrative = :narrative, xai_confidence = :confidence
+            SET xai_narrative = :narrative,
+                xai_confidence = :confidence,
+                xai_confidence_breakdown = CAST(:breakdown AS jsonb)
             WHERE log_id = :log_id
         """),
-        {"narrative": narrative, "confidence": confidence, "log_id": log_id},
+        {
+            "narrative": narrative,
+            "confidence": confidence,
+            "breakdown": json.dumps(confidence_breakdown),
+            "log_id": log_id,
+        },
     )
     db.commit()
 
@@ -259,6 +292,7 @@ async def analyze_threat_log(log_id: int, db: Session) -> dict:
         "raw_payload": row[6],
         "xai_narrative": narrative,
         "xai_confidence": confidence,
+        "xai_confidence_breakdown": confidence_breakdown,
         "admin_action_taken": row[9],
         "resolved_at": row[10].isoformat() if row[10] else None,
         "reviewed_by": str(row[11]) if row[11] else None,

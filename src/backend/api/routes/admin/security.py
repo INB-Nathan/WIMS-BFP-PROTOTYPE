@@ -147,6 +147,7 @@ def get_security_logs(
         text(f"""
             SELECT log_id, timestamp, source_ip, destination_ip, suricata_sid,
                    severity_level, raw_payload, xai_narrative, xai_confidence,
+                   xai_confidence_breakdown,
                    admin_action_taken, resolved_at, reviewed_by, hitl_decision,
                    classification, suricata_signature, suricata_category
             FROM wims.security_threat_logs
@@ -177,13 +178,14 @@ def get_security_logs(
                 "raw_payload": r[6],
                 "xai_narrative": r[7],
                 "xai_confidence": float(r[8]) if r[8] is not None else None,
-                "admin_action_taken": r[9],
-                "resolved_at": r[10].isoformat() if r[10] else None,
-                "reviewed_by": str(r[11]) if r[11] else None,
-                "hitl_decision": r[12],
-                "classification": r[13],
-                "suricata_signature": r[14],
-                "suricata_category": r[15],
+                "xai_confidence_breakdown": r[9],
+                "admin_action_taken": r[10],
+                "resolved_at": r[11].isoformat() if r[11] else None,
+                "reviewed_by": str(r[12]) if r[12] else None,
+                "hitl_decision": r[13],
+                "classification": r[14],
+                "suricata_signature": r[15],
+                "suricata_category": r[16],
             }
             for r in rows
         ],
@@ -247,6 +249,107 @@ def get_security_logs_summary(
         "unreviewed_count": unreviewed,
         "total": total,
         "recent_narratives": recent_narratives,
+    }
+
+
+@router.get("/security-logs/rollups")
+def get_security_log_rollups(
+    _admin: Annotated[dict, Depends(get_system_admin)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
+    granularity: str = Query(default="hour"),
+    date_from: Optional[str] = Query(default=None),
+    date_to: Optional[str] = Query(default=None),
+    severity: Optional[str] = Query(default=None),
+    classification: Optional[str] = Query(default=None),
+    source_ip: Optional[str] = Query(default=None),
+):
+    """Return hourly/daily security telemetry rollups for weekly/time-range charts."""
+    if granularity not in {"hour", "day"}:
+        raise HTTPException(status_code=400, detail="granularity must be 'hour' or 'day'")
+
+    where_clauses = ["bucket_granularity = :granularity"]
+    params: dict[str, Any] = {"granularity": granularity}
+
+    if date_from is not None:
+        where_clauses.append("bucket_start >= CAST(:date_from AS timestamptz)")
+        params["date_from"] = date_from
+    else:
+        default_window = "7 days" if granularity == "hour" else "90 days"
+        where_clauses.append(f"bucket_start >= now() - INTERVAL '{default_window}'")
+
+    if date_to is not None:
+        where_clauses.append("bucket_start <= CAST(:date_to AS timestamptz)")
+        params["date_to"] = date_to
+
+    if severity is not None:
+        requested = [s.strip().upper() for s in severity.split(",") if s.strip()]
+        valid_sevs = [s for s in requested if s in _VALID_SEVERITIES]
+        if valid_sevs:
+            placeholders = ", ".join(f":sev{i}" for i in range(len(valid_sevs)))
+            where_clauses.append(f"severity_level IN ({placeholders})")
+            for i, sev in enumerate(valid_sevs):
+                params[f"sev{i}"] = sev
+
+    if classification is not None:
+        requested = [c.strip() for c in classification.split(",") if c.strip()]
+        invalid = [c for c in requested if c not in _VALID_CLASSIFICATIONS]
+        if invalid:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid classification value(s): {', '.join(invalid)}. "
+                f"Valid values: {', '.join(sorted(_VALID_CLASSIFICATIONS))}",
+            )
+        if requested:
+            placeholders = ", ".join(f":cls{i}" for i in range(len(requested)))
+            where_clauses.append(f"classification IN ({placeholders})")
+            for i, cls in enumerate(requested):
+                params[f"cls{i}"] = cls
+
+    if source_ip is not None:
+        where_clauses.append("source_ip = :source_ip")
+        params["source_ip"] = source_ip
+
+    where_sql = " AND ".join(where_clauses)
+    rows = db.execute(
+        text(f"""
+            SELECT bucket_start, severity_level, classification, source_ip,
+                   NULLIF(suricata_sid, 0) AS suricata_sid,
+                   suricata_signature, alert_count, first_seen, last_seen
+            FROM wims.security_threat_log_rollups
+            WHERE {where_sql}
+            ORDER BY bucket_start ASC, alert_count DESC
+        """),
+        params,
+    ).fetchall()
+
+    by_severity: dict[str, int] = {"LOW": 0, "MEDIUM": 0, "HIGH": 0, "CRITICAL": 0}
+    total = 0
+    items = []
+    for row in rows:
+        count = int(row[6] or 0)
+        total += count
+        level = (row[1] or "").upper()
+        if level in by_severity:
+            by_severity[level] += count
+        items.append(
+            {
+                "bucket_start": row[0].isoformat() if row[0] else None,
+                "severity_level": row[1],
+                "classification": row[2],
+                "source_ip": row[3] or None,
+                "suricata_sid": row[4],
+                "suricata_signature": row[5],
+                "count": count,
+                "first_seen": row[7].isoformat() if row[7] else None,
+                "last_seen": row[8].isoformat() if row[8] else None,
+            }
+        )
+
+    return {
+        "granularity": granularity,
+        "total": total,
+        "by_severity": by_severity,
+        "items": items,
     }
 
 
@@ -351,11 +454,12 @@ async def bulk_action(
 @router.post("/security-logs/{log_id}/analyze")
 async def analyze_security_log(
     log_id: int,
+    request: Request,
     _admin: Annotated[dict, Depends(get_system_admin)],
     db: Annotated[Session, Depends(get_db_with_rls)],
 ):
     """Run AI analysis on a security threat log via Ollama. Updates xai_narrative and xai_confidence."""
-    return await analyze_threat_log(log_id, db)
+    return await analyze_threat_log(log_id, db, request)
 
 
 @router.patch("/security-logs/{log_id}")

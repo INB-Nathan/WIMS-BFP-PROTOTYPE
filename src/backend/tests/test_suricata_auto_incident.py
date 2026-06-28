@@ -230,7 +230,10 @@ class TestCreateSecurityIncident:
                     with patch.object(si, "_create_security_incident", mock_create):
                         si.ingest_eve_file(temp_path, db_session=mock_db)
 
-            assert mock_ins.call_count >= 1, f"_insert_row: {mock_ins.call_count}"
+            assert mock_ins.call_count == 0, (
+                "Medium low-value alerts are rollup-only by default; "
+                f"_insert_row: {mock_ins.call_count}"
+            )
             assert mock_create.call_count == 0, (
                 f"_create_security_incident: {mock_create.call_count}"
             )

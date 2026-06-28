@@ -60,6 +60,13 @@ const mockFetchAdminUsers = vi.fn();
 const mockFetchAuditLogs = vi.fn();
 const mockFetchRegionsOfflineAware = vi.fn();
 
+vi.mock('@/lib/api/admin', () => ({
+    updateAdminSecurityLog: (...args: unknown[]) => mockUpdateAdminSecurityLog(...args),
+    createIncidentFromAlert: (logId: number) => mockCreateIncidentFromAlert(logId),
+    fetchRelatedAuditLogs: (logId: number) => mockFetchRelatedAuditLogs(logId),
+    analyzeSecurityLog: (logId: number) => mockAnalyzeSecurityLog(logId),
+}));
+
 vi.mock('@/lib/useNetworkStatus', () => ({
     useNetworkStatus: () => ({ isOnline: true, isReconnecting: false }),
 }));
@@ -141,7 +148,7 @@ describe('Admin System — HITL Decision Buttons in Threat Telemetry Modal', () 
         expect(screen.getByRole('button', { name: /Confirm Threat/i })).toBeInTheDocument();
         expect(screen.getByRole('button', { name: /False Positive/i })).toBeInTheDocument();
         expect(screen.getByRole('button', { name: /View Related Evidence/i })).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: /Create Incident from Alert/i })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /Create Incident/i })).toBeInTheDocument();
     });
 
     it('clicking "Confirm Threat" calls updateAdminSecurityLog with action CONFIRM_THREAT and shows success', async () => {
@@ -248,7 +255,7 @@ describe('Admin System — HITL Decision Buttons in Threat Telemetry Modal', () 
         expect(screen.getByRole('button', { name: /Confirm Threat/i })).toBeInTheDocument();
     });
 
-    it('clicking "Create Incident from Alert" calls createIncidentFromAlert and shows success link', async () => {
+    it('clicking "Create Incident" calls createIncidentFromAlert and shows success link', async () => {
         mockCreateIncidentFromAlert.mockResolvedValue({ status: 'ok', incident_id: 42 });
         mockFetchAdminSecurityLogs.mockResolvedValue({ items: [mockLogUnactioned], total: 1 });
         render(<AdminSystemPage />);
@@ -256,7 +263,7 @@ describe('Admin System — HITL Decision Buttons in Threat Telemetry Modal', () 
         const viewButtons = await screen.findAllByRole('button', { name: /View/i });
         fireEvent.click(viewButtons[0]);
         await waitFor(() => expect(screen.getByText(/Suricata Alert.*#1/)).toBeInTheDocument());
-        fireEvent.click(screen.getByRole('button', { name: /Create Incident from Alert/i }));
+        fireEvent.click(screen.getByRole('button', { name: /Create Incident/i }));
         await waitFor(() => {
             expect(mockCreateIncidentFromAlert).toHaveBeenCalledWith(1);
         });

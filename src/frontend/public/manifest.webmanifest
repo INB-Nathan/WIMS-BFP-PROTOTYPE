@@ -1,8 +1,11 @@
 {
   "name": "WIMS-BFP Prototype",
   "short_name": "WIMS-BFP",
+  "id": "/",
   "start_url": "/dashboard",
   "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone"],
+  "orientation": "portrait-primary",
   "background_color": "#ffffff",
   "theme_color": "#dc2626",
   "icons": [
@@ -14,7 +17,8 @@
     {
       "src": "/bfp-logo.png",
       "sizes": "192x192 512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
     }
   ]
 }

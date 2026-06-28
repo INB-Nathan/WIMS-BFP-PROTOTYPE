@@ -71,7 +71,7 @@ class TestRetryLogic:
             import asyncio
 
             result = asyncio.run(
-                _ollama_post_with_retry({"model": "qwen2.5:1.5b"}, call_label="test")
+                _ollama_post_with_retry({"model": "qwen2.5:3b"}, call_label="test")
             )
 
         assert result is mock_resp
@@ -94,7 +94,7 @@ class TestRetryLogic:
             import asyncio
 
             with pytest.raises(HTTPException) as exc_info:
-                asyncio.run(_ollama_post_with_retry({"model": "qwen2.5:1.5b"}, call_label="test"))
+                asyncio.run(_ollama_post_with_retry({"model": "qwen2.5:3b"}, call_label="test"))
 
         assert exc_info.value.status_code == 502
         assert "unavailable" in exc_info.value.detail.lower()
@@ -118,7 +118,7 @@ class TestRetryLogic:
             import asyncio
 
             with pytest.raises(HTTPException) as exc_info:
-                asyncio.run(_ollama_post_with_retry({"model": "qwen2.5:1.5b"}, call_label="test"))
+                asyncio.run(_ollama_post_with_retry({"model": "qwen2.5:3b"}, call_label="test"))
 
         assert exc_info.value.status_code == 502
         assert "timed out" in exc_info.value.detail.lower()
@@ -150,7 +150,7 @@ class TestRetryLogic:
             import asyncio
 
             result = asyncio.run(
-                _ollama_post_with_retry({"model": "qwen2.5:1.5b"}, call_label="test")
+                _ollama_post_with_retry({"model": "qwen2.5:3b"}, call_label="test")
             )
 
         assert result is mock_success
@@ -176,7 +176,7 @@ class TestRetryLogic:
             import asyncio
 
             with pytest.raises(HTTPException) as exc_info:
-                asyncio.run(_ollama_post_with_retry({"model": "qwen2.5:1.5b"}, call_label="test"))
+                asyncio.run(_ollama_post_with_retry({"model": "qwen2.5:3b"}, call_label="test"))
 
         assert exc_info.value.status_code == 502
         assert call_count[0] == 3
@@ -201,7 +201,7 @@ class TestRetryLogic:
             import asyncio
 
             with pytest.raises(HTTPException) as exc_info:
-                asyncio.run(_ollama_post_with_retry({"model": "qwen2.5:1.5b"}, call_label="test"))
+                asyncio.run(_ollama_post_with_retry({"model": "qwen2.5:3b"}, call_label="test"))
 
         assert exc_info.value.status_code == 502
         assert call_count[0] == 1  # 4xx is not retried
@@ -253,9 +253,9 @@ class TestDockerComposeConfig:
 
         ollama = data["services"]["ollama"]
         limits = ollama["deploy"]["resources"]["limits"]
-        assert limits["cpus"] in ("2", 2), (
-            f"Expected 2 CPUs (VPS has 2 vCPUs), got {limits['cpus']}"
+        assert limits["cpus"] in ("4", 4), (
+            f"Expected 4 CPUs reserved for Qwen2.5-3B, got {limits['cpus']}"
         )
-        assert limits["memory"].lower() in ("4gb", "4g", "4096m"), (
-            f"Expected 4GB memory, got {limits['memory']}"
+        assert limits["memory"].lower() in ("6gb", "6g", "6144m"), (
+            f"Expected 6GB memory, got {limits['memory']}"
         )
