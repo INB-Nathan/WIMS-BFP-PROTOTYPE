@@ -1,6 +1,7 @@
 'use client';
 
 import { ReactNode, useEffect, useState } from 'react';
+import { WifiOff } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { Header } from './Header';
 import { Sidebar } from './Sidebar';
@@ -9,9 +10,10 @@ import { registerServiceWorker } from '@/lib/swRegistration';
 import { useNetworkStatus } from '@/lib/useNetworkStatus';
 import { maybePruneCaches } from '@/lib/offlineStore';
 import { usePreloadDashboardData } from '@/lib/usePreloadDashboardData';
+import { PwaInstallPrompt } from './PwaInstallPrompt';
 
 export function LayoutShell({ children }: { children: ReactNode }) {
-    const { user, loading, loggingOut, login } = useAuth();
+    const { user, loading, loggingOut, login, serverValidated } = useAuth();
     const { isOnline } = useNetworkStatus();
     const pathname = usePathname();
     const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -96,6 +98,17 @@ export function LayoutShell({ children }: { children: ReactNode }) {
             <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
                 {/* Header */}
                 <Header onMenuToggle={() => setSidebarOpen(!sidebarOpen)} />
+
+                {/* PWA install prompt — shown to REGIONAL_ENCODER once, before any other banner */}
+                <PwaInstallPrompt />
+
+                {/* Offline session banner — shown when identity restored from cache but server not yet reachable */}
+                {!serverValidated && !isOnline && user !== null && (
+                    <div className="flex items-center gap-2 bg-amber-50 border-b border-amber-200 px-4 py-2 text-sm text-amber-800">
+                        <WifiOff className="h-4 w-4 flex-shrink-0" aria-hidden />
+                        <span>Offline session — your changes will save locally and upload when you reconnect.</span>
+                    </div>
+                )}
 
                 {/* Page content */}
                 <main className="flex-1 overflow-y-auto p-4 lg:p-6 wims-main-zoom">

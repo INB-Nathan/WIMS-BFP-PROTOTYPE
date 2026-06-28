@@ -77,6 +77,7 @@ export function OfflineModeManager({ variant = 'panel' }: { variant?: 'banner' |
       toast.success(
         `Offline mode ready — ${result.cachedDetails} incident${result.cachedDetails === 1 ? '' : 's'} saved for offline use.`,
       );
+      if (result.warning) toast.warning(result.warning);
     } else if (result.error === 'Offline setup cancelled.') {
       toast.info('Offline setup cancelled.');
     } else {
