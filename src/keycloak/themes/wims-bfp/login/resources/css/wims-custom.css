@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 /* WIMS-BFP Keycloak Theme â€” Fully Self-Contained
+=======
+﻿/* WIMS-BFP Keycloak Theme â€” Fully Self-Contained
+>>>>>>> d8259420d6c002b19c2aaaaac0a2465f1d167acc
  * No PatternFly dependency (Keycloak 26 compatibility)
  * Matches Next.js frontend login page exactly
  */
@@ -100,7 +104,11 @@ body#keycloak-bg.login-pf {
     position: relative;
     width: 45%;
     min-height: 100vh;
+<<<<<<< HEAD
     background: #ffffff;
+=======
+    background: #1A3263;
+>>>>>>> d8259420d6c002b19c2aaaaac0a2465f1d167acc
     display: flex;
     align-items: center;
     justify-content: center;
