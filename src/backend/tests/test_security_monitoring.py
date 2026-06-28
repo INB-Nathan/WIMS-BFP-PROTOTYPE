@@ -711,13 +711,14 @@ _UNCLASSIFIED_ROW = (
     "{}",
     None,
     None,
-    None,
-    None,
-    None,
-    None,
-    "unclassified",
-    "ET DNS Query for Suspicious TLD",
-    "Potentially Bad Traffic",
+    None,  # xai_confidence_breakdown
+    None,  # admin_action_taken
+    None,  # resolved_at
+    None,  # reviewed_by
+    None,  # hitl_decision
+    "unclassified",  # classification
+    "ET DNS Query for Suspicious TLD",  # suricata_signature
+    "Potentially Bad Traffic",  # suricata_category
 )
 
 
