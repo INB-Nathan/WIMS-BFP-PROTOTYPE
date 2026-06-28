@@ -570,6 +570,7 @@ def get_db_with_rls(
     """
     db = _SessionLocal()
     try:
+        db.execute(text("SET LOCAL app.audit_source = 'app'"))
         if wims_user is not None:
             user_id = wims_user.get("user_id")
             if user_id is not None:

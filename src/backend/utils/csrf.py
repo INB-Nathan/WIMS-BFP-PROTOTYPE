@@ -26,7 +26,10 @@ SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
 # Zero-trust public DMZ paths are unauthenticated/no-cookie by design;
 # CSRF Origin/Referer validation is not meaningful for these routes.
-_CSRF_EXEMPT_PATH_PREFIXES: tuple[str, ...] = ("/api/v1/public/",)
+_CSRF_EXEMPT_PATH_PREFIXES: tuple[str, ...] = (
+    "/api/v1/public/",
+    "/api/auth/keycloak-event",  # server-to-server with Bearer token; no cookie dependency
+)
 
 DEFAULT_ORIGINS: set[str] = {
     "http://localhost",

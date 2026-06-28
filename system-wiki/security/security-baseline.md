@@ -36,6 +36,38 @@ Self-service profile email edits (`PATCH /api/user/me`) treat email as a login i
 
 **Email verification flow (2026-06-17, #225):** Users initiate an email change via `POST /api/auth/change-email` (password verified against Keycloak's Direct Grant with optional TOTP support), a 6-digit cryptographically-random code is stored in Redis with 10-minute TTL, and a verification email is sent. The user then confirms via `POST /api/auth/verify-email`. On success the email is updated in both Keycloak and `wims.users`. Both endpoints have per-user Redis-based rate limiting (3 requests/10 min for change-email, 5 requests/10 min for verify-email) to deter brute-force and email bombing. Keycloak remains configured with `verifyEmail: false` in the development realm (the custom flow replaces built-in verification).
 
+### Keycloak EventListener SPI — RP-08 + RP-18 (WS-B, 2026-06-25)
+
+Closes the non-repudiation gap where true credential rejections and Keycloak-native password resets were never visible in `wims.system_audit_trails`.
+
+**Root cause:** The WIMS login page calls `signinRedirect()` directly to Keycloak. Failed logins and password resets happen entirely on Keycloak-hosted pages and never reach any WIMS route. The existing `POST /api/auth/security-event` endpoint (used for LOGOUT and for the rare post-OIDC-callback sync failure) is never called for these events.
+
+**Fix:** `src/keycloak/wims-audit-event-listener/` — a new Keycloak `EventListenerProvider` SPI that:
+- Filters `LOGIN_ERROR`, `USER_DISABLED_BY_BRUTE_FORCE`, `UPDATE_PASSWORD`, `RESET_PASSWORD_EMAIL` (LOGOUT is excluded — WS-A/frontend handles it to avoid duplicate rows).
+- POSTs `{event_type, username, error, keycloak_event_id}` to `http://backend:8000/api/auth/keycloak-event` with `Authorization: Bearer $WIMS_KEYCLOAK_EVENT_SECRET`.
+- Swallows all HTTP failures — audit ingest failure must never break a login.
+
+**Backend ingest endpoint:** `POST /api/auth/keycloak-event` in `src/backend/api/routes/security_events.py`.
+- **Fail-closed:** `_KC_SECRET = os.environ.get("WIMS_KEYCLOAK_EVENT_SECRET", "")` read at import. Blank → 401 on every request (never `os.environ["..."]` which would crash import on missing key).
+- **Mapping:** `LOGIN_ERROR` / `USER_DISABLED_BY_BRUTE_FORCE` → `FAILED_LOGIN` / `failure`; `UPDATE_PASSWORD` / `RESET_PASSWORD_EMAIL` → `PASSWORD_RESET` / `success`. Unknown event_type → 422.
+- **user_id always NULL:** no Keycloak → `wims.users` lookup to prevent account-existence leakage.
+- Writes one `wims.system_audit_trails` row via `log_system_audit(db, None, action_type, "wims.auth", None, request, new_values={username, error, source:"keycloak_spi", keycloak_event_id}, result=...)`.
+
+**Registration:** `eventsListeners` array in both `src/keycloak/bfp-realm.json` and `src/keycloak/import/bfp-realm.json` includes `"wims-audit-event-listener"`.
+
+**Build:** Single Maven build stage in `src/keycloak/Dockerfile` builds `demo-otp-provider` and `wims-audit-event-listener` sequentially to share the Maven dependency cache. Both JARs copied to `/opt/keycloak/providers/` before `kc.sh build`.
+
+**Env vars:**
+
+| Variable | Service | Value |
+|---|---|---|
+| `WIMS_AUDIT_INGEST_URL` | keycloak | `http://backend:8000/api/auth/keycloak-event` |
+| `WIMS_KEYCLOAK_EVENT_SECRET` | keycloak + backend | shared Bearer token (generate with `openssl rand -hex 32`) |
+
+**Deploy note:** `WIMS_KEYCLOAK_EVENT_SECRET` must be set on the VPS (both `keycloak` and `backend` services) **before** the new Keycloak image rolls out. SPI fails open if the secret is unset on Keycloak (logs warning, skips push). Backend fails closed if unset (401 every request — no false audit rows accepted).
+
+**Tests:** `src/backend/tests/test_security_events.py` (7 unit tests, no Docker required): missing header → 401, wrong secret → 401, unset backend secret → 401 (fail-closed), valid secret + LOGIN_ERROR → 202 (FAILED_LOGIN/failure), unknown event → 422, four event-type round-trip, user_id always None. Integration assertion added to `test_keycloak_password_reset.py::TestForgotPasswordConfiguration`.
+
 ## Fail-Closed Rule
 Any missing authentication context defaults to deny. Public unauthenticated behavior is limited to explicit public routes; all adjacent APIs should require valid role context.
 
@@ -57,6 +89,15 @@ FRS Module 4 requires SHA-256 data hashes, append-only audit logs, and immutable
 - `17_immutable_records.sql` now includes `no_delete_audit` and `no_update_audit` RULEs on `wims.system_audit_trails` (GH #240) — DELETE and UPDATE silently no-op at DB level for full audit trail immutability. (Future migrations that need to UPDATE/DELETE rows must temporarily drop these rules.)
 - `wims.system_audit_trails` now has `old_values` and `new_values` JSONB columns (GH #242, migration `60_audit_forensics_columns.sql`) for forensic completeness per ASVS V7.3.1.
 - `log_system_audit()` accepts optional `old_values`/`new_values` params; UPDATE call sites in `users.py` and `config.py` populate them. Non-JSON-serializable types (UUID, datetime, Decimal) are safely coerced via `default=str`.
+
+### Direct-Insert Detection (RP-20, 2026-06-25)
+
+`wims.fire_incidents` is now guarded against undetected out-of-band INSERTs:
+
+- **Trigger:** `trg_detect_direct_fire_incident_insert` (AFTER INSERT, SECURITY DEFINER) on `wims.fire_incidents` — deployed via `63_fire_incidents_insert_audit_trigger.sql` and applied on every restart by `apply_schema_patches()`.
+- **GUC guard:** Every application session (`get_db()`, `get_db_with_rls()`, Suricata ingestion paths) executes `SET LOCAL app.audit_source = 'app'` at the start of its transaction. The trigger checks `current_setting('app.audit_source', true)`; if `'app'`, it returns immediately. If absent or any other value, the trigger inserts a `DIRECT_DB_INSERT` row into `wims.system_audit_trails` with `record_id = NEW.incident_id` and `new_values = {incident_id, region_id}` (IDs only — no PII).
+- **`SECURITY DEFINER` + `SET search_path`:** The function runs as its definer (postgres), bypassing RLS on `system_audit_trails` so the audit INSERT always succeeds regardless of which role performed the direct INSERT. `SET search_path = wims, pg_catalog` prevents search_path injection.
+- **Action type `DIRECT_DB_INSERT` is visible** on the `/admin/audit` page with all standard filters.
 
 ## IDS/XAI
 FRS Modules 7 and 8 define Suricata network monitoring and Qwen2.5-3B explainability. Relevant code/config: `src/suricata/`, admin security-log routes, and AI service paths. Real-time security event push via SSE (`GET /api/events/stream`) notifies SYSTEM_ADMIN clients of threat detection, AI analysis completion, and HITL confirmations.
@@ -307,7 +348,7 @@ FRS does not specify an IP blocklist (genuine product gap — see `frs-codebase-
 FRS Module 13 defines a notification system. The SSE event stream (`GET /api/events/stream`) provides real-time push via Redis pub/sub. Channels: `incident` (status changes/corrections), `verification` (triage cluster workflow), `security` (threat/HITL events), `system` (maintenance). Role-based channel authorization enforced at connect time. Publishers injected at: `verify_incident`, `update_incident`, `correct_verified_incident`, `claim_cluster_command`, `apply_terminal_action_command`, `ingest_eve_file` (Suricata), `analyze_threat_log` (AI), and `update_security_log` (HITL). Frontend consumer hook: `useEventStream.ts`. Nginx configured with `proxy_buffering off` for the SSE location block.
 
 ## Transport Security (TLS)
-FRS Module 6 requires TLS 1.3-only for all network communication. **Enforced 2026-05-30:** `src/nginx/nginx.conf` restricts `ssl_protocols` to `TLSv1.3`, dropping TLS 1.2 support. **Cipher suite hardened 2026-05-30 (GH #154):** AES-128-GCM ciphers removed. TLS 1.2 cipher list restricted to AES-256-GCM + ChaCha20-Poly1305 only (`ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305`). TLS 1.3 ciphersuites restricted to `TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256` via `ssl_conf_command`. ChaCha20-Poly1305 provides efficient encryption on mobile devices without AES-NI hardware acceleration.
+FRS Module 6 requires TLS 1.2 or higher for all network communication. **Updated 2026-06-26 (M6b #153):** `src/nginx/nginx.conf` allows `TLSv1.2 TLSv1.3`, restoring TLS 1.2 compatibility for legacy clients. TLS 1.3 is preferred when the client supports it. **Cipher suite hardened 2026-05-30 (GH #154):** AES-128-GCM ciphers removed. TLS 1.2 cipher list restricted to AES-256-GCM + ChaCha20-Poly1305 only (`ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305`). TLS 1.3 ciphersuites restricted to `TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256` via `ssl_conf_command`. ChaCha20-Poly1305 provides efficient encryption on mobile devices without AES-NI hardware acceleration.
 
 ## Data-at-Rest Encryption
 FRS Module 6 requires AES-256-GCM encryption for sensitive incident fields. **Expanded 2026-05-30 (GH #150):** The `SecurityProvider` (AES-256-GCM, AAD-bound per `incident_id:N`) now encrypts:

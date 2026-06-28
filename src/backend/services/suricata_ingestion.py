@@ -246,6 +246,7 @@ def ingest_eve_file(path: str, *, db_session: Session | None = None) -> int:
     db = db_session if db_session is not None else _SessionLocal()
     own_session = db_session is None
     try:
+        db.execute(text("SET LOCAL app.audit_source = 'app'"))
         position = _eve_file_positions.get(path, 0)
         file_size = os.path.getsize(path)
         if file_size < position:

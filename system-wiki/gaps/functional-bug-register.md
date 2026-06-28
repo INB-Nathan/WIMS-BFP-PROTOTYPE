@@ -23,6 +23,15 @@ Functional bugs reported by teammates during evaluation. All map to M12 User Man
 
 ---
 
+## M1 Auth Non-Repudiation Gaps (Keycloak SPI)
+
+| # | Gap | Detail | Source | Status |
+|---|---|---|---|---|
+| F-13 | RP-08: No FAILED_LOGIN audit for true credential rejections | `src/frontend/src/app/callback/page.tsx:43-46` fires `FAILED_LOGIN` to `/api/auth/security-event` only when the OIDC callback succeeds but `/api/auth/sync` fails — a rare post-auth sync error. True Keycloak credential rejections (wrong password, disabled account, brute-force lockout) happen entirely inside Keycloak and never reach WIMS. No `FAILED_LOGIN` row is written for the most common attack vector. Root cause: no Keycloak EventListener SPI. **Fix (WS-B):** New `wims-audit-event-listener` Keycloak SPI (`src/keycloak/wims-audit-event-listener/`) pushes `LOGIN_ERROR` and `USER_DISABLED_BY_BRUTE_FORCE` events to `POST /api/auth/keycloak-event`. Backend maps both → `FAILED_LOGIN`/`failure` in `wims.system_audit_trails`. Env: `WIMS_KEYCLOAK_EVENT_SECRET` (shared Bearer token). | RP-08 Repudiation Pentest 2026-06-22 | Fixed in code; PR feat/rp08-rp18-keycloak-event-spi pending merge |
+| F-14 | RP-18: No PASSWORD_RESET audit — Keycloak-native flow | The WIMS login page has no forgot-password link; it calls `signinRedirect()` to Keycloak directly. The entire password-reset flow (reset-credentials form, email dispatch, token validation) runs on Keycloak-hosted pages. `POST /api/auth/security-event` with `event_type=PASSWORD_RESET` exists in the backend but has **zero frontend callers** — no WIMS code ever triggers the flow. Root cause: same as RP-08 — no Keycloak EventListener SPI. **Fix (WS-B):** Same `wims-audit-event-listener` SPI captures `UPDATE_PASSWORD` (user completes reset) and `RESET_PASSWORD_EMAIL` (email dispatched) events and maps both → `PASSWORD_RESET`/`success` in `wims.system_audit_trails`. | RP-18 Repudiation Pentest 2026-06-22 | Fixed in code; PR feat/rp08-rp18-keycloak-event-spi pending merge |
+
+---
+
 ## M12 User Management Bugs
 
 | # | Bug | Detail | Reported By | Status |
@@ -62,6 +71,16 @@ Functional bugs reported by teammates during evaluation. All map to M12 User Man
 | # | Enhancement | Detail | Status |
 |---|---|---|---|
 | F-12 | Validator-maintained Operations Board | Replaced auto-derived ON-GOING/FIRE-OUT cards with editable board. wims.operations + junction table (migration 51). RLS-gated writes (NATIONAL_VALIDATOR only), global reads. CRUD + audit log. /home UI: tabs, status badge, validator-only forms. #232. | Implemented |
+
+---
+
+---
+
+## Security / Audit Integrity
+
+| # | Bug | Detail | Reported By | Status |
+|---|---|---|---|---|
+| F-13 | RP-20: Direct DB INSERT into `wims.fire_incidents` not detected | An INSERT executed directly via psql/admin tool (bypassing the application session) was not detected or recorded in `wims.system_audit_trails`. Any user with direct database access could insert incidents without leaving an audit trail, breaking non-repudiation for the official incident record. Fix: `63_fire_incidents_insert_audit_trigger.sql` — AFTER INSERT SECURITY DEFINER trigger that fires when `app.audit_source` GUC is absent/not `'app'` and writes `DIRECT_DB_INSERT` to `system_audit_trails`; `get_db()` and `get_db_with_rls()` now execute `SET LOCAL app.audit_source = 'app'` to suppress the trigger for all legitimate application paths. Branch `fix/rp20-direct-insert-audit`. | Security audit (WS-C) | Fixed in code; PR pending |
 
 ---
 

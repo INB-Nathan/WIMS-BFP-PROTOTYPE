@@ -13,6 +13,7 @@ status: needs-review
 This register prevents agents from hallucinating completion. A module is not complete just because a route or table exists.
 
 - **Triage cluster map markers (UI) — 2026-06-21**: `src/frontend/src/components/ClusterMapInner.tsx` (lines 8-23) renders `RedIcon`/`BlueIcon` as `L.icon` over the default Leaflet blue pin PNG with `className: 'bg-red-600'` / `'bg-blue-500'`. Because `className` applies to the `<img>` and the PNG is ~33% transparent, the user sees a red/blue rectangle with a blue pin inside — described as "a red square on the mark". Not a functional defect (markers, popups, and click handlers all work), but a visible rendering bug unique to the triage modal. Fix: migrate to `L.divIcon` + inline SVG (same pattern as `src/components/map/leafletIcons.ts` → `firePinIcon`). No FRS requirement; not blocking. Logged in `system-wiki/subsystems/civilian-reporting-phase2.md`.
+- **[2026-06-25] RP-20 direct-insert audit — trigger + GUC guard wired (WS-C)**: `63_fire_incidents_insert_audit_trigger.sql` — SECURITY DEFINER AFTER INSERT trigger on `wims.fire_incidents` writes `DIRECT_DB_INSERT` to `wims.system_audit_trails` when `app.audit_source` GUC is absent. `get_db()`, `get_db_with_rls()`, and Suricata ingestion paths (`ingest_eve_file`, `subscribe_suricata_alerts`) all execute `SET LOCAL app.audit_source = 'app'` to suppress false positives. Idempotent via `CREATE OR REPLACE FUNCTION` + `DROP TRIGGER IF EXISTS`. Applied on startup via `apply_schema_patches()`. Branch `fix/rp20-direct-insert-audit`.
 - **MapPicker operation/incident creation pin (UI) — 2026-06-21, FIXED in this commit**: `src/frontend/src/components/MapPickerInner.tsx` used `L.icon` over the default Leaflet blue pin PNG and set `L.Marker.prototype.options.icon = DefaultIcon` globally. The blue pin did not match BFP branding for incident/operation creation, and the global override leaked the icon into every other Leaflet map on the same page. Replaced with `firePinIcon` from `src/components/map/leafletIcons.ts` (BFP maroon SVG `divIcon`); added optional `icon` prop on `MapPicker`/`MapPickerInner` so callers can override per-flow. Same pattern should be applied to the cluster map gap above.
 - **XAI narrative not actionable (2026-06-22, CLOSED in this commit):** The `/admin/monitoring` threat-log table was read-only — the narrative told the admin what happened but offered no enforcement lever. Closed by the IP blocklist feature (commits `b77218b7`..`01028f7a`): 4 per-row action groups (HITL verdict / Block Source IP / Create Incident / Delete Alert), bulk + S3 filter-scoped block (500-IP cap), Blocked IPs panel. New `wims.ip_blocklist` table + Redis TTL keys + `BlockedIPMiddleware` + repeat-offender escalation (3rd block → permanent) + critical-IP allowlist. **FRS does not specify IP blocking** — this is a genuine product gap (not a missed FRS requirement), closed as a design extension. Spec: `docs/superpowers/specs/2026-06-22-monitoring-threat-actions-design.md`. All 6 CI gates green.
 
@@ -80,6 +81,19 @@ This register prevents agents from hallucinating completion. A module is not com
 - Selected-set analytics: Phase 2 backend module â€” aggregate charts remain filter-scoped; selected IDs drive table/export behavior only.
 
 ## FRS Gap Closures (June 2026 batch)
+
+### RP-08 + RP-18 Keycloak EventListener SPI (closed 2026-06-25, WS-B)
+
+- **RP-08 — No FAILED_LOGIN audit for true credential rejections (PARTIAL → CLOSED)**
+  - **Root cause:** True Keycloak credential rejections (wrong password, brute-force lockout) happen inside Keycloak and never reach WIMS. `src/frontend/src/app/callback/page.tsx:43-46` fires `FAILED_LOGIN` only on the rare post-OIDC-callback sync failure, not on credential rejection.
+  - **Fix:** New `wims-audit-event-listener` Keycloak SPI captures `LOGIN_ERROR` and `USER_DISABLED_BY_BRUTE_FORCE` events and POSTs them to `POST /api/auth/keycloak-event`. Backend maps both → `FAILED_LOGIN`/`failure` in `wims.system_audit_trails` with `user_id=NULL` and `new_values.source="keycloak_spi"`.
+  - **Files:** `src/keycloak/wims-audit-event-listener/` (SPI Java module + pom.xml + META-INF service file), `src/keycloak/Dockerfile` (Maven build stage), both `bfp-realm.json` files (eventsListeners), `src/docker-compose.yml` (env vars), `src/backend/api/routes/security_events.py` (ingest endpoint), `src/backend/main.py` (router registration), `src/backend/tests/test_security_events.py` (7 unit tests).
+
+- **RP-18 — No PASSWORD_RESET audit — Keycloak-native flow (OPEN → CLOSED)**
+  - **Root cause:** The WIMS login page calls `signinRedirect()` directly to Keycloak. The forgot-password flow runs entirely on Keycloak-hosted pages. `POST /api/auth/security-event` with `event_type=PASSWORD_RESET` exists but has zero frontend callers.
+  - **Fix:** Same SPI captures `UPDATE_PASSWORD` (user completes reset-credentials form) and `RESET_PASSWORD_EMAIL` (Keycloak dispatches the reset email). Both map → `PASSWORD_RESET`/`success` in `wims.system_audit_trails`.
+  - **Env var:** `WIMS_KEYCLOAK_EVENT_SECRET` — shared Bearer token between Keycloak SPI and backend. Must be set on VPS (both services) before the new Keycloak image rolls out. Backend fails closed (401) if unset; SPI fails open (logs warning, skips push) if unset on Keycloak.
+  - **PR:** `feat/rp08-rp18-keycloak-event-spi` — branch + PR only; NOT merged.
 
 ### BREVO-EMAIL-CHANNEL (closed 2026-06-24)
 

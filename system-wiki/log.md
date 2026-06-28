@@ -1,3 +1,31 @@
+## [2026-06-25] fix(rp20): direct-insert audit trigger on wims.fire_incidents (WS-C)
+
+- **Scope:** RP-20 non-repudiation gap — an INSERT into `wims.fire_incidents` executed via psql or admin tool (bypassing the application session) was not recorded in `wims.system_audit_trails`. Closed by a PostgreSQL AFTER INSERT trigger that fires only when the `app.audit_source` GUC is absent/not `'app'`.
+- **Files created:**
+  - `src/postgres-init/63_fire_incidents_insert_audit_trigger.sql` — idempotent SECURITY DEFINER trigger function + `DROP TRIGGER IF EXISTS` + `CREATE TRIGGER`
+  - `src/backend/tests/test_direct_insert_audit_trigger.py` — 5 tests: insert w/o GUC → DIRECT_DB_INSERT row; insert w/ GUC → no row; idempotency replay; source-inspection for GUC in `get_db()` and `get_db_with_rls()`
+- **Files modified:**
+  - `src/backend/database.py` — `get_db()` now executes `SET LOCAL app.audit_source = 'app'`
+  - `src/backend/auth.py` — `get_db_with_rls()` now executes `SET LOCAL app.audit_source = 'app'`
+  - `src/backend/services/suricata_ingestion.py` — `ingest_eve_file()` now sets GUC before batch loop
+  - `src/backend/tasks/suricata_redis.py` — `subscribe_suricata_alerts()` now sets GUC after `set_rls_context`; `from sqlalchemy import text` added at module level
+  - `src/backend/main.py` — `"63_fire_incidents_insert_audit_trigger.sql"` added to `_SQL_FILE_SCHEMA_PATCHES` allowlist and called in `apply_schema_patches()`
+- **Wiki updated:** `functional-bug-register.md` (F-13), `security-baseline.md` (Direct-Insert Detection section), `admin-hub.md` (DIRECT_DB_INSERT action type), `frs-codebase-gap-register.md` (RP-20 entry)
+- **Audit action:** `DIRECT_DB_INSERT` in `wims.system_audit_trails`, `record_id = incident_id`, `new_values = {incident_id, region_id}` (IDs only, no PII), `result = 'success'`, `user_id = NULL`
+
+## [2026-06-25] feat(#WS-B): Keycloak EventListener SPI — RP-08 + RP-18 non-repudiation fix
+
+- **Scope:** Closes two non-repudiation gaps identified in the 2026-06-22 repudiation pentest: RP-08 (true FAILED_LOGIN events happen inside Keycloak, never reach WIMS) and RP-18 (PASSWORD_RESET flow runs on Keycloak-hosted pages, zero WIMS callers). Branch: `feat/rp08-rp18-keycloak-event-spi`. NOT merged.
+- **SPI (Java):** `src/keycloak/wims-audit-event-listener/` — `WimsAuditEventListenerProvider` + `WimsAuditEventListenerProviderFactory` + META-INF service file + `pom.xml`. Filters `LOGIN_ERROR`, `USER_DISABLED_BY_BRUTE_FORCE`, `UPDATE_PASSWORD`, `RESET_PASSWORD_EMAIL` (LOGOUT excluded — WS-A/frontend handles it). POSTs to `$WIMS_AUDIT_INGEST_URL` with `Authorization: Bearer $WIMS_KEYCLOAK_EVENT_SECRET`. Swallows all HTTP failures — audit ingest must never break a login.
+- **Build:** Single Maven build stage in `src/keycloak/Dockerfile` (shared Maven cache for both `demo-otp-provider` and `wims-audit-event-listener`). Both JARs copied to `/opt/keycloak/providers/` before `kc.sh build`.
+- **Realm wiring:** `eventsListeners` in both `bfp-realm.json` files extended with `"wims-audit-event-listener"`. `eventsEnabled: false` kept (controls Keycloak's own DB event storage; EventListeners fire regardless).
+- **Backend endpoint:** `POST /api/auth/keycloak-event` (`src/backend/api/routes/security_events.py`). Fail-closed: `_KC_SECRET = os.environ.get("WIMS_KEYCLOAK_EVENT_SECRET", "")` at import — blank → 401 every request. Maps Keycloak EventType → WIMS `action_type`/`result`. user_id always NULL (no account-existence lookup). Writes `wims.system_audit_trails` via `log_system_audit`. Unknown `event_type` → 422.
+- **Compose / env:** `WIMS_AUDIT_INGEST_URL=http://backend:8000/api/auth/keycloak-event` + `WIMS_KEYCLOAK_EVENT_SECRET` on `keycloak` service; `WIMS_KEYCLOAK_EVENT_SECRET` on `backend` service. `.env.production.example` documents `openssl rand -hex 32` generation.
+- **Tests:** `src/backend/tests/test_security_events.py` (7 unit tests, no Docker): missing header → 401, wrong secret → 401, unset secret fail-closed → 401, valid LOGIN_ERROR → 202 FAILED_LOGIN/failure, unknown event → 422, four event-type round-trip, user_id=None. `test_keycloak_password_reset.py::TestForgotPasswordConfiguration` gains `test_realm_registers_wims_audit_event_listener` (source-inspection, both realm files).
+- **Gates:** `ruff check` + `ruff format` both pass. Pytest skipped (FastAPI not installed in host Python; tests are Docker-only). Keycloak Docker build (`cd src/keycloak && docker build`) not run in this session (Docker not available at edit time).
+- **Wiki:** `gaps/functional-bug-register.md` (F-13, F-14), `security/security-baseline.md` (Keycloak EventListener SPI section), `subsystems/admin-hub.md` (FAILED_LOGIN/PASSWORD_RESET action types), `gaps/frs-codebase-gap-register.md` (RP-08 + RP-18 closure), `log.md` (this entry).
+- **Deploy note:** Set `WIMS_KEYCLOAK_EVENT_SECRET` on VPS (`keycloak` + `backend`) BEFORE rolling out the new Keycloak image. SPI fails open if unset on Keycloak side; backend fails closed if unset on backend side.
+
 ## [2026-06-23] feat(#429): encrypt witness PII and AI narratives at rest
 
 - **Scope:** Witness PII (`citizen_reports.witness_name`, `witness_phone`, `device_id`, `ip_hash`) and AI narratives (`fire_incidents.ai_narrative`) were stored as plaintext. Extended the AES-256-GCM encrypted-blob pattern from `incident_sensitive_details` to cover remaining PII at rest.
