@@ -121,13 +121,22 @@ type ApiFetchResult =
   | { ok: false; status: 0; error: string }
   | { ok: false; status: number; body: Record<string, unknown>; error: string };
 
+// Per-request timeout for sync API calls. A stalled TCP connection (no clean error,
+// no response) would otherwise leave the doSync() promise permanently pending, keeping
+// syncMutex=true and the SyncStatusBar spinner frozen forever.
+const SYNC_REQUEST_TIMEOUT_MS = 30_000;
+const SESSION_CHECK_TIMEOUT_MS = 10_000;
+
 async function apiFetch(
   path: string,
   options: RequestInit
 ): Promise<ApiFetchResult> {
+  const ctrl = new AbortController();
+  const tid = setTimeout(() => ctrl.abort(), SYNC_REQUEST_TIMEOUT_MS);
   try {
     const res = await fetch(path, {
       ...options,
+      signal: ctrl.signal,
       credentials: 'include',
       headers: { 'Content-Type': 'application/json', ...(options.headers ?? {}) },
     });
@@ -146,14 +155,22 @@ async function apiFetch(
 
     return { ok: res.ok, status: res.status, body };
   } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      return { ok: false, status: 0, error: 'Request timed out' };
+    }
     // Network error — connectivity lost
     return { ok: false, status: 0, error: err instanceof Error ? err.message : 'Network error' };
+  } finally {
+    clearTimeout(tid);
   }
 }
 
 async function checkSession(): Promise<AuthCheckResult> {
+  const ctrl = new AbortController();
+  const tid = setTimeout(() => ctrl.abort(), SESSION_CHECK_TIMEOUT_MS);
   try {
     const res = await fetch('/api/auth/session', {
+      signal: ctrl.signal,
       credentials: 'include',
       cache: 'no-store',
     });
@@ -166,6 +183,8 @@ async function checkSession(): Promise<AuthCheckResult> {
     return 'auth';
   } catch {
     return 'offline';
+  } finally {
+    clearTimeout(tid);
   }
 }
 
@@ -707,17 +726,25 @@ async function publicApiCall(
   // route the public endpoints would have.
   const basePath = path.startsWith('/api/') ? path.slice(4) : path;
   const url = basePath.startsWith('http') ? basePath : `/api${basePath.startsWith('/') ? '' : '/'}${basePath}`;
+  const ctrl = new AbortController();
+  const tid = setTimeout(() => ctrl.abort(), SYNC_REQUEST_TIMEOUT_MS);
   let res: Response;
   try {
     res = await fetch(url, {
       method,
+      signal: ctrl.signal,
       credentials: 'omit',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
   } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      return { ok: false, status: 0, error: 'Request timed out' };
+    }
     // Network error (TypeError from fetch) — connectivity lost.
     return { ok: false, status: 0, error: err instanceof Error ? err.message : 'Network error' };
+  } finally {
+    clearTimeout(tid);
   }
 
   let json: Record<string, unknown> = {};

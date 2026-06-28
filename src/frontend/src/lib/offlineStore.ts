@@ -1241,7 +1241,7 @@ export async function getOfflineOp(localId: string): Promise<OfflineOpDecrypted 
  */
 export async function recoverStaleSyncingOps(
     encoderId: string,
-    staleThresholdMs = 5 * 60 * 1000,
+    staleThresholdMs = 2 * 60 * 1000,
 ): Promise<number> {
     const db = await getDB();
     const all: OfflineOp[] = await db.getAllFromIndex(OPS_STORE, 'by_encoder', encoderId);
