@@ -8,10 +8,7 @@ import {
     updateAdminUser,
     createAdminUser,
     fetchAdminSecurityLogs,
-    updateAdminSecurityLog,
-    createIncidentFromAlert,
     fetchAuditLogsOfflineAware,
-    fetchRelatedAuditLogs,
     analyzeSecurityLog,
     fetchRegionsOfflineAware,
     fetchUserSessions,
@@ -41,7 +38,7 @@ import { GhostAdminLayout, GhostMonitorSection } from '@/components/ui/GhostAdmi
 import { useNetworkStatus } from '@/lib/useNetworkStatus';
 import { getConnectivitySnapshot, subscribeConnectivity, probeConnectivity } from '@/lib/connectivity';
 import { resetFailedOp, deleteOfflineOp } from '@/lib/offlineStore';
-import { normalizeNarrative } from '@/lib/xaiNarrativeNormalizer';
+import { SuricataAlertModal } from './components/SuricataAlertModal';
 import { ActiveSession, Region } from '@/types/api';
 import ReportFilterBuilder from '@/components/admin/ReportFilterBuilder';
 import {
@@ -99,24 +96,6 @@ interface SecurityLog {
     resolved_at: string | null;
     reviewed_by: string | null;
     hitl_decision?: { action?: string; note?: string | null; reviewed_at?: string | null; reviewed_by?: string | null } | null;
-}
-
-const HITL_ACTION_LABELS: Record<string, string> = {
-    CONFIRM_THREAT: 'Confirmed Threat',
-    FALSE_POSITIVE: 'False Positive',
-    REQUEST_MORE_INFO: 'More Info Requested',
-};
-
-function formatHitlAction(action: string): string {
-    return HITL_ACTION_LABELS[action] ?? action.replaceAll('_', ' ').toLowerCase();
-}
-
-function hitlErrorMessage(error: unknown): string {
-    const message = (error as { message?: string })?.message ?? 'Request failed';
-    if (/Request failed:\s*500/i.test(message)) {
-        return 'Server failed while applying the threat decision. The alert was not updated; please retry or check backend logs.';
-    }
-    return message;
 }
 
 interface AuditItem {
@@ -247,18 +226,8 @@ export default function AdminSystemPage() {
     const [confirmDeleteReportId, setConfirmDeleteReportId] = useState<number | null>(null);
     const [regions, setRegions] = useState<Region[]>([]);
     const [selectedLog, setSelectedLog] = useState<SecurityLog | null>(null);
-    const [isSubmitting, setIsSubmitting] = useState(false);
     const [analyzingLogId, setAnalyzingLogId] = useState<number | null>(null);
     const [isRevoking, setIsRevoking] = useState<string | null>(null);
-
-    // HITL / alert-action inline message state (issue #349/#350)
-    const [hitlMessage, setHitlMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-    const [createIncidentResult, setCreateIncidentResult] = useState<{ incident_id: number } | null>(null);
-
-    // Related evidence panel state (issue #349)
-    const [relatedEvidence, setRelatedEvidence] = useState<RelatedAuditItem[] | null>(null);
-    const [loadingRelatedEvidence, setLoadingRelatedEvidence] = useState(false);
-    const [relatedEvidenceError, setRelatedEvidenceError] = useState<string | null>(null);
 
     // Sessions state
     const [sessionsByUser, setSessionsByUser] = useState<Record<string, KeycloakSession[]>>({});
@@ -846,60 +815,6 @@ export default function AdminSystemPage() {
         navigator.clipboard.writeText(createdUser.temporary_password);
         setCopySuccess(true);
         setTimeout(() => setCopySuccess(false), 2000);
-    };
-
-    const handleHitlDecision = async (action: string, note?: string) => {
-        if (!selectedLog) return;
-        setIsSubmitting(true);
-        setHitlMessage(null);
-        try {
-            await updateAdminSecurityLog(selectedLog.log_id, { action, note });
-            const label = formatHitlAction(action);
-            setHitlMessage({ type: 'success', text: `${label} applied to alert #${selectedLog.log_id}.` });
-            setSelectedLog({
-                ...selectedLog,
-                admin_action_taken: label,
-                resolved_at: action === 'REQUEST_MORE_INFO' ? null : new Date().toISOString(),
-                hitl_decision: { action, note: note ?? null },
-            });
-            await loadSecurityLogs();
-        } catch (e: unknown) {
-            setHitlMessage({ type: 'error', text: hitlErrorMessage(e) });
-        } finally {
-            setIsSubmitting(false);
-        }
-    };
-
-    const handleCreateIncident = async () => {
-        if (!selectedLog) return;
-        setIsSubmitting(true);
-        setCreateIncidentResult(null);
-        setHitlMessage(null);
-        try {
-            const result = await createIncidentFromAlert(selectedLog.log_id);
-            setCreateIncidentResult({ incident_id: result.incident_id });
-            setSelectedLog(null);
-            await loadSecurityLogs();
-        } catch (e: unknown) {
-            setHitlMessage({ type: 'error', text: (e as { message?: string })?.message ?? 'Create incident failed' });
-        } finally {
-            setIsSubmitting(false);
-        }
-    };
-
-    const handleViewRelatedEvidence = async () => {
-        if (!selectedLog) return;
-        setLoadingRelatedEvidence(true);
-        setRelatedEvidenceError(null);
-        setRelatedEvidence(null);
-        try {
-            const data = await fetchRelatedAuditLogs(selectedLog.log_id);
-            setRelatedEvidence(data.items);
-        } catch (e: unknown) {
-            setRelatedEvidenceError((e as { message?: string })?.message ?? 'Failed to load related evidence');
-        } finally {
-            setLoadingRelatedEvidence(false);
-        }
     };
 
     const handleAnalyze = async (log: SecurityLog) => {
@@ -2353,239 +2268,20 @@ export default function AdminSystemPage() {
             )}
 
             {selectedLog && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-                    <div className="rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto bg-[var(--background)] text-[var(--foreground)]">
-                        <div className="px-5 py-4 border-b border-gray-200 flex justify-between items-center bg-gray-50 dark:bg-gray-800/80">
-                            <div className="flex items-center gap-2">
-                                <ShieldAlert className="w-5 h-5 text-gray-500" />
-                                <h3 className="text-base font-bold">Suricata Alert &mdash; #{selectedLog.log_id}</h3>
-                            </div>
-                            <button onClick={() => { setSelectedLog(null); setHitlMessage(null); setCreateIncidentResult(null); setRelatedEvidence(null); setRelatedEvidenceError(null); }} className="text-gray-400 hover:text-gray-600"><XCircle className="w-5 h-5" /></button>
-                        </div>
-                        <div className="p-5 space-y-5">
-
-                            {/* Inline hitl success/error message */}
-                            {hitlMessage && (
-                                <div className={`p-3 rounded-md text-sm font-medium ${hitlMessage.type === 'success' ? 'bg-green-50 border border-green-200 text-green-800 dark:bg-green-950/40 dark:border-green-800 dark:text-green-200' : 'bg-red-50 border border-red-200 text-red-800 dark:bg-red-950/40 dark:border-red-800 dark:text-red-200'}`}>
-                                    {hitlMessage.type === 'success' ? <CheckCircle className="w-4 h-4 inline mr-1" /> : <XCircle className="w-4 h-4 inline mr-1" />}
-                                    {hitlMessage.text}
-                                </div>
-                            )}
-
-                            {/* Inline create incident success message */}
-                            {createIncidentResult && (
-                                <div className="p-3 rounded-md text-sm font-medium bg-green-50 border border-green-200 text-green-800 dark:bg-green-950/40 dark:border-green-800 dark:text-green-200">
-                                    <CheckCircle className="w-4 h-4 inline mr-1" />
-                                    Incident #{createIncidentResult.incident_id} created from this alert.{' '}
-                                    <a href={`/incidents/${createIncidentResult.incident_id}`} className="underline font-semibold hover:opacity-80">View Incident</a>
-                                </div>
-                            )}
-
-                            {/* Section: AI Threat Analysis */}
-                            <div className="bg-purple-50 dark:bg-purple-950/40 p-4 rounded-lg border border-purple-100 dark:border-purple-800">
-                                <div className="flex items-center gap-1.5 mb-3">
-                                    <Sparkles className="w-4 h-4 text-purple-600 dark:text-purple-400" />
-                                    <h4 className="text-xs font-bold text-purple-700 dark:text-purple-300 uppercase tracking-wider">AI Threat Analysis</h4>
-                                </div>
-                                {selectedLog.xai_narrative ? (
-                                    (() => {
-                                        const parsed = normalizeNarrative(selectedLog.xai_narrative);
-                                        if (parsed.isStructured || parsed.anomalyDescription || parsed.logEvidence || parsed.riskAssessment || parsed.recommendedAction) {
-                                            return (
-                                                <div className="space-y-3">
-                                                    {parsed.anomalyDescription && (
-                                                        <div>
-                                                            <p className="text-xs font-semibold text-purple-700 dark:text-purple-300">Anomaly Description</p>
-                                                            <p className="text-sm text-[var(--foreground)]">{parsed.anomalyDescription}</p>
-                                                        </div>
-                                                    )}
-                                                    {parsed.logEvidence && (
-                                                        <div>
-                                                            <p className="text-xs font-semibold text-purple-700 dark:text-purple-300">Log Evidence</p>
-                                                            <p className="text-sm text-[var(--foreground)]">{parsed.logEvidence}</p>
-                                                        </div>
-                                                    )}
-                                                    {parsed.riskAssessment && (
-                                                        <div>
-                                                            <p className="text-xs font-semibold text-purple-700 dark:text-purple-300">Risk Assessment</p>
-                                                            <p className="text-sm text-[var(--foreground)]">{parsed.riskAssessment}</p>
-                                                        </div>
-                                                    )}
-                                                    {parsed.recommendedAction && (
-                                                        <div>
-                                                            <p className="text-xs font-semibold text-purple-700 dark:text-purple-300">Recommended Action</p>
-                                                            <p className="text-sm text-[var(--foreground)]">{parsed.recommendedAction}</p>
-                                                        </div>
-                                                    )}
-                                                    {selectedLog.xai_confidence != null && (
-                                                        <div className="mt-2 text-xs text-purple-800 dark:text-purple-600 font-medium text-right">
-                                                            Confidence: {((selectedLog.xai_confidence ?? 0) * 100).toFixed(1)}%
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            );
-                                        }
-                                        return (
-                                            <>
-                                                <p className="text-sm text-[var(--foreground)]">{selectedLog.xai_narrative}</p>
-                                                {selectedLog.xai_confidence != null && (
-                                                    <div className="mt-2 text-xs text-purple-800 dark:text-purple-600 font-medium text-right">
-                                                        Confidence: {((selectedLog.xai_confidence ?? 0) * 100).toFixed(1)}%
-                                                    </div>
-                                                )}
-                                            </>
-                                        );
-                                    })()
-                                ) : (
-                                    <div className="flex items-center gap-2">
-                                        <button
-                                            onClick={() => handleAnalyze(selectedLog)}
-                                            disabled={analyzingLogId === selectedLog.log_id}
-                                            className="px-3 py-1.5 bg-purple-600 text-white rounded text-sm font-medium hover:bg-purple-700 disabled:opacity-50 flex items-center gap-2"
-                                        >
-                                            <Sparkles className="w-4 h-4" />
-                                            {analyzingLogId === selectedLog.log_id ? 'Analyzing\u2026' : 'Analyze with AI'}
-                                        </button>
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* Section: Alert Details */}
-                            <div>
-                                <div className="flex items-center gap-1.5 mb-3">
-                                    <AlertTriangle className="w-4 h-4 text-gray-500" />
-                                    <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Alert Details</h4>
-                                </div>
-                                <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
-                                    <div className="grid grid-cols-2 gap-y-3 gap-x-6 text-sm">
-                                        <div>
-                                            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-0.5">Source IP</p>
-                                            <p className="font-mono text-[var(--foreground)]">{selectedLog.source_ip ?? '\u2014'}</p>
-                                        </div>
-                                        <div>
-                                            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-0.5">Destination IP</p>
-                                            <p className="font-mono text-[var(--foreground)]">{selectedLog.destination_ip ?? '\u2014'}</p>
-                                        </div>
-                                        <div>
-                                            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-0.5">Suricata SID</p>
-                                            <p className="text-[var(--foreground)]">{selectedLog.suricata_sid ?? '\u2014'}</p>
-                                        </div>
-                                        <div>
-                                            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-0.5">Severity Level</p>
-                                            <p className="text-[var(--foreground)]">{selectedLog.severity_level ?? '\u2014'}</p>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Section: Raw Payload */}
-                            {selectedLog.raw_payload && (
-                                <div>
-                                    <div className="flex items-center gap-1.5 mb-2">
-                                        <FileText className="w-4 h-4 text-gray-500" />
-                                        <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Raw Payload</h4>
-                                    </div>
-                                    <pre className="bg-gray-100 dark:bg-gray-950 text-gray-800 dark:text-gray-200 p-3 rounded-lg text-xs overflow-x-auto font-mono max-h-44 overflow-y-auto border border-gray-200 dark:border-gray-700 leading-relaxed">{selectedLog.raw_payload}</pre>
-                                </div>
-                            )}
-
-                            {/* Section: Review Status / Decision */}
-                            <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
-                                {selectedLog.admin_action_taken ? (
-                                    <div className="rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-800 dark:border-green-800 dark:bg-green-950/40 dark:text-green-200">
-                                        <div className="flex items-center gap-2 font-semibold">
-                                            <CheckCircle className="w-4 h-4" />
-                                            <span>Reviewed: {selectedLog.admin_action_taken}</span>
-                                        </div>
-                                        {selectedLog.resolved_at && (
-                                            <div className="text-xs opacity-80 mt-1 ml-6">Resolved {new Date(selectedLog.resolved_at).toLocaleString()}</div>
-                                        )}
-                                    </div>
-                                ) : (
-                                    <>
-                                        <div className="flex items-center gap-1.5 mb-3">
-                                            <ShieldAlert className="w-4 h-4 text-gray-500" />
-                                            <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Threat Decision</h4>
-                                        </div>
-                                        <div className="mb-3">
-                                            <button
-                                                onClick={() => handleCreateIncident()}
-                                                disabled={isSubmitting}
-                                                className="flex items-center justify-center gap-2 w-full px-4 py-2.5 bg-orange-600 text-white rounded-lg text-sm font-semibold hover:bg-orange-700 disabled:opacity-50"
-                                            >
-                                                <FileText className="w-4 h-4" />
-                                                Create Incident from Alert
-                                            </button>
-                                        </div>
-                                        <div className="flex flex-wrap gap-2">
-                                            <button
-                                                onClick={() => handleHitlDecision('CONFIRM_THREAT')}
-                                                disabled={isSubmitting}
-                                                className="flex items-center gap-1.5 px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-semibold hover:bg-red-700 disabled:opacity-50"
-                                            >
-                                                <CheckCircle className="w-4 h-4" />
-                                                {isSubmitting ? 'Applying\u2026' : 'Confirm Threat'}
-                                            </button>
-                                            <button
-                                                onClick={() => handleHitlDecision('FALSE_POSITIVE')}
-                                                disabled={isSubmitting}
-                                                className="flex items-center gap-1.5 px-4 py-2 bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-gray-100 rounded-lg text-sm font-semibold hover:bg-gray-300 dark:hover:bg-gray-500 disabled:opacity-50"
-                                            >
-                                                <XCircle className="w-4 h-4" />
-                                                {isSubmitting ? 'Applying\u2026' : 'False Positive'}
-                                            </button>
-                                        </div>
-                                    </>
-                                )}
-
-                                {/* View Related Evidence */}
-                                <div className="mt-4">
-                                    <button
-                                        onClick={() => handleViewRelatedEvidence()}
-                                        disabled={loadingRelatedEvidence}
-                                        className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50"
-                                    >
-                                        <Search className="w-4 h-4" />
-                                        {loadingRelatedEvidence ? 'Loading\u2026' : 'View Related Evidence'}
-                                    </button>
-
-                                    {/* Related Evidence sub-panel */}
-                                    {(relatedEvidence !== null || loadingRelatedEvidence || relatedEvidenceError) && (
-                                        <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 mt-3 bg-gray-50 dark:bg-gray-900/50">
-                                            <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Related Audit Evidence</h4>
-                                            {loadingRelatedEvidence && (
-                                                <p className="text-sm text-gray-500 italic">Loading related evidence\u2026</p>
-                                            )}
-                                            {relatedEvidenceError && (
-                                                <p className="text-sm text-red-600">{relatedEvidenceError}</p>
-                                            )}
-                                            {relatedEvidence && relatedEvidence.length === 0 && (
-                                                <p className="text-sm text-gray-500">No related audit records found in the &plusmn;1 hour window.</p>
-                                            )}
-                                            {relatedEvidence && relatedEvidence.length > 0 && (
-                                                <div className="max-h-48 overflow-y-auto space-y-2">
-                                                    {relatedEvidence.map((item) => (
-                                                        <div key={item.audit_id} className="text-xs p-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-100 dark:border-gray-700">
-                                                            <div className="flex justify-between items-center">
-                                                                <span className="font-semibold text-blue-700 dark:text-blue-300">{item.action_type ?? '\u2014'}</span>
-                                                                <span className="text-gray-400">{item.timestamp ? new Date(item.timestamp).toLocaleString() : '\u2014'}</span>
-                                                            </div>
-                                                            <div className="text-gray-500 mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
-                                                                {item.ip_address && <span className="font-mono">{item.ip_address}</span>}
-                                                                {item.user_agent && <span className="truncate block max-w-full">{item.user_agent.substring(0, 80)}</span>}
-                                                            </div>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            )}
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-
-                        </div>
-                    </div>
-                </div>
+                <SuricataAlertModal
+                    log={selectedLog}
+                    onClose={() => setSelectedLog(null)}
+                    onDecisionComplete={(logId, updatedLog) => {
+                        setSecurityLogs((prev) =>
+                            prev.map((l) =>
+                                l.log_id === logId ? { ...l, ...updatedLog } : l
+                            )
+                        );
+                        setSelectedLog((prev) =>
+                            prev && prev.log_id === logId ? { ...prev, ...updatedLog } : prev
+                        );
+                    }}
+                />
             )}
 
             {/* Sessions Modal */}

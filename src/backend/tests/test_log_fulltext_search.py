@@ -47,13 +47,14 @@ _SECURITY_ROW = (
     "payload text",
     "xai narrative",
     0.95,
-    None,
-    None,
-    None,
-    None,
-    None,
-    None,
-    None,
+    None,  # xai_confidence_breakdown
+    None,  # admin_action_taken
+    None,  # resolved_at
+    None,  # reviewed_by
+    None,  # hitl_decision
+    None,  # classification
+    None,  # suricata_signature
+    None,  # suricata_category
 )
 
 _AUDIT_ROW = (

@@ -147,6 +147,7 @@ def get_security_logs(
         text(f"""
             SELECT log_id, timestamp, source_ip, destination_ip, suricata_sid,
                    severity_level, raw_payload, xai_narrative, xai_confidence,
+                   xai_confidence_breakdown,
                    admin_action_taken, resolved_at, reviewed_by, hitl_decision,
                    classification, suricata_signature, suricata_category
             FROM wims.security_threat_logs
@@ -177,13 +178,14 @@ def get_security_logs(
                 "raw_payload": r[6],
                 "xai_narrative": r[7],
                 "xai_confidence": float(r[8]) if r[8] is not None else None,
-                "admin_action_taken": r[9],
-                "resolved_at": r[10].isoformat() if r[10] else None,
-                "reviewed_by": str(r[11]) if r[11] else None,
-                "hitl_decision": r[12],
-                "classification": r[13],
-                "suricata_signature": r[14],
-                "suricata_category": r[15],
+                "xai_confidence_breakdown": r[9],
+                "admin_action_taken": r[10],
+                "resolved_at": r[11].isoformat() if r[11] else None,
+                "reviewed_by": str(r[12]) if r[12] else None,
+                "hitl_decision": r[13],
+                "classification": r[14],
+                "suricata_signature": r[15],
+                "suricata_category": r[16],
             }
             for r in rows
         ],
@@ -452,11 +454,12 @@ async def bulk_action(
 @router.post("/security-logs/{log_id}/analyze")
 async def analyze_security_log(
     log_id: int,
+    request: Request,
     _admin: Annotated[dict, Depends(get_system_admin)],
     db: Annotated[Session, Depends(get_db_with_rls)],
 ):
     """Run AI analysis on a security threat log via Ollama. Updates xai_narrative and xai_confidence."""
-    return await analyze_threat_log(log_id, db)
+    return await analyze_threat_log(log_id, db, request)
 
 
 @router.patch("/security-logs/{log_id}")

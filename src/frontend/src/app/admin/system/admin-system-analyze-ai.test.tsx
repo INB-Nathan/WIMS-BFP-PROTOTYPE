@@ -48,6 +48,13 @@ const mockAnalyzeSecurityLog = vi.fn();
 const mockFetchAdminUsers = vi.fn();
 const mockFetchAuditLogs = vi.fn();
 
+vi.mock('@/lib/api/admin', () => ({
+    analyzeSecurityLog: (logId: number) => mockAnalyzeSecurityLog(logId),
+    updateAdminSecurityLog: vi.fn(),
+    createIncidentFromAlert: vi.fn(),
+    fetchRelatedAuditLogs: vi.fn().mockResolvedValue({ log_id: 0, items: [] }),
+}));
+
 vi.mock('@/lib/useNetworkStatus', () => ({
     useNetworkStatus: () => ({ isOnline: true, isReconnecting: false }),
 }));
@@ -117,7 +124,7 @@ describe('Admin System — Analyze with AI in Threat Telemetry', () => {
         expect(analyzeButtons.length).toBeGreaterThanOrEqual(1);
     });
 
-    it('clicking Analyze with AI shows loading state, calls API, and displays narrative and confidence in modal', async () => {
+    it('clicking Analyze with AI calls API and displays narrative and confidence in modal', async () => {
         mockFetchAdminSecurityLogs.mockResolvedValue({ items: [mockLogWithoutNarrative], total: 1 });
         mockAnalyzeSecurityLog.mockImplementation(
             () =>
@@ -148,26 +155,28 @@ describe('Admin System — Analyze with AI in Threat Telemetry', () => {
             expect(screen.getByText(/Suricata Alert.*#1/)).toBeInTheDocument();
         });
 
-        // In modal: click Analyze with AI (use getAllByRole since both table row and modal have the button)
-        const analyzeButtons = screen.getAllByRole('button', { name: /Analyze with AI/i });
-        const modalAnalyzeBtn = analyzeButtons[analyzeButtons.length - 1]; // Modal button is last
+        // In modal: click Analyze with AI
+        const analyzeButtons = screen.getAllByRole('button', { name: /^Analyze with AI$/i });
+        const modalAnalyzeBtn = analyzeButtons[analyzeButtons.length - 1];
         fireEvent.click(modalAnalyzeBtn);
 
-        // Loading state (both table and modal show Analyzing…)
+        // Stepper should appear (stage indicators)
         await waitFor(() => {
-            const analyzingButtons = screen.getAllByRole('button', { name: /Analyzing…/i });
-            expect(analyzingButtons.length).toBeGreaterThanOrEqual(1);
+            expect(screen.getByText('Fetching')).toBeInTheDocument();
         });
 
-        // API called
-        expect(mockAnalyzeSecurityLog).toHaveBeenCalledWith(1);
+        // API called (500ms simulated stage delay before the real API call)
+        await waitFor(() => {
+            expect(mockAnalyzeSecurityLog).toHaveBeenCalledWith(1);
+        });
 
-        // After response: narrative and confidence displayed
+        // After response: narrative displayed
         await waitFor(() => {
             expect(screen.getByText('AI-generated narrative for test.')).toBeInTheDocument();
         });
+        // Confidence bar should be present (shows 92%)
         await waitFor(() => {
-            expect(screen.getByText(/Confidence: 92\.0%/)).toBeInTheDocument(); // confidence 0.92 → 92%
+            expect(screen.getByText('92%')).toBeInTheDocument();
         });
     });
 
@@ -207,7 +216,7 @@ describe('Admin System — Analyze with AI in Threat Telemetry', () => {
         });
 
         // Click Analyze with AI in the modal
-        const analyzeButtons = screen.getAllByRole('button', { name: /Analyze with AI/i });
+        const analyzeButtons = screen.getAllByRole('button', { name: /^Analyze with AI$/i });
         const modalAnalyzeBtn = analyzeButtons[analyzeButtons.length - 1];
         fireEvent.click(modalAnalyzeBtn);
 

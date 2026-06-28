@@ -129,7 +129,7 @@ def test_analyze_threat_log_success(mock_system_admin, threat_log_row, db_sessio
     """
     log_id = threat_log_row
 
-    # Mock Ollama API — returns structured 5-key format (#161)
+    # Mock Ollama API — returns structured format with confidence_breakdown + sources
     respx.post("http://wims-ollama:11434/api/generate").respond(
         status_code=200,
         json={
@@ -140,6 +140,12 @@ def test_analyze_threat_log_success(mock_system_admin, threat_log_row, db_sessio
                     "risk_assessment": "Potential SQL injection attempt.",
                     "recommended_action": "Block source IP and investigate.",
                     "confidence": 0.95,
+                    "confidence_breakdown": {
+                        "anomaly_detection": 0.97,
+                        "classification": 0.94,
+                        "overall": 0.95,
+                    },
+                    "sources": ["Suricata EVE log", "Ollama"],
                 }
             )
         },
@@ -150,10 +156,11 @@ def test_analyze_threat_log_success(mock_system_admin, threat_log_row, db_sessio
 
     assert resp.status_code == 200, f"Expected 200 OK, got {resp.status_code}: {resp.text}"
 
-    # Query DB and assert updated values
+    # Query DB and assert updated values (including new breakdown column)
     row = db_session.execute(
         text(
-            "SELECT xai_narrative, xai_confidence FROM wims.security_threat_logs WHERE log_id = :lid"
+            "SELECT xai_narrative, xai_confidence, xai_confidence_breakdown "
+            "FROM wims.security_threat_logs WHERE log_id = :lid"
         ),
         {"lid": log_id},
     ).fetchone()
@@ -166,7 +173,16 @@ def test_analyze_threat_log_success(mock_system_admin, threat_log_row, db_sessio
     assert parsed["log_evidence"] == "Source IP 192.168.1.100 sent malicious payload."
     assert parsed["risk_assessment"] == "Potential SQL injection attempt."
     assert parsed["recommended_action"] == "Block source IP and investigate."
+    assert parsed["sources"] == ["Suricata EVE log", "Ollama"], (
+        f"Expected sources in narrative, got {parsed.get('sources')}"
+    )
     assert row[1] == 0.95, f"Expected xai_confidence 0.95, got {row[1]!r}"
+    # Verify confidence_breakdown was persisted
+    assert row[2] is not None, "xai_confidence_breakdown should not be null"
+    breakdown = row[2]
+    assert breakdown["anomaly_detection"] == 0.97
+    assert breakdown["classification"] == 0.94
+    assert breakdown["overall"] == 0.95
 
 
 @respx.mock
@@ -344,6 +360,12 @@ def test_analyze_threat_log_prompt_includes_signature_and_classification(
                         "risk_assessment": "Potential data exfiltration.",
                         "recommended_action": "Block source IP and investigate.",
                         "confidence": 0.92,
+                        "confidence_breakdown": {
+                            "anomaly_detection": 0.93,
+                            "classification": 0.91,
+                            "overall": 0.92,
+                        },
+                        "sources": ["Suricata EVE log"],
                     }
                 )
             },
@@ -408,6 +430,12 @@ def test_analyze_threat_log_escapes_raw_payload(mock_system_admin, db_session):
                         "risk_assessment": "Test.",
                         "recommended_action": "Test.",
                         "confidence": 0.5,
+                        "confidence_breakdown": {
+                            "anomaly_detection": 0.5,
+                            "classification": 0.5,
+                            "overall": 0.5,
+                        },
+                        "sources": ["Ollama"],
                     }
                 )
             },
