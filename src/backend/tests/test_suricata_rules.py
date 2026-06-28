@@ -156,20 +156,22 @@ class TestEveToDbPipeline:
 
             row = db_session.execute(
                 text("""
-                    SELECT source_ip, suricata_sid, severity_level
-                    FROM wims.security_threat_logs
+                    SELECT source_ip, suricata_sid, severity_level, SUM(alert_count)
+                    FROM wims.security_threat_log_rollups
                     WHERE suricata_sid = 1000005
-                    ORDER BY log_id DESC
+                      AND source_ip = '10.0.0.99'
+                    GROUP BY source_ip, suricata_sid, severity_level
                     LIMIT 1
                 """)
             ).fetchone()
 
             assert row is not None, (
-                "OWASP rule SID 1000005 not found in security_threat_logs after ingestion"
+                "OWASP rule SID 1000005 not found in security_threat_log_rollups after ingestion"
             )
             assert row[0] == "10.0.0.99"
             assert row[1] == 1000005
             assert row[2] == "LOW"
+            assert row[3] >= 1
         finally:
             os.unlink(path)
 
@@ -193,20 +195,22 @@ class TestEveToDbPipeline:
 
             row = db_session.execute(
                 text("""
-                    SELECT source_ip, suricata_sid, severity_level
-                    FROM wims.security_threat_logs
+                    SELECT source_ip, suricata_sid, severity_level, SUM(alert_count)
+                    FROM wims.security_threat_log_rollups
                     WHERE suricata_sid = 2010935
-                    ORDER BY log_id DESC
+                      AND source_ip = '192.168.200.1'
+                    GROUP BY source_ip, suricata_sid, severity_level
                     LIMIT 1
                 """)
             ).fetchone()
 
             assert row is not None, (
-                "ET Open SID 2010935 not found in security_threat_logs after ingestion"
+                "ET Open SID 2010935 not found in security_threat_log_rollups after ingestion"
             )
             assert row[0] == "192.168.200.1"
             assert row[1] == 2010935
             assert row[2] == "MEDIUM"
+            assert row[3] >= 1
         finally:
             os.unlink(path)
 
@@ -230,19 +234,21 @@ class TestEveToDbPipeline:
 
             row = db_session.execute(
                 text("""
-                    SELECT source_ip, suricata_sid, severity_level
-                    FROM wims.security_threat_logs
+                    SELECT source_ip, suricata_sid, severity_level, SUM(alert_count)
+                    FROM wims.security_threat_log_rollups
                     WHERE suricata_sid = 1000020
-                    ORDER BY log_id DESC
+                      AND source_ip = '172.16.99.1'
+                    GROUP BY source_ip, suricata_sid, severity_level
                     LIMIT 1
                 """)
             ).fetchone()
 
             assert row is not None, (
-                "BFP custom rule SID 1000020 not found in security_threat_logs after ingestion"
+                "BFP custom rule SID 1000020 not found in security_threat_log_rollups after ingestion"
             )
             assert row[0] == "172.16.99.1"
             assert row[1] == 1000020
             assert row[2] == "LOW"
+            assert row[3] >= 1
         finally:
             os.unlink(path)

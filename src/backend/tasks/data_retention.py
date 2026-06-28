@@ -25,7 +25,9 @@ logger = logging.getLogger("wims.data_retention")
 _DEFAULT_DAYS: dict[str, int] = {
     "retention.fire_incidents_days": 2555,
     "retention.incident_sensitive_details_days": 2555,
-    "retention.security_threat_logs_days": 365,
+    "retention.security_threat_logs_days": 1,
+    "retention.security_rollups_hourly_days": 7,
+    "retention.security_rollups_daily_days": 90,
     "retention.consent_log_days": 1095,
     "retention.kms_key_rotation_runs_days": 1095,
     "retention.ip_blocklist_days": 365,
@@ -85,6 +87,28 @@ def _prune_security_threat_logs(db) -> None:
     config_key = "retention.security_threat_logs_days"
     days = _get_retention_days(db, config_key)
 
+    # Clear dependent references first. Raw SIEM logs are short-lived; fire incidents
+    # and breach notifications must not block retention pruning.
+    db.execute(
+        text("""
+            DELETE FROM wims.breach_notifications b
+            USING wims.security_threat_logs l
+            WHERE b.threat_log_id = l.log_id
+              AND l.timestamp < now() - (:days || ' days')::INTERVAL
+        """),
+        {"days": str(days)},
+    )
+    db.execute(
+        text("""
+            UPDATE wims.fire_incidents fi
+            SET security_alert_id = NULL
+            FROM wims.security_threat_logs l
+            WHERE fi.security_alert_id = l.log_id
+              AND l.timestamp < now() - (:days || ' days')::INTERVAL
+        """),
+        {"days": str(days)},
+    )
+
     result = db.execute(
         text("""
             DELETE FROM wims.security_threat_logs
@@ -95,6 +119,31 @@ def _prune_security_threat_logs(db) -> None:
     _log_prune(
         db, "wims.security_threat_logs", result.rowcount or 0, "hard_delete", days, config_key
     )
+
+
+def _prune_security_threat_rollups(db) -> None:
+    """Prune security rollups after hourly/daily retention windows."""
+    for granularity, config_key in (
+        ("hour", "retention.security_rollups_hourly_days"),
+        ("day", "retention.security_rollups_daily_days"),
+    ):
+        days = _get_retention_days(db, config_key)
+        result = db.execute(
+            text("""
+                DELETE FROM wims.security_threat_log_rollups
+                WHERE bucket_granularity = :granularity
+                  AND bucket_start < now() - (:days || ' days')::INTERVAL
+            """),
+            {"granularity": granularity, "days": str(days)},
+        )
+        _log_prune(
+            db,
+            "wims.security_threat_log_rollups",
+            result.rowcount or 0,
+            f"hard_delete_{granularity}",
+            days,
+            config_key,
+        )
 
 
 def _prune_fire_incidents(db) -> None:
@@ -288,6 +337,7 @@ def run_data_retention() -> int:
     db = get_session()
     try:
         _prune_security_threat_logs(db)
+        _prune_security_threat_rollups(db)
         _prune_fire_incidents(db)
         _prune_incident_sensitive_details(db)
         _prune_consent_log(db)

@@ -102,6 +102,12 @@ FRS Module 4 requires SHA-256 data hashes, append-only audit logs, and immutable
 ## IDS/XAI
 FRS Modules 7 and 8 define Suricata network monitoring and Qwen2.5-3B explainability. Relevant code/config: `src/suricata/`, admin security-log routes, and AI service paths. Real-time security event push via SSE (`GET /api/events/stream`) notifies SYSTEM_ADMIN clients of threat detection, AI analysis completion, and HITL confirmations.
 
+### SIEM Raw Retention and Rollups (2026-06-28)
+
+Raw Suricata threat telemetry is intentionally short-lived to avoid unbounded `wims.security_threat_logs` growth and dashboard full-table scans. The production default is `retention.security_threat_logs_days=1`. Weekly/monthly visibility is preserved by `wims.security_threat_log_rollups`, which stores hourly buckets for 7 days and daily buckets for 90 days (`retention.security_rollups_hourly_days`, `retention.security_rollups_daily_days`). Ingestion increments both hourly and daily rollups for every alert before deciding whether to store a raw row.
+
+SIEM raw storage is now noise-gated: background/scanner/bot alerts are stored in rollups only by default (`siem.store_low_value_raw=false`), while HIGH/CRITICAL and credential/high-signal alerts can still be retained raw. Raw rows are deduplicated within `siem.raw_dedup_window_minutes` (default 5) by source IP, SID, severity, and classification. The admin API exposes `/api/admin/security-logs/rollups` for hourly/daily time-range queries.
+
 ### XAI Prompt Completeness (2026-06-23)
 `analyze_threat_log()` in `src/backend/services/ai_service.py` now includes `suricata_signature` and `classification` in the Ollama prompt (added between `SID=` and `payload=`). Custom WIMS SIDs 1000001-1000134 are NOT in any public Suricata feed, so the bare SID is opaque to Ollama — the human-readable signature (e.g. "WIMS OWASP A03 SQLi UNION SELECT") tells the LLM the attack type, and the classification (e.g. "high_signal_threat") tells the threat model. Without these, the LLM could only guess from the raw payload, producing generic narratives that failed the user's goal: XAI must tell humans **what the attack is and what to do for future purposes**. Regression test: `test_analyze_threat_log_prompt_includes_signature_and_classification` in `tests/integration/test_ai_ids_api.py` (captures the Ollama request body via `respx` and asserts both fields are present in the prompt).
 
