@@ -7,7 +7,7 @@
   "display_override": ["window-controls-overlay", "standalone"],
   "orientation": "portrait-primary",
   "background_color": "#ffffff",
-  "theme_color": "#dc2626",
+  "theme_color": "#000000",
   "icons": [
     {
       "src": "/bfp-logo.ico",

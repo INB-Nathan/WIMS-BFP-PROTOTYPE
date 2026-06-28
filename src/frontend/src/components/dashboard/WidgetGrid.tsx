@@ -4,6 +4,7 @@ import { useEffect, useState, useRef } from "react";
 import { fetchWidgetData, type WidgetDataMap } from "@/lib/api/widgets";
 import { widgetById } from "./widget-definitions";
 import { WidgetCard } from "./WidgetCard";
+import { useNetworkStatus } from "@/lib/useNetworkStatus";
 
 const WIDGET_CACHE_PREFIX = "wims:widget-cache:";
 
@@ -41,6 +42,7 @@ export interface WidgetGridProps {
  * Grid layout: 2 cols mobile, 3 cols tablet, 4 cols desktop.
  */
 export function WidgetGrid({ widgetIds, role, onRemoveWidget }: WidgetGridProps) {
+  const { isOnline } = useNetworkStatus();
   const [dataMap, setDataMap] = useState<WidgetDataMap>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -60,6 +62,22 @@ export function WidgetGrid({ widgetIds, role, onRemoveWidget }: WidgetGridProps)
     }
 
     let cancelled = false;
+
+    // While offline, skip the network attempt immediately and serve the cache.
+    // isOnline in the deps means this effect re-runs as soon as connectivity
+    // is restored, at which point it falls through to the normal fetch path.
+    if (!isOnline) {
+      const cached = role ? loadCachedWidgets(role) : null;
+      if (cached && Object.keys(cached).length > 0) {
+        setDataMap(cached);
+        setFromCache(true);
+      } else {
+        setError("Widget data unavailable offline");
+      }
+      setLoading(false);
+      return () => { cancelled = true; };
+    }
+
     setLoading(true);
     setError(null);
     setFromCache(false);
@@ -70,6 +88,7 @@ export function WidgetGrid({ widgetIds, role, onRemoveWidget }: WidgetGridProps)
         setDataMap(result);
         // Persist fresh data so it's available when offline next time
         if (role) saveCachedWidgets(role, result);
+        setFromCache(false);
       })
       .catch(() => {
         if (cancelled || !mountedRef.current) return;
@@ -90,7 +109,7 @@ export function WidgetGrid({ widgetIds, role, onRemoveWidget }: WidgetGridProps)
       cancelled = true;
       mountedRef.current = false;
     };
-  }, [widgetIds.join(","), role]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [widgetIds.join(","), role, isOnline]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!role || widgetIds.length === 0) {
     return null;

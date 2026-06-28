@@ -90,9 +90,7 @@ function formatSyncErrors(
 export default function OfflineWorkPage() {
   const router = useRouter();
   const { user, loading } = useAuth();
-  const role = (user as { role?: string })?.role ?? null;
   const encoderId = (user as { id?: string })?.id ?? '';
-  const isEncoder = role === 'REGIONAL_ENCODER' || role === 'ENCODER';
 
   const { syncing } = useAutoSync();
   const [activeSection, setActiveSection] = useState<Section>('drafts');
@@ -128,14 +126,18 @@ export default function OfflineWorkPage() {
   }, [encoderId]);
 
   useEffect(() => {
-    if (!loading && !isEncoder) {
+    // Redirect only when there is genuinely no session — no cached user at all.
+    // An encoder with an expired token still has a cached session and should be
+    // able to view their queued offline operations without hitting the server.
+    // Server-validated role checks belong on write paths, not on this read view.
+    if (!loading && !user) {
       router.replace('/dashboard');
       return;
     }
     if (encoderId) {
       void loadAll();
     }
-  }, [loading, isEncoder, encoderId, router, loadAll]);
+  }, [loading, user, encoderId, router, loadAll]);
 
   const handleRetryAll = async () => {
     if (syncing || !encoderId) return;
@@ -182,7 +184,7 @@ export default function OfflineWorkPage() {
     );
   }
 
-  if (!isEncoder) return null;
+  if (!user) return null;
 
   const sections: { key: Section; count: number; ops: OfflineOpDecrypted[] }[] = [
     { key: 'drafts', count: drafts.length, ops: drafts },
