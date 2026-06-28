@@ -33,13 +33,15 @@ services:
       - AUTH_SERVER_URL=http://keycloak:8080/auth
       - BACKEND_URL=http://backend:8000
 
-  # VPS has 2 CPUs / 8 GB RAM — override dev defaults that assume 4 CPUs / 16 GB.
+  # Contabo production VPS has 8 vCPUs / 23 GiB RAM.
+  # Reserve half the CPU and 6 GB RAM for Qwen2.5-3B, leaving headroom for Postgres,
+  # Keycloak, backend, Celery, Suricata, Redis, nginx, and the host OS cache.
   ollama:
     deploy:
       resources:
         limits:
-          cpus: '2'
-          memory: 4gb
+          cpus: '4'
+          memory: 6gb
 
   # Production TLS certs — not available in local dev (override swaps nginx.conf).
   # nginx.conf mount is in the base compose file; this file only adds production certs.

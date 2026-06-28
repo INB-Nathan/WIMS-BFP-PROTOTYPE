@@ -1,4 +1,4 @@
-"""IDS-to-SLM AI Analysis via Ollama (qwen2.5:1.5b)."""
+"""IDS-to-SLM AI Analysis via Ollama (qwen2.5:3b)."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ from utils.external_service import (
 from utils.metrics import AI_INFERENCE_DURATION
 
 logger = logging.getLogger("wims.ai_service")
-OLLAMA_MODEL = "qwen2.5:1.5b"
+OLLAMA_MODEL = "qwen2.5:3b"
 
 # ---------------------------------------------------------------------------
 # Ollama HTTP timeout (seconds). Override via OLLAMA_TIMEOUT env var.
