@@ -1,3 +1,20 @@
+## [2026-06-28] fix(audit): RP-06 NSD tamper detection + RP-14 analytics export audit (WS-D)
+
+Branch: `fix/ws-d-rp06-rp14-audit`
+
+### Scope
+Two non-repudiation gaps closed: (1) direct DB edits to `wims.incident_nonsensitive_details` were undetectable by the integrity check; (2) bulk analytics exports were invisible to anomaly detectors.
+
+### Changes
+- **`src/backend/services/regional_incidents/helpers.py`** — `verify_incident_hash_chain()`: provenance JOIN and `compute_incident_data_hash()` recompute now run before the no-chain early return. Mismatch → `integrity_status="tampered"` with `INTEGRITY_VIOLATION` audit row written via `_AdminSessionLocal`. Valid no-chain result (hashes match) → `"valid"`. No-hash incident → `"unverified"` (unchanged).
+- **`src/backend/main.py`** — `_backfill_verified_data_hash()` startup patch: populates `data_hash` for VERIFIED incidents with NULL hash (covers bootstrap seed data). Idempotent and non-fatal.
+- **`src/backend/tasks/exports.py`** — `_insert_export_log()`: adds `log_system_audit(..., "BULK_EXPORT", ...)` alongside the `analytics_export_log` INSERT, sharing the same transaction commit. Non-fatal if audit write fails.
+- **`src/backend/tests/integration/test_rp06_nsd_tamper.py`** — 3-case integration test: unmodified incident → `"valid"`, direct NSD tamper → `"tampered"` with `"NSD tamper detected"` violation, null data_hash → `"unverified"`.
+
+### Register updates
+- `system-wiki/gaps/frs-codebase-gap-register.md` — RP-06 closed (NSD recompute); RP-14 closed (BULK_EXPORT audit).
+- `system-wiki/gaps/functional-bug-register.md` — F-15 (RP-06), F-16 (RP-14) added.
+
 ## [2026-06-27] feat(offline): regional encoder offline UX overhaul
 
 - **Scope:** PR #466 improves regional encoder offline visibility and control: split queued/failed/conflict counts, per-incident offline overlays, Offline Work center, conflict merge UX, cancel/withdraw controls, sync progress, enable-offline cancellation, and Sidebar badge navigation.

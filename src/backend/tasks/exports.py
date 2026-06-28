@@ -729,6 +729,28 @@ def _insert_export_log(
             "content_type": content_type,
         },
     )
+    # RP-14: mirror the export to system_audit_trails so anomaly detectors
+    # (OFF_HOURS, SUSPICIOUS_QUERY_PATTERN) and audit queries can see bulk
+    # analytics exports — analytics_export_log alone was not visible there.
+    try:
+        from utils.audit import log_system_audit
+
+        log_system_audit(
+            db,
+            user_id,
+            "BULK_EXPORT",
+            "wims.analytics_export_log",
+            None,
+            None,  # no HTTP request in Celery context
+            new_values={
+                "format": export_format,
+                "export_type": export_type,
+                "row_count": row_count,
+                "task_id": task_id,
+            },
+        )
+    except Exception:
+        logger.warning("RP-14: BULK_EXPORT audit write failed (non-fatal)")
     db.commit()
 
 
