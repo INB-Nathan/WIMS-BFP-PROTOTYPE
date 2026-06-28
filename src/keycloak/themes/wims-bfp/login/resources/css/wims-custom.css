@@ -1,13 +1,9 @@
-<<<<<<< HEAD
-/* WIMS-BFP Keycloak Theme â€” Fully Self-Contained
-=======
-﻿/* WIMS-BFP Keycloak Theme â€” Fully Self-Contained
->>>>>>> d8259420d6c002b19c2aaaaac0a2465f1d167acc
+/* WIMS-BFP Keycloak Theme — Fully Self-Contained
  * No PatternFly dependency (Keycloak 26 compatibility)
  * Matches Next.js frontend login page exactly
  */
 
-/* === Google Fonts â€” Inter (matches frontend) === */
+/* === Google Fonts — Inter (matches frontend) === */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 /* === CSS Reset / Base === */
@@ -70,7 +66,7 @@ body#keycloak-bg.login-pf {
     display: none !important;
 }
 
-/* === Main Container â€” Side by Side === */
+/* === Main Container — Side by Side === */
 .pf-v5-c-login {
     display: flex !important;
     height: 100vh !important;
@@ -99,16 +95,12 @@ body#keycloak-bg.login-pf {
     grid-template-columns: none !important;
 }
 
-/* === Left Panel â€” BFP Branding === */
+/* === Left Panel — BFP Branding === */
 .wims-login-branding {
     position: relative;
     width: 45%;
     min-height: 100vh;
-<<<<<<< HEAD
-    background: #1A3263;
-=======
-    background: #1A3263;
->>>>>>> d8259420d6c002b19c2aaaaac0a2465f1d167acc
+    background: #992222;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -172,7 +164,7 @@ body#keycloak-bg.login-pf {
 .wims-brand-tagline {
     font-family: 'Inter', sans-serif !important;
     font-size: 0.8rem;
-    color: #9da5b1 !important;
+    color: rgba(255,255,255,0.55) !important;
     letter-spacing: 0.05em;
     text-transform: uppercase;
     display: flex;
@@ -192,7 +184,7 @@ body#keycloak-bg.login-pf {
     stroke-linejoin: round;
 }
 
-/* === Right Panel â€” Login Form === */
+/* === Right Panel — Login Form === */
 .pf-v5-c-login__main {
     display: flex !important;
     flex-direction: column !important;
@@ -274,7 +266,7 @@ label {
     margin-bottom: 6px !important;
 }
 
-/* === Input Fields â€” Span wrapper + Input === */
+/* === Input Fields — Span wrapper + Input === */
 /* Span is the visible container, input fills it */
 .pf-v5-c-form-control {
     display: block !important;
@@ -289,11 +281,11 @@ label {
 }
 
 .pf-v5-c-form-control:focus-within {
-    border-color: #1A3263 !important;
-    box-shadow: 0 0 0 3px rgba(26,50,99,0.1) !important;
+    border-color: #992222 !important;
+    box-shadow: 0 0 0 3px rgba(153,34,34,0.1) !important;
 }
 
-/* Input inside span â€” no border, fills container */
+/* Input inside span — no border, fills container */
 .pf-v5-c-form-control input[type="text"],
 .pf-v5-c-form-control input[type="password"],
 .pf-v5-c-form-control input[type="email"] {
@@ -311,7 +303,7 @@ label {
     box-shadow: none !important;
 }
 
-/* Standalone inputs (outside span) â€” fallback */
+/* Standalone inputs (outside span) — fallback */
 input[type="text"],
 input[type="password"],
 input[type="email"] {
@@ -332,12 +324,12 @@ input[type="email"] {
 input[type="text"]:focus,
 input[type="password"]:focus,
 input[type="email"]:focus {
-    border-color: #1A3263 !important;
-    box-shadow: 0 0 0 3px rgba(26,50,99,0.1) !important;
+    border-color: #992222 !important;
+    box-shadow: 0 0 0 3px rgba(153,34,34,0.1) !important;
     outline: none !important;
 }
 
-/* Input error state â€” on span wrapper */
+/* Input error state — on span wrapper */
 .pf-v5-c-form-control.pf-m-error {
     border-color: #c9302c !important;
 }
@@ -349,7 +341,7 @@ input[type="email"]:focus {
     gap: 0 !important;
 }
 
-/* Span inside input group â€” flat right edge */
+/* Span inside input group — flat right edge */
 .pf-v5-c-input-group .pf-v5-c-form-control {
     border-top-right-radius: 0 !important;
     border-bottom-right-radius: 0 !important;
@@ -383,14 +375,14 @@ input[type="email"]:focus {
 #kc-login,
 input[type="submit"] {
     font-family: 'Inter', sans-serif !important;
-    background: linear-gradient(135deg, #1A3263 0%, #142849 100%) !important;
+    background: linear-gradient(135deg, #992222 0%, #7f1d1d 100%) !important;
     border: none !important;
     border-radius: 8px !important;
     font-weight: 700 !important;
     font-size: 14px !important;
     text-transform: uppercase !important;
     letter-spacing: 0.5px !important;
-    box-shadow: 0 2px 8px rgba(26,50,99,0.3) !important;
+    box-shadow: 0 2px 8px rgba(153,34,34,0.3) !important;
     width: 100% !important;
     padding: 14px 24px !important;
     margin-top: 8px !important;
@@ -402,8 +394,8 @@ input[type="submit"] {
 .pf-v5-c-button.pf-m-primary:hover,
 #kc-login:hover,
 input[type="submit"]:hover {
-    background: linear-gradient(135deg, #142849 0%, #0e1e3d 100%) !important;
-    box-shadow: 0 4px 16px rgba(26,50,99,0.4) !important;
+    background: linear-gradient(135deg, #7f1d1d 0%, #6b1a1a 100%) !important;
+    box-shadow: 0 4px 16px rgba(153,34,34,0.4) !important;
     transform: translateY(-1px) !important;
 }
 
@@ -425,13 +417,13 @@ input[type="submit"]:disabled {
 /* === Links === */
 a {
     font-family: 'Inter', sans-serif !important;
-    color: #1A3263 !important;
+    color: #992222 !important;
     text-decoration: none !important;
     font-size: 14px !important;
 }
 
 a:hover {
-    color: #142849 !important;
+    color: #7f1d1d !important;
     text-decoration: underline !important;
 }
 
@@ -452,7 +444,7 @@ a:hover {
 }
 
 input[type="checkbox"] {
-    accent-color: #1A3263 !important;
+    accent-color: #992222 !important;
     width: 16px !important;
     height: 16px !important;
 }
@@ -506,7 +498,7 @@ input[type="checkbox"] {
     margin-bottom: 0 !important;
 }
 
-/* === MFA / TOTP Setup â€” allow scroll so OTP boxes are always reachable === */
+/* === MFA / TOTP Setup — allow scroll so OTP boxes are always reachable === */
 
 /* The right panel must scroll; overflow:hidden clips the form on short viewports.
    overflow-x:visible coerces to auto (scrollbar) when overflow-y is non-visible, so
@@ -519,7 +511,7 @@ input[type="checkbox"] {
     padding-right: clamp(1.5rem, 4vw, 4.5rem) !important;
 }
 
-/* Body must not centre-justify â€” content starts at the top so nothing is pushed below the fold */
+/* Body must not centre-justify — content starts at the top so nothing is pushed below the fold */
 .pf-v5-c-login__main:has(.wims-totp-setup) .pf-v5-c-login__main-body {
     justify-content: flex-start !important;
     flex: 0 0 auto !important;
@@ -576,7 +568,7 @@ input[type="checkbox"] {
     width: 1.55rem !important;
     height: 1.55rem !important;
     border-radius: 999px !important;
-    background: #1A3263 !important;
+    background: #992222 !important;
     color: #ffffff !important;
     font-size: 0.75rem !important;
     font-weight: 700 !important;
@@ -774,8 +766,8 @@ input[type="checkbox"] {
 }
 
 .wims-otp-box:focus {
-    border-color: #1A3263 !important;
-    box-shadow: 0 0 0 3px rgba(26,50,99,0.1) !important;
+    border-color: #992222 !important;
+    box-shadow: 0 0 0 3px rgba(153,34,34,0.1) !important;
     outline: none !important;
 }
 
@@ -815,9 +807,9 @@ input[type="checkbox"] {
     align-items: center !important;
     justify-content: center !important;
     border-radius: 14px !important;
-    background: #EBF0F7 !important;
-    border: 1px solid #C8D8EA !important;
-    color: #1A3263 !important;
+    background: #fff7f7 !important;
+    border: 1px solid #f0d5d5 !important;
+    color: #992222 !important;
 }
 
 .wims-otp-auth-icon svg {
@@ -878,7 +870,7 @@ input[type="checkbox"] {
     display: inline-flex !important;
     align-items: center !important;
     justify-content: flex-start !important;
-    color: #1A3263 !important;
+    color: #992222 !important;
     font-size: 0.95rem !important;
     font-weight: 600 !important;
     text-decoration: none !important;
@@ -887,7 +879,7 @@ input[type="checkbox"] {
 
 .wims-otp-restart:hover,
 .wims-otp-restart:focus {
-    color: #142849 !important;
+    color: #7f1d1d !important;
     text-decoration: underline !important;
 }
 
@@ -1074,4 +1066,3 @@ p {
     font-size: 14px !important;
     line-height: 1 !important;
 }
-
