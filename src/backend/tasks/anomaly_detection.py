@@ -158,7 +158,7 @@ def _detect_off_hours(db: Session) -> list[dict[str, Any]]:
             WHERE (
                 action_type IN (
                     'PII_EXPORT', 'BACKUP_TRIGGERED', 'BREACH_STATUS_UPDATE',
-                    'CREATE_INCIDENT_FROM_ALERT', 'AUDIT_EXPORT'
+                    'CREATE_INCIDENT_FROM_ALERT', 'AUDIT_EXPORT', 'BULK_EXPORT'
                 )
                 OR action_type LIKE 'ROLE_CHANGE_TO_%'
             )
