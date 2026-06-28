@@ -747,6 +747,7 @@ def _insert_export_log(
                 "export_type": export_type,
                 "row_count": row_count,
                 "task_id": task_id,
+                "filters": filters or {},
             },
         )
     except Exception:
