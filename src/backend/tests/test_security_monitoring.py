@@ -239,13 +239,14 @@ class TestCombinedSeveritySourceIpFilter:
         "{}",
         None,
         None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
+        None,  # xai_confidence_breakdown
+        None,  # admin_action_taken
+        None,  # resolved_at
+        None,  # reviewed_by
+        None,  # hitl_decision
+        None,  # classification
+        None,  # suricata_signature
+        None,  # suricata_category
     )
     # Row 7: CRITICAL severity, source_ip=10.0.0.1 -> matches both filters
     _CRITICAL_MATCH = (
@@ -258,13 +259,14 @@ class TestCombinedSeveritySourceIpFilter:
         "{}",
         None,
         None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
+        None,  # xai_confidence_breakdown
+        None,  # admin_action_taken
+        None,  # resolved_at
+        None,  # reviewed_by
+        None,  # hitl_decision
+        None,  # classification
+        None,  # suricata_signature
+        None,  # suricata_category
     )
     # Row 8: HIGH severity but source_ip=10.0.0.99 -> excluded by source_ip filter
     _HIGH_WRONG_IP = (
@@ -277,13 +279,14 @@ class TestCombinedSeveritySourceIpFilter:
         "{}",
         None,
         None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
+        None,  # xai_confidence_breakdown
+        None,  # admin_action_taken
+        None,  # resolved_at
+        None,  # reviewed_by
+        None,  # hitl_decision
+        None,  # classification
+        None,  # suricata_signature
+        None,  # suricata_category
     )
     # Row 9: LOW severity but source_ip=10.0.0.1 -> excluded by severity filter
     _LOW_MATCH_IP = (
@@ -296,13 +299,14 @@ class TestCombinedSeveritySourceIpFilter:
         "{}",
         None,
         None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
+        None,  # xai_confidence_breakdown
+        None,  # admin_action_taken
+        None,  # resolved_at
+        None,  # reviewed_by
+        None,  # hitl_decision
+        None,  # classification
+        None,  # suricata_signature
+        None,  # suricata_category
     )
 
     def test_severity_and_source_ip_combined_filter(self, client: TestClient):
@@ -613,13 +617,14 @@ class TestClassificationResponseShape:
             "{}",
             None,
             None,
-            None,
-            None,
-            None,
-            None,
-            "scanner",
-            "ET WEB_SERVER Possible SQL Injection Attempt UNION SELECT",
-            "Web Application Attack",
+            None,  # xai_confidence_breakdown
+            None,  # admin_action_taken
+            None,  # resolved_at
+            None,  # reviewed_by
+            None,  # hitl_decision
+            "scanner",  # classification
+            "ET WEB_SERVER Possible SQL Injection Attempt UNION SELECT",  # suricata_signature
+            "Web Application Attack",  # suricata_category
         )
         mock_db, _get_db = _make_list_db([_CLASSIFIED_ROW], total=1)
         app.dependency_overrides[get_db_with_rls] = _get_db
@@ -668,13 +673,14 @@ _SCANNER_ROW = (
     "{}",
     None,
     None,
-    None,
-    None,
-    None,
-    None,
-    "scanner",
-    "ET WEB_SERVER Possible SQL Injection Attempt UNION SELECT",
-    "Web Application Attack",
+    None,  # xai_confidence_breakdown
+    None,  # admin_action_taken
+    None,  # resolved_at
+    None,  # reviewed_by
+    None,  # hitl_decision
+    "scanner",  # classification
+    "ET WEB_SERVER Possible SQL Injection Attempt UNION SELECT",  # suricata_signature
+    "Web Application Attack",  # suricata_category
 )
 _BOT_PROBE_ROW = (
     11,
@@ -686,12 +692,13 @@ _BOT_PROBE_ROW = (
     "{}",
     None,
     None,
-    None,
-    None,
-    None,
-    None,
-    "bot_probe",
-    "ET SCAN Potential SSH Scan",
+    None,  # xai_confidence_breakdown
+    None,  # admin_action_taken
+    None,  # resolved_at
+    None,  # reviewed_by
+    None,  # hitl_decision
+    "bot_probe",  # classification
+    "ET SCAN Potential SSH Scan",  # suricata_signature
     "Attempted Information Leak",
 )
 _UNCLASSIFIED_ROW = (
