@@ -70,7 +70,12 @@ export async function probeConnectivity(): Promise<ConnectivitySnapshot> {
   if (probeInFlight) return probeInFlight;
 
   const wasOffline = snapshot.state === 'offline';
-  setConnectivityState('checking');
+  // Only show 'checking' (isOnline=false) when genuinely transitioning from offline.
+  // Probes triggered while online (initial probe, focus/visibility recheck, reconnect
+  // confirmation) must NOT flash the UI offline for the duration of the HTTP round-trip.
+  if (wasOffline) {
+    setConnectivityState('checking');
+  }
 
   probeInFlight = (async () => {
     const controller = new AbortController();
