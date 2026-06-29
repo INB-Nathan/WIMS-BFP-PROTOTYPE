@@ -371,21 +371,24 @@ class TestSuricataThresholdConsumer:
         }
 
     def test_default_threshold_3_maps_1_to_low(self):
-        assert self.fn(self._eve(1))["severity_level"] == "LOW"
+        # Suricata priority 1 = most severe → CRITICAL (corrected from old inverted mapping)
+        assert self.fn(self._eve(1))["severity_level"] == "CRITICAL"
 
     def test_default_threshold_3_maps_2_to_medium(self):
-        assert self.fn(self._eve(2))["severity_level"] == "MEDIUM"
+        # Suricata priority 2 → HIGH
+        assert self.fn(self._eve(2))["severity_level"] == "HIGH"
 
     def test_default_threshold_3_maps_3_to_high(self):
-        assert self.fn(self._eve(3))["severity_level"] == "HIGH"
+        # Suricata priority 3 → MEDIUM
+        assert self.fn(self._eve(3))["severity_level"] == "MEDIUM"
 
     def test_threshold_2_escalates_medium_to_high(self):
-        """With threshold=2, Suricata severity 2 is mapped to HIGH."""
+        """Suricata severity 2 maps to HIGH (high_threshold param retained for API compat)."""
         assert self.fn(self._eve(2), high_threshold=2)["severity_level"] == "HIGH"
 
     def test_threshold_2_keeps_1_as_low(self):
-        """With threshold=2, Suricata severity 1 stays LOW."""
-        assert self.fn(self._eve(1), high_threshold=2)["severity_level"] == "LOW"
+        """Suricata priority 1 maps to CRITICAL regardless of high_threshold (param no longer used)."""
+        assert self.fn(self._eve(1), high_threshold=2)["severity_level"] == "CRITICAL"
 
     def test_none_severity_defaults_to_medium(self):
         assert self.fn(self._eve(None))["severity_level"] == "MEDIUM"
