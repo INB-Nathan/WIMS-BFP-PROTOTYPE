@@ -441,7 +441,7 @@ describe('per-user isolation (F12)', () => {
   // The behaviour under test is wipe coverage, not decryptability of wiped data.
   it('F1: clears legacy incident-queue when a different uid logs in', async () => {
     await setActiveOfflineUser('user-A');
-    await queueIncident({ description: 'Legacy pending fire report' });
+    await queueIncident({ description: 'Legacy pending fire report' }, { opType: 'verify' });
     expect(legacyStore.size).toBe(1);
 
     // A different account logs in on the same device → prior data destroyed.

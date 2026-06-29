@@ -66,7 +66,7 @@ const {
 
 describe('offlineStore', () => {
     it('queueIncident stores item with status pending', async () => {
-        await queueIncident({ description: 'Fire at building', lat: 14.5 });
+        await queueIncident({ description: 'Fire at building', lat: 14.5 }, { opType: 'verify' });
         const pending = await getPendingIncidents();
         expect(pending).toHaveLength(1);
         expect(pending[0].status).toBe('pending');
@@ -88,15 +88,15 @@ describe('offlineStore', () => {
     });
 
     it('getPendingIncidents returns only pending items', async () => {
-        await queueIncident({ description: 'Incident 1' });
-        await queueIncident({ description: 'Incident 2' });
+        await queueIncident({ description: 'Incident 1' }, { opType: 'verify' });
+        await queueIncident({ description: 'Incident 2' }, { opType: 'verify' });
         const pending = await getPendingIncidents();
         expect(pending).toHaveLength(2);
         expect(pending.every(i => i.status === 'pending')).toBe(true);
     });
 
     it('markSynced removes item from store', async () => {
-        await queueIncident({ description: 'To sync' });
+        await queueIncident({ description: 'To sync' }, { opType: 'verify' });
         const pending = await getPendingIncidents();
         await markSynced(pending[0].id!);
         const after = await getPendingIncidents();
@@ -104,7 +104,7 @@ describe('offlineStore', () => {
     });
 
     it('payload is encrypted at rest', async () => {
-        await queueIncident({ description: 'Secret fire data', lat: 14.5, lon: 120.9 });
+        await queueIncident({ description: 'Secret fire data', lat: 14.5, lon: 120.9 }, { opType: 'verify' });
         const rawRecord = await getRawRecord(1);
         expect(rawRecord).toBeDefined();
         expect(rawRecord).toHaveProperty('encrypted');
@@ -118,14 +118,14 @@ describe('offlineStore', () => {
 
     it('getPendingIncidents returns decrypted payload', async () => {
         const originalPayload = { description: 'Test incident', lat: 15.1, lon: 121.3 };
-        await queueIncident(originalPayload);
+        await queueIncident(originalPayload, { opType: 'verify' });
         const pending = await getPendingIncidents();
         expect(pending).toHaveLength(1);
         expect(pending[0].payload).toEqual(originalPayload);
     });
 
     it('updateQueuedIncident re-encrypts updated payload', async () => {
-        await queueIncident({ description: 'Original' });
+        await queueIncident({ description: 'Original' }, { opType: 'verify' });
         await updateQueuedIncident(1, { description: 'Updated description', lat: 16.0 });
         const pending = await getPendingIncidents();
         expect(pending[0].payload.description).toBe('Updated description');
@@ -136,14 +136,14 @@ describe('offlineStore', () => {
 
     it('getQueuedIncident returns decrypted payload', async () => {
         const originalPayload = { description: 'Queued incident', lat: 14.0 };
-        await queueIncident(originalPayload);
+        await queueIncident(originalPayload, { opType: 'verify' });
         const item = await getQueuedIncident(1);
         expect(item).toBeDefined();
         expect(item!.payload).toEqual(originalPayload);
     });
 
     it('deleteQueuedIncident removes record', async () => {
-        await queueIncident({ description: 'To delete' });
+        await queueIncident({ description: 'To delete' }, { opType: 'verify' });
         await deleteQueuedIncident(1);
         const pending = await getPendingIncidents();
         expect(pending).toHaveLength(0);
@@ -152,10 +152,10 @@ describe('offlineStore', () => {
     // ── PR #272 review S3: cap enforcement works regardless of console.warn gate (#275) ──
     it('throws when encrypted total exceeds advisory storage cap', async () => {
         // Fill the store with one item at the default cap.
-        await queueIncident({ description: 'fill' });
+        await queueIncident({ description: 'fill' }, { opType: 'verify' });
         // Lower cap to a tiny value so the existing encrypted bytes exceed it.
         initOfflineStorageLimit(0.00001);
-        await expect(queueIncident({ description: 'burst' })).rejects.toThrow(
+        await expect(queueIncident({ description: 'burst' }, { opType: 'verify' })).rejects.toThrow(
             'Offline storage cap reached'
         );
         // Reset cap so subsequent tests are not affected.

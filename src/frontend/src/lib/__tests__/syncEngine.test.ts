@@ -513,19 +513,21 @@ describe('op-type dispatch — archive_action ops', () => {
 });
 
 describe('backward compatibility — legacy items (no opType)', () => {
-  it('items without opType still POST to /api/v1/public/report (legacy)', async () => {
+  it('items without opType are NOT sent to civilian endpoint; surfaced as sync error', async () => {
     vi.mocked(getPendingIncidents).mockResolvedValue([
-      { id: 1, payload: { description: 'Legacy public report' }, createdAt: Date.now(), status: 'pending' },
+      { id: 1, payload: { description: 'Legacy item' }, createdAt: Date.now(), status: 'pending' },
     ]);
-    fetchSpy.mockResolvedValue({ ok: true, status: 201, json: () => Promise.resolve({ report_id: 42 }), text: () => Promise.resolve(JSON.stringify({ report_id: 42 })) });
     vi.mocked(markSynced).mockResolvedValue(undefined);
 
     const result = await syncPendingIncidents();
 
-    const [url, options] = fetchSpy.mock.calls[0];
-    expect(url).toMatch(/\/api\/v1\/public\/report/);
-    expect(options.method).toBe('POST');
-    expect(result.synced).toBe(1);
+    // fetch should NOT have been called — processLegacyCreate returns error
+    // instead of routing data to /api/v1/public/report
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(result.synced).toBe(0);
+    expect(result.failed).toBe(1);
+    expect(result.errors[0]?.error).toContain('Legacy create handler reached');
+    expect(result.errors[0]?.error).toContain('NOT sent to the civilian endpoint');
   });
 });
 
