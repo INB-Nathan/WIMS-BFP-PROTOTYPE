@@ -571,6 +571,7 @@ def split_cluster_command(
                 SELECT report_id
                 FROM wims.citizen_report_cluster_members
                 WHERE cluster_id = :cid AND report_id = ANY(CAST(:report_ids AS integer[]))
+                ORDER BY report_id ASC
                 FOR UPDATE
             """),
             {"cid": cluster_id, "report_ids": report_ids},
@@ -584,6 +585,13 @@ def split_cluster_command(
             raise HTTPException(
                 status_code=422, detail="Split requires at least two selected reports"
             )
+
+        old_anchor = db.execute(
+            text(
+                "SELECT anchor_report_id FROM wims.citizen_report_clusters WHERE cluster_id = :cid"
+            ),
+            {"cid": cluster_id},
+        ).scalar()
 
         new_cluster = db.execute(
             text("""
@@ -606,6 +614,36 @@ def split_cluster_command(
             """),
             {"cid": cluster_id, "report_ids": found_ids},
         )
+
+        remaining_count = db.execute(
+            text("""
+                SELECT COUNT(*)
+                FROM wims.citizen_report_cluster_members
+                WHERE cluster_id = :cid
+            """),
+            {"cid": cluster_id},
+        ).scalar()
+        if remaining_count == 0:
+            raise HTTPException(status_code=422, detail="Split would leave source cluster empty")
+
+        if old_anchor in found_ids:
+            new_anchor = db.execute(
+                text("""
+                    SELECT MIN(report_id)
+                    FROM wims.citizen_report_cluster_members
+                    WHERE cluster_id = :cid
+                """),
+                {"cid": cluster_id},
+            ).scalar()
+            db.execute(
+                text("""
+                    UPDATE wims.citizen_report_clusters
+                    SET anchor_report_id = :anchor
+                    WHERE cluster_id = :cid
+                """),
+                {"cid": cluster_id, "anchor": new_anchor},
+            )
+
         db.execute(
             text("""
                 INSERT INTO wims.citizen_report_cluster_members (cluster_id, report_id, linked_by)
@@ -675,28 +713,33 @@ def merge_clusters_command(
         if source[1] == "CLUSTER_CLOSED":
             raise HTTPException(status_code=409, detail="Source cluster is already closed")
 
-        source_members = db.execute(
-            text(
-                "SELECT report_id FROM wims.citizen_report_cluster_members WHERE cluster_id = :cid"
-            ),
-            {"cid": body.source_cluster_id},
-        ).fetchall()
-        report_ids = [row.report_id for row in source_members]
-        db.execute(
+        moved = db.execute(
             text("""
-                INSERT INTO wims.citizen_report_cluster_members (cluster_id, report_id, linked_by)
-                SELECT :target_cid, unnest(CAST(:report_ids AS integer[])), :uid
-                ON CONFLICT (cluster_id, report_id) DO NOTHING
+                WITH moved AS (
+                    DELETE FROM wims.citizen_report_cluster_members
+                    WHERE cluster_id = :source_cid
+                    RETURNING report_id
+                ),
+                inserted AS (
+                    INSERT INTO wims.citizen_report_cluster_members (cluster_id, report_id, linked_by)
+                    SELECT :target_cid, report_id, :uid
+                    FROM moved
+                    ON CONFLICT (cluster_id, report_id) DO NOTHING
+                    RETURNING report_id
+                )
+                SELECT COALESCE(
+                    array_agg(moved.report_id ORDER BY moved.report_id),
+                    ARRAY[]::integer[]
+                ) AS moved_ids
+                FROM moved
             """),
-            {"target_cid": target_cluster_id, "report_ids": report_ids, "uid": user_id},
-        )
-        db.execute(
-            text("""
-                DELETE FROM wims.citizen_report_cluster_members
-                WHERE cluster_id = :source_cid
-            """),
-            {"source_cid": body.source_cluster_id},
-        )
+            {
+                "source_cid": body.source_cluster_id,
+                "target_cid": target_cluster_id,
+                "uid": user_id,
+            },
+        ).fetchone()
+        report_ids = list(moved.moved_ids or [])
         db.execute(
             text("""
                 UPDATE wims.citizen_report_clusters
