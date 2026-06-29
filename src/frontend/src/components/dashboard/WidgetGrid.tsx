@@ -54,14 +54,12 @@ export function WidgetGrid({ widgetIds, role, onRemoveWidget }: WidgetGridProps)
   useEffect(() => {
     mountedRef.current = true;
 
-    // Create a stable key for the current widget set to detect changes
+    // Don't attempt network calls when offline — render already shows the offline placeholder.
+    if (!isOnline) return;
+
+
     const idsKey = widgetIds.join(",");
-    if (idsKey === "") {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- reset on empty
-      setDataMap({});
-      setLoading(false);
-      return;
-    }
+    if (idsKey === "") return;
 
     let cancelled = false;
 
