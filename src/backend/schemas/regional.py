@@ -193,14 +193,14 @@ class IncidentUpdateRequest(BaseModel):
     receiver_name: LabelField
     prepared_by_officer: LabelField
     noted_by_officer: LabelField
-    disposition: LabelField
+
+    # ── String narrative (D4: 10000) ──────────────────────────────────────
+    disposition: NarrativeField
+    narrative_report: NarrativeField
 
     # ── String descriptions / notes (D4: 2000) ────────────────────────────
     recommendations: DescField
     remarks: DescField
-
-    # ── String narrative (D4: 10000) ──────────────────────────────────────
-    narrative_report: NarrativeField
 
     # ── Non-negative numerics (counts, optional) ───────────────────────────
     civilian_injured: int | None = Field(None, ge=0)

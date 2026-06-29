@@ -1833,8 +1833,8 @@ export function IncidentForm({
                       setFormState((prev) => ({
                         ...prev,
                         barangay: geo.barangay && !barangayManuallySetRef.current ? geo.barangay : prev.barangay,
-                        city_municipality: geo.city || prev.city_municipality,
-                        province_district: geo.province || prev.province_district,
+                        city_municipality: prev.city_municipality || geo.city,
+                        province_district: prev.province_district || geo.province,
                         incident_address:
                           prev.incident_address ||
                           [geo.barangay, geo.city, geo.province].filter(Boolean).join(', '),

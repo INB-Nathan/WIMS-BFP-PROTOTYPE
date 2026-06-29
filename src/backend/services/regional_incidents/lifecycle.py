@@ -424,6 +424,9 @@ def submit_incident_for_review_command(
         if update_result.rowcount != 1:
             raise HTTPException(status_code=409, detail="Incident status update failed")
 
+        # Capture the submission snapshot only on the FIRST submission.
+        # On resubmissions, keeping the original snapshot lets the diff endpoint
+        # show what the encoder changed between the rejection and the resubmission.
         db.execute(
             text(
                 """
@@ -434,6 +437,7 @@ def submit_incident_for_review_command(
                     WHERE nd.incident_id = fi.incident_id
                 )
                 WHERE fi.incident_id = :iid
+                  AND fi.submitted_snapshot IS NULL
                 """
             ),
             {"iid": incident_id},
