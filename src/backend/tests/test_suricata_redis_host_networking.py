@@ -178,3 +178,77 @@ class TestSuricataYamlPenTestComment:
         assert "2026-06-29" in content, (
             "suricata.yaml pen-test comment must include the 2026-06-29 date stamp for traceability"
         )
+
+
+class TestKeycloakBackendCeleryExtraHosts:
+    """Pin the deploy-fix follow-up to PR #485: after the IPAM subnet
+    change, the Docker embedded DNS does NOT consistently resolve
+    `postgres` (or other hostnames) from the keycloak, backend, and
+    celery-worker containers on the live VPS. Inject the static IPs
+    into /etc/hosts via `extra_hosts` to bypass the broken DNS."""
+
+    def test_keycloak_has_postgres_and_redis_extra_hosts(self) -> None:
+        compose = _compose()
+        extra_hosts = compose["services"]["keycloak"].get("extra_hosts", [])
+        entries = [str(e) for e in extra_hosts]
+        # Must include the postgres and redis static mappings
+        assert "postgres:172.18.0.3" in entries, (
+            f"keycloak extra_hosts must include 'postgres:172.18.0.3' to "
+            f"bypass the broken Docker DNS for postgres; got {entries!r}"
+        )
+        assert "redis:172.18.0.5" in entries, (
+            f"keycloak extra_hosts must include 'redis:172.18.0.5' for "
+            f"consistency with the redis static IP; got {entries!r}"
+        )
+
+    def test_backend_has_all_four_extra_hosts(self) -> None:
+        compose = _compose()
+        extra_hosts = compose["services"]["backend"].get("extra_hosts", [])
+        entries = [str(e) for e in extra_hosts]
+        required = {
+            "postgres:172.18.0.3": "DATABASE_URL host",
+            "redis:172.18.0.5": "REDIS_URL host",
+            "keycloak:172.18.0.7": "KEYCLOAK_REALM_URL host",
+            "ollama:172.18.0.4": "OLLAMA_URL host",
+        }
+        for entry, purpose in required.items():
+            assert entry in entries, (
+                f"backend extra_hosts must include '{entry}' ({purpose}) "
+                f"to bypass the broken Docker DNS; got {entries!r}"
+            )
+
+    def test_celery_worker_has_all_four_extra_hosts(self) -> None:
+        compose = _compose()
+        extra_hosts = compose["services"]["celery-worker"].get("extra_hosts", [])
+        entries = [str(e) for e in extra_hosts]
+        # Same set as backend (Celery worker connects to the same 4 services)
+        required = {
+            "postgres:172.18.0.3",
+            "redis:172.18.0.5",
+            "keycloak:172.18.0.7",
+            "ollama:172.18.0.4",
+        }
+        for entry in required:
+            assert entry in entries, (
+                f"celery-worker extra_hosts must include '{entry}' to "
+                f"bypass the broken Docker DNS; got {entries!r}"
+            )
+
+    def test_extra_host_redis_ip_matches_static_redis_ip(self) -> None:
+        """Cross-check: every `redis:...` reference in extra_hosts must
+        point to the same IP the redis service has on the wims_internal
+        network. If the redis static IP changes, all 3 extra_hosts
+        entries must be updated in lockstep."""
+        compose = _compose()
+        redis_ip = compose["services"]["redis"]["networks"]["wims_internal"]["ipv4_address"]
+        for svc in ["keycloak", "backend", "celery-worker"]:
+            extra_hosts = compose["services"][svc].get("extra_hosts", [])
+            for entry in extra_hosts:
+                if not isinstance(entry, str):
+                    continue
+                if entry.startswith("redis:"):
+                    assert entry == f"redis:{redis_ip}", (
+                        f"{svc} extra_hosts entry '{entry}' must point to "
+                        f"the redis static IP {redis_ip}; if you change the "
+                        f"redis ipv4_address, update all extra_hosts entries"
+                    )

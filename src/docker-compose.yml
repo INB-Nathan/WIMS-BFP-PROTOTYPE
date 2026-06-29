@@ -70,6 +70,17 @@ services:
     image: wims-keycloak-demo-otp:local
     container_name: wims-keycloak
     command: start-dev --import-realm
+    # Pen-test follow-up 2026-06-29 (deploy fix): the `ipam.config.subnet`
+    # added in PR #485 causes the wims_internal network to be recreated on
+    # deploy. After recreation, the Docker embedded DNS does NOT consistently
+    # resolve `postgres` from this keycloak container (verified on the live
+    # VPS — `getent hosts postgres` returns empty even after a fresh
+    # container recreate, while TCP to the static IP works). Inject the
+    # mapping directly into /etc/hosts to bypass the broken DNS. Same fix
+    # pattern as the wims-suricata `extra_hosts` in PR #485.
+    extra_hosts:
+      - "postgres:172.18.0.3"
+      - "redis:172.18.0.5"
     volumes:
       - ./keycloak/import:/opt/keycloak/data/import:ro
       - ./keycloak/themes/wims-bfp:/opt/keycloak/themes/wims-bfp:ro
@@ -215,6 +226,15 @@ services:
   backend:
     build: ./backend
     container_name: wims-backend
+    # Pen-test follow-up 2026-06-29 (deploy fix): see keycloak comment above
+    # for rationale. Same Docker DNS unreliability after wims_internal
+    # network recreation. Inject the 4 hostnames the backend connects to
+    # (postgres, redis, keycloak, ollama) into /etc/hosts.
+    extra_hosts:
+      - "postgres:172.18.0.3"
+      - "redis:172.18.0.5"
+      - "keycloak:172.18.0.7"
+      - "ollama:172.18.0.4"
     environment:
       - DATABASE_URL=postgresql://wims_app_user:wimsapp@postgres:5432/wims
       - DATABASE_ADMIN_URL=postgresql://postgres:${POSTGRES_PASSWORD:?error}@postgres:5432/wims
@@ -268,6 +288,13 @@ services:
     build: ./backend
     container_name: wims-celery-worker
     command: celery -A main.celery_app worker --beat --loglevel=info
+    # Pen-test follow-up 2026-06-29 (deploy fix): see keycloak comment above
+    # for rationale. Same set of hostnames as the backend.
+    extra_hosts:
+      - "postgres:172.18.0.3"
+      - "redis:172.18.0.5"
+      - "keycloak:172.18.0.7"
+      - "ollama:172.18.0.4"
     environment:
       - DATABASE_URL=postgresql://wims_app_user:wimsapp@postgres:5432/wims
       - REDIS_URL=redis://redis:6379/0
