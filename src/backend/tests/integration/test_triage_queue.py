@@ -1288,7 +1288,135 @@ class TestPhase2WorkflowActions:
                 {"cid": new_cluster_id},
             ).fetchall()
         }
+        source_anchor = db_session.execute(
+            text(
+                "SELECT anchor_report_id FROM wims.citizen_report_clusters WHERE cluster_id = :cid"
+            ),
+            {"cid": cluster_id},
+        ).scalar()
+        new_anchor = db_session.execute(
+            text(
+                "SELECT anchor_report_id FROM wims.citizen_report_clusters WHERE cluster_id = :cid"
+            ),
+            {"cid": new_cluster_id},
+        ).scalar()
+
         assert moved == {rid2, rid3}
+        assert source_anchor == rid1
+        assert new_anchor == rid2
+
+    def test_split_cluster_reanchors_source_when_anchor_is_moved(
+        self,
+        client_with_validator,
+        db_session,
+    ):
+        rid1 = make_report(db_session, 121.05, 14.60)
+        rid2 = make_report(db_session, 121.051, 14.601)
+        rid3 = make_report(db_session, 121.052, 14.602)
+        cluster_id = make_cluster(db_session, anchor_report_id=rid1)
+        add_to_cluster(db_session, cluster_id, rid1)
+        add_to_cluster(db_session, cluster_id, rid2)
+        add_to_cluster(db_session, cluster_id, rid3)
+        assert (
+            client_with_validator.post(
+                f"/api/triage/clusters/{cluster_id}/claim", json={}
+            ).status_code
+            == 200
+        )
+
+        resp = client_with_validator.post(
+            f"/api/triage/clusters/{cluster_id}/split",
+            json={"report_ids": [rid3, rid1], "internal_note": "move anchor with outlier"},
+        )
+
+        assert resp.status_code == 201, resp.text
+        new_cluster_id = resp.json()["new_cluster_id"]
+        source_members = {
+            row.report_id
+            for row in db_session.execute(
+                text(
+                    "SELECT report_id FROM wims.citizen_report_cluster_members WHERE cluster_id = :cid"
+                ),
+                {"cid": cluster_id},
+            ).fetchall()
+        }
+        moved_members = {
+            row.report_id
+            for row in db_session.execute(
+                text(
+                    "SELECT report_id FROM wims.citizen_report_cluster_members WHERE cluster_id = :cid"
+                ),
+                {"cid": new_cluster_id},
+            ).fetchall()
+        }
+        source_anchor = db_session.execute(
+            text(
+                "SELECT anchor_report_id FROM wims.citizen_report_clusters WHERE cluster_id = :cid"
+            ),
+            {"cid": cluster_id},
+        ).scalar()
+        new_anchor = db_session.execute(
+            text(
+                "SELECT anchor_report_id FROM wims.citizen_report_clusters WHERE cluster_id = :cid"
+            ),
+            {"cid": new_cluster_id},
+        ).scalar()
+
+        assert source_members == {rid2}
+        assert moved_members == {rid1, rid3}
+        assert source_anchor == rid2
+        assert new_anchor == rid1
+        assert source_anchor != new_anchor
+
+    def test_split_cluster_rejects_emptying_source_cluster(
+        self,
+        client_with_validator,
+        db_session,
+    ):
+        rid1 = make_report(db_session, 121.05, 14.60)
+        rid2 = make_report(db_session, 121.051, 14.601)
+        rid3 = make_report(db_session, 121.052, 14.602)
+        cluster_id = make_cluster(db_session, anchor_report_id=rid1)
+        add_to_cluster(db_session, cluster_id, rid1)
+        add_to_cluster(db_session, cluster_id, rid2)
+        add_to_cluster(db_session, cluster_id, rid3)
+        assert (
+            client_with_validator.post(
+                f"/api/triage/clusters/{cluster_id}/claim", json={}
+            ).status_code
+            == 200
+        )
+
+        resp = client_with_validator.post(
+            f"/api/triage/clusters/{cluster_id}/split",
+            json={"report_ids": [rid1, rid2, rid3], "internal_note": "move everything"},
+        )
+
+        assert resp.status_code == 422, resp.text
+        assert "leave source cluster empty" in resp.json()["detail"]
+
+        cluster_count = db_session.execute(
+            text("SELECT COUNT(*) FROM wims.citizen_report_clusters")
+        ).scalar()
+        remaining_members = {
+            row.report_id
+            for row in db_session.execute(
+                text(
+                    "SELECT report_id FROM wims.citizen_report_cluster_members WHERE cluster_id = :cid"
+                ),
+                {"cid": cluster_id},
+            ).fetchall()
+        }
+        source_anchor = db_session.execute(
+            text(
+                "SELECT anchor_report_id FROM wims.citizen_report_clusters WHERE cluster_id = :cid"
+            ),
+            {"cid": cluster_id},
+        ).scalar()
+
+        assert cluster_count == 1
+        assert remaining_members == {rid1, rid2, rid3}
+        assert source_anchor == rid1
 
     def test_merge_cluster_closes_source_and_moves_members(
         self,
@@ -1331,7 +1459,14 @@ class TestPhase2WorkflowActions:
                 {"cid": target_cluster_id},
             ).fetchall()
         }
+        source_member_count = db_session.execute(
+            text(
+                "SELECT COUNT(*) FROM wims.citizen_report_cluster_members WHERE cluster_id = :cid"
+            ),
+            {"cid": source_cluster_id},
+        ).scalar()
         assert target_members == {target_rid, source_rid}
+        assert source_member_count == 0
 
     def test_timeout_task_rejects_old_pending_but_not_under_review(
         self,
@@ -1366,6 +1501,160 @@ class TestPhase2WorkflowActions:
         resp = client_with_validator.post(f"/api/triage/{rid}/promote")
 
         assert resp.status_code == 410
+
+    def test_concurrent_insert_survives_merge(
+        self,
+        client_with_validator,
+        db_session,
+        validator_user,
+    ):
+        """A row INSERTed into the source cluster during an in-progress merge
+        survives by being moved to the target cluster.
+
+        In READ COMMITTED isolation, the merge CTE statement sees the
+        concurrently committed INSERT, so the DELETE phase removes it from
+        the source and the INSERT phase moves it into the target.
+        """
+        from database import _AdminSessionLocal as _SessionLocal  # noqa: SLF001
+
+        # ── Setup ───────────────────────────────────────────────────────
+        target_rid = make_report(db_session, 121.05, 14.60)
+        source_rid = make_report(db_session, 121.051, 14.601)
+
+        # A third report — not yet in any cluster — will be attached
+        # concurrently by session 2.
+        new_rid = make_report(db_session, 121.052, 14.602)
+
+        target_cid = make_cluster(db_session, anchor_report_id=target_rid)
+        source_cid = make_cluster(db_session, anchor_report_id=source_rid)
+        add_to_cluster(db_session, target_cid, target_rid)
+        add_to_cluster(db_session, source_cid, source_rid)
+
+        # Claim the target cluster (required by the merge command)
+        claim_resp = client_with_validator.post(f"/api/triage/clusters/{target_cid}/claim", json={})
+        assert claim_resp.status_code == 200
+
+        user_id = validator_user["user_id"]
+
+        # ── Concurrent merge ────────────────────────────────────────────
+        session1 = _SessionLocal()
+        session2 = _SessionLocal()
+        try:
+            # 1. Session 1 opens a transaction but does NOT snap a statement
+            #    snapshot yet (READ COMMITTED — snapshot per statement).
+            session1.execute(text("BEGIN"))
+
+            # 2. Session 2 INSERTs a new row into the source cluster and
+            #    commits it while session 1's transaction is still open.
+            session2.execute(
+                text("""
+                    INSERT INTO wims.citizen_report_cluster_members
+                        (cluster_id, report_id, linked_by)
+                    VALUES (:cid, :rid, :uid)
+                """),
+                {"cid": source_cid, "rid": new_rid, "uid": user_id},
+            )
+            session2.commit()
+
+            # 3. Session 1 now runs the atomic merge CTE. In READ COMMITTED
+            #    this statement's snapshot sees session 2's committed INSERT,
+            #    so the DELETE picks up the new row and moves it to target.
+            moved = session1.execute(
+                text("""
+                    WITH moved AS (
+                        DELETE FROM wims.citizen_report_cluster_members
+                        WHERE cluster_id = :source_cid
+                        RETURNING report_id
+                    ),
+                    inserted AS (
+                        INSERT INTO wims.citizen_report_cluster_members
+                            (cluster_id, report_id, linked_by)
+                        SELECT :target_cid, report_id, :uid
+                        FROM moved
+                        ON CONFLICT (cluster_id, report_id) DO NOTHING
+                        RETURNING report_id
+                    )
+                    SELECT COALESCE(
+                        array_agg(moved.report_id ORDER BY moved.report_id),
+                        ARRAY[]::integer[]
+                    ) AS moved_ids
+                    FROM moved
+                """),
+                {
+                    "source_cid": source_cid,
+                    "target_cid": target_cid,
+                    "uid": user_id,
+                },
+            ).fetchone()
+            moved_ids = list(moved.moved_ids or [])
+
+            # 4. Close the source cluster (post-merge housekeeping that
+            #    the workflow does after the CTE).
+            session1.execute(
+                text("""
+                    UPDATE wims.citizen_report_clusters
+                    SET status = 'CLUSTER_CLOSED',
+                        merged_into_cluster_id = :target_cid,
+                        closed_at = now(),
+                        updated_at = now()
+                    WHERE cluster_id = :source_cid
+                """),
+                {"source_cid": source_cid, "target_cid": target_cid},
+            )
+
+            session1.commit()
+
+            # ── Assertions ──────────────────────────────────────────────
+            # All rows from the source (original + concurrent) were moved
+            assert source_rid in moved_ids, "Original source report was moved"
+            assert new_rid in moved_ids, "Concurrently inserted report was seen by CTE and moved"
+
+            # Target cluster now has all three reports
+            target_members = {
+                row.report_id
+                for row in db_session.execute(
+                    text("""
+                        SELECT report_id
+                        FROM wims.citizen_report_cluster_members
+                        WHERE cluster_id = :cid
+                    """),
+                    {"cid": target_cid},
+                ).fetchall()
+            }
+            assert target_rid in target_members
+            assert source_rid in target_members
+            assert new_rid in target_members, (
+                "Concurrently inserted report survived in target cluster"
+            )
+
+            # Source cluster is empty and closed
+            source_member_count = db_session.execute(
+                text("""
+                    SELECT COUNT(*)
+                    FROM wims.citizen_report_cluster_members
+                    WHERE cluster_id = :cid
+                """),
+                {"cid": source_cid},
+            ).scalar()
+            assert source_member_count == 0, "Source cluster has no remaining members"
+
+            source_status = db_session.execute(
+                text("""
+                    SELECT status, merged_into_cluster_id
+                    FROM wims.citizen_report_clusters
+                    WHERE cluster_id = :cid
+                """),
+                {"cid": source_cid},
+            ).fetchone()
+            assert source_status.status == "CLUSTER_CLOSED"
+            assert source_status.merged_into_cluster_id == target_cid
+
+        except Exception:
+            session1.rollback()
+            raise
+        finally:
+            session1.close()
+            session2.close()
 
 
 class TestMergeCandidates:
