@@ -137,6 +137,8 @@ promiscuous capture. AF_PACKET zero-copy capture (`--af-packet=${SURICATA_INTERF
 replaces the previous pcap mode for higher throughput and lower CPU overhead.
 
 **Note:** Host network mode only functions on Linux (VPS). Docker Desktop on Windows/Mac
+
+**Suricata <-> Redis constraint (pen-test follow-up 2026-06-29):** because Suricata is NOT on the `wims_internal` bridge, the `redis` hostname cannot be resolved via Docker DNS. The fix in `src/docker-compose.yml` pins the `redis` service to `172.18.0.5` and injects the mapping into the Suricata container via `extra_hosts: ["redis:172.18.0.5"]`. See `system-wiki/architecture/infrastructure-config.md` § Suricata <-> Redis host networking for the rationale and `src/backend/tests/test_suricata_redis_host_networking.py` for the 9 contract tests.
 does not expose host traffic to containers in host network mode.
 
 ### Suricata Detection Rules (M7b)

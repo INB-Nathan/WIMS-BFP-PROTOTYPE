@@ -159,9 +159,20 @@ outputs:
         - alert:
             # payload: yes             # enable dumping payload in Base64
             # Redis stream output for real-time pipeline (M7c #157)
-            # Pen-test fix 2026-06-29: redis-server was 127.0.0.1 (Suricata's
-            # own loopback) which never reached the Redis container. Use the
-            # Docker service hostname 'redis' on the bridge network.
+            # Pen-test fix 2026-06-29: redis-server was 127.0.0.1 — Suricata
+            # now uses `network_mode: "host"` for AF_PACKET capture, so its
+            # 127.0.0.1 is the HOST loopback (not the container's). The redis
+            # port mapping `127.0.0.1:6379:6379` does make redis reachable
+            # from the host loopback, BUT the original 127.0.0.1 config was
+            # never observed to deliver alerts on the live VPS (likely masked
+            # by the bind-mount / anonymous-volume conflict on /etc/suricata).
+            # Use the Docker service hostname `redis` instead — it is injected
+            # into the container's /etc/hosts via the wims-suricata
+            # `extra_hosts: ["redis:172.18.0.5"]` in docker-compose.yml,
+            # because `network_mode: "host"` excludes the container from the
+            # wims_internal bridge DNS. The 172.18.0.5 IP is pinned on the
+            # redis service via `ipv4_address` so the mapping stays valid
+            # across `docker compose down && up` cycles.
             redis:
               enabled: yes
               redis-key: "suricata:alerts"
