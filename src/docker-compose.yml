@@ -2,6 +2,15 @@ networks:
   wims_internal:
     driver: bridge
     name: wims_internal
+    # Pen-test follow-up 2026-06-29: explicit subnet + static IP for redis so
+    # wims-suricata (network_mode: "host") can resolve the `redis` hostname
+    # via `extra_hosts` without depending on a dynamic bridge IP assignment.
+    # Subnet 172.18.0.0/16 matches the default Docker bridge range that the
+    # existing stack was already using on the live VPS, so the change is
+    # in-place (no IP renumbering for the other 10 services).
+    ipam:
+      config:
+        - subnet: 172.18.0.0/16
 
 services:
   # --- Infrastructure & Databases ---
@@ -31,8 +40,12 @@ services:
     image: redis:7.2-alpine
     container_name: wims-redis
     command: ["redis-server", "--maxmemory", "512mb", "--maxmemory-policy", "allkeys-lru"]
+    # Pen-test follow-up 2026-06-29: pin redis to 172.18.0.5 (the IP the live
+    # VPS was already using dynamically) so the wims-suricata `extra_hosts`
+    # mapping below stays valid across `docker compose down && up` cycles.
     networks:
-      - wims_internal
+      wims_internal:
+        ipv4_address: 172.18.0.5
     restart: always
     ports:
       - "127.0.0.1:6379:6379"
@@ -356,6 +369,14 @@ services:
       - NET_ADMIN
       - NET_RAW
     command: --af-packet=${SURICATA_INTERFACE:-eth0} --runmode workers
+    # Pen-test follow-up 2026-06-29: wims-suricata uses network_mode: "host"
+    # for AF_PACKET raw-socket capture, so it does NOT participate in the
+    # wims_internal bridge network and Docker DNS cannot resolve `redis` for
+    # it. `extra_hosts` injects the mapping into the container's /etc/hosts
+    # (separate from the host's /etc/hosts even with host networking). The
+    # 172.18.0.5 IP is pinned by the redis service's `ipv4_address` above.
+    extra_hosts:
+      - "redis:172.18.0.5"
     volumes:
       - ./suricata/logs:/var/log/suricata
       - ./suricata/rules:/var/lib/suricata/rules

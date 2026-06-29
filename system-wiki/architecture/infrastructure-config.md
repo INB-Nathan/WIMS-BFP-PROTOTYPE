@@ -152,7 +152,24 @@ Changing `.env.production` does not update database roles already stored in the 
 
 The container exposes the running process as `Suricata-Main`; the Compose health check matches that process name with `pgrep`.
 
-**Note:** No custom `suricata.yaml` exists — the container uses its built-in default configuration. The compose file notes this is for prototype only; production would use `network_mode: "host"`.
+**Custom `suricata.yaml`** (`src/suricata/suricata.yaml`, ~85KB) — the prototype runs a customized config rather than the image default. Notable pen-test changes (2026-06-29):
+
+- `redis-server: "redis"` under `eve-log.types[0].alert.redis` — real-time alert stream to Redis (`suricata:alerts`) for `tasks.suricata_redis.subscribe_alerts`.
+- The bind mount `./suricata/suricata.yaml:/etc/suricata/suricata.yaml:ro` is the source of truth; the jasonish/suricata image declares `VOLUME /etc/suricata` which creates an anonymous volume that can shadow the bind mount on first run. Workaround: `docker compose down -v` for the suricata service, or remove the anonymous volume manually.
+
+### Suricata <-> Redis host networking (pen-test follow-up 2026-06-29)
+
+`wims-suricata` uses `network_mode: "host"` for AF_PACKET raw-socket packet capture. This is a **load-bearing constraint**: it cannot be changed without losing IDS capture capability. The side effect is that the Suricata container does NOT participate in the `wims_internal` bridge network, so Docker DNS cannot resolve the `redis` hostname for it.
+
+The fix has three parts in `src/docker-compose.yml`:
+
+1. **Static IP for redis** — the `redis` service is pinned to `172.18.0.5` via `networks.wims_internal.ipv4_address`. This requires the network to have explicit `ipam.config.subnet: 172.18.0.0/16` (otherwise Docker picks a random subnet and the static IP is rejected). The 172.18.0.5 value matches the dynamic IP the live VPS was already using, so the change is in-place.
+2. **`extra_hosts` on wims-suricata** — `extra_hosts: ["redis:172.18.0.5"]` injects the mapping into the container's /etc/hosts. This works even with `network_mode: "host"` because /etc/hosts is per-container filesystem, not per-network-namespace.
+3. **Config comment in `suricata.yaml`** — the pen-test comment above the `redis` block documents the dependency on the docker-compose entries.
+
+**Why not just use `redis-server: 127.0.0.1`?** That was the pre-fix config. With `network_mode: "host"`, 127.0.0.1 in the Suricata container IS the host loopback, and the redis port mapping `127.0.0.1:6379:6379` does make redis reachable from the host loopback. So 127.0.0.1 *would* work for Suricata. But the hostname approach is more explicit and doesn't depend on the port mapping being present (which was originally added for dev convenience, not for Suricata).
+
+**Contract test:** `src/backend/tests/test_suricata_redis_host_networking.py` pins the structure (9 tests). Regressions to the docker-compose, suricata.yaml, or pen-test comment are caught at `pytest` time without needing a live stack.
 
 ---
 
