@@ -1,0 +1,4 @@
+# MaxMind GeoLite2 database — binary, not committed.
+# Download GeoLite2-City.mmdb from https://dev.maxmind.com/geoip/geolite2-free-geolocation-data
+# and place it here. The IMPOSSIBLE_TRAVEL anomaly detector will pick it up automatically.
+*.mmdb

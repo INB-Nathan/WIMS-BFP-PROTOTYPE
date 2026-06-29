@@ -8,6 +8,7 @@ import os
 import uuid
 from datetime import datetime, timezone
 
+import redis as _redis_lib
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -19,6 +20,29 @@ from services.security_rollups import (
 from utils.config import get_config
 
 logger = logging.getLogger(__name__)
+
+_AI_QUEUE_KEY = "ai:queue"
+_AI_QUEUE_MAXLEN = 1000
+
+
+def _push_ai_queue(log_id: int, severity_level: str) -> None:
+    """Push a HIGH/CRITICAL log_id to the ai:queue Redis stream for async XAI analysis.
+
+    Fire-and-forget — any Redis error is logged and swallowed so ingestion continues.
+    """
+    try:
+        r = _redis_lib.Redis.from_url(
+            os.environ.get("REDIS_URL", "redis://redis:6379/0"), decode_responses=True
+        )
+        r.xadd(
+            _AI_QUEUE_KEY,
+            {"log_id": str(log_id), "severity": severity_level},
+            maxlen=_AI_QUEUE_MAXLEN,
+        )
+        r.close()
+    except Exception as exc:
+        logger.warning("Failed to push log_id=%s to ai:queue: %s", log_id, exc)
+
 
 # In-memory position tracking for tail behavior (path -> byte offset).
 # Optional: migrate to Redis for multi-worker persistence.
@@ -121,21 +145,24 @@ def _classify_alert(alert: dict, severity_level: str) -> str:
 def eve_to_threat_log_row(ev: dict, *, raw_payload: str = "", high_threshold: int = 3) -> dict:
     """
     Map EVE alert fields to wims.security_threat_logs columns.
-    Severity: sev is None → MEDIUM; sev >= 4 → CRITICAL;
-    sev >= high_threshold → HIGH; sev == 2 → MEDIUM; else → LOW.
-    Default high_threshold=3 preserves the original 1→LOW / 2→MEDIUM / 3→HIGH mapping.
-    Pass a config-read value to make the HIGH cutoff admin-tunable.
+
+    Suricata alert.severity is the rule priority (1 = most severe, 4 = least).
+    Mapping: 1 → CRITICAL, 2 → HIGH, 3 → MEDIUM, 4+ → LOW, None → MEDIUM.
+    high_threshold is retained for API compatibility but is no longer used.
     """
     alert = ev.get("alert") or {}
     sid = alert.get("signature_id")
     sev = alert.get("severity")
+    # Suricata alert.severity is the rule PRIORITY (1 = most severe, 4 = least).
+    # The previous mapping treated priority 1 as LOW — the inverse of correct.
+    # Correct mapping: 1 → CRITICAL, 2 → HIGH, 3 → MEDIUM, 4+ → LOW.
     if sev is None:
         severity_level = "MEDIUM"
-    elif sev >= 4:
+    elif sev <= 1:
         severity_level = "CRITICAL"
-    elif sev >= high_threshold:
-        severity_level = "HIGH"
     elif sev == 2:
+        severity_level = "HIGH"
+    elif sev == 3:
         severity_level = "MEDIUM"
     else:
         severity_level = "LOW"
@@ -303,6 +330,7 @@ def ingest_eve_file(path: str, *, db_session: Session | None = None) -> int:
                         threat_type=row.get("threat_type"),
                     )
                     if row.get("severity_level") in ("HIGH", "CRITICAL"):
+                        _push_ai_queue(log_id, row["severity_level"])
                         if not _security_incident_exists(db, log_id):
                             logger.warning(
                                 "HIGH/CRITICAL alert log_id=%s requires admin review — "

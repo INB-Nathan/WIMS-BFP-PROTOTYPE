@@ -85,3 +85,17 @@ alert http any any -> any any (msg:"WIMS OWASP A01 open redirect external URL"; 
 # ===== CRLF Injection / Response Splitting Detection (SID 1000133-1000134) =====
 alert http any any -> any any (msg:"WIMS OWASP A03 CRLF injection URI"; flow:established,to_server; http.uri; pcre:"/(%0d%0a|%0a%0d)(Set-Cookie|Location|Content-Type|HTTP\/)/i"; classtype:web-application-attack; sid:1000133; rev:2;)
 alert http any any -> any any (msg:"WIMS OWASP A03 CRLF injection body header injection"; flow:established,to_server; http.request_body; pcre:"/(%0d%0a|%0a%0d)(Set-Cookie|Location|Content-Type|HTTP\/)/i"; classtype:web-application-attack; sid:1000134; rev:1;)
+
+# ===== TD-02: Credential Spray (SID 1000135) =====
+# Fires when a single source hits the token endpoint ≥5 times in 30s.
+# Cannot distinguish single-account brute force from multi-account spray at
+# the packet level — both produce rapid POST bursts to the same URI.
+# Complements the per-account lockout enforced by Keycloak.
+alert http $EXTERNAL_NET any -> $HOME_NET $HTTP_PORTS (msg:"WIMS Keycloak credential spray multi-account"; flow:established,to_server; http.method; content:"POST"; http.uri; content:"/auth/realms/bfp/protocol/openid-connect/token"; nocase; detection_filter:track by_src, count 5, seconds 30; classtype:attempted-recon; sid:1000135; rev:1;)
+
+# ===== TD-13: Disallowed File Upload (SID 1000136-1000137) =====
+# Detects PHP file uploads via multipart filename field or embedded PHP tags
+# in the request body. Targets POST requests to any endpoint (file upload is
+# not restricted to a single URI in the WIMS API).
+alert http any any -> any any (msg:"WIMS disallowed PHP filename in upload"; flow:established,to_server; http.method; content:"POST"; http.request_body; content:"filename="; nocase; content:".php"; nocase; distance:0; within:50; classtype:web-application-attack; sid:1000136; rev:1;)
+alert http any any -> any any (msg:"WIMS PHP code in upload body"; flow:established,to_server; http.method; content:"POST"; http.request_body; content:"<?php"; nocase; classtype:web-application-attack; sid:1000137; rev:1;)

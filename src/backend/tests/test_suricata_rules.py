@@ -170,7 +170,7 @@ class TestEveToDbPipeline:
             )
             assert row[0] == "10.0.0.99"
             assert row[1] == 1000005
-            assert row[2] == "LOW"
+            assert row[2] == "CRITICAL"  # Suricata priority 1 = most severe
             assert row[3] >= 1
         finally:
             os.unlink(path)
@@ -209,7 +209,7 @@ class TestEveToDbPipeline:
             )
             assert row[0] == "192.168.200.1"
             assert row[1] == 2010935
-            assert row[2] == "MEDIUM"
+            assert row[2] == "HIGH"  # Suricata priority 2 → HIGH
             assert row[3] >= 1
         finally:
             os.unlink(path)
@@ -248,7 +248,7 @@ class TestEveToDbPipeline:
             )
             assert row[0] == "172.16.99.1"
             assert row[1] == 1000020
-            assert row[2] == "LOW"
+            assert row[2] == "CRITICAL"  # Suricata priority 1 = most severe
             assert row[3] >= 1
         finally:
             os.unlink(path)

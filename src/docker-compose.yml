@@ -277,12 +277,17 @@ services:
       - OPENBAO_TOKEN_FILE=/openbao-creds/.wims-app-token
       - OPENBAO_TRANSIT_MOUNT=${OPENBAO_TRANSIT_MOUNT:-transit}
       - WIMS_CRYPTO_PROVIDER=${WIMS_CRYPTO_PROVIDER:-env_aesgcm}
+      # MaxMind GeoLite2-City for IMPOSSIBLE_TRAVEL anomaly detector.
+      # Download GeoLite2-City.mmdb from maxmind.com and place it in ./geoip/.
+      # Detector silently skips if the file is absent.
+      - GEOIP_DB_PATH=/app/geoip/GeoLite2-City.mmdb
     volumes:
       - ./suricata/logs:/var/log/suricata:ro
       - ./postgres-init:/postgres-init:ro
       - incident_attachments_data:/app/storage
       - openbao_data:/openbao-creds:ro
       - ./firebase-creds.json:/app/firebase-creds.json:ro
+      - ./geoip:/app/geoip:ro
       # SECURITY NOTE: Docker socket mount is required for live Suricata rule
       # reload (suricata-update + kill -USR2). Without the socket, the Celery
       # worker cannot exec into the wims-suricata container to trigger a
