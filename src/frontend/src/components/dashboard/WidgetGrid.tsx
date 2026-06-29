@@ -62,23 +62,9 @@ export function WidgetGrid({ widgetIds, role, onRemoveWidget }: WidgetGridProps)
     if (idsKey === "") return;
 
     let cancelled = false;
-
-    // While offline, skip the network attempt immediately and serve the cache.
-    // isOnline in the deps means this effect re-runs as soon as connectivity
-    // is restored, at which point it falls through to the normal fetch path.
-    if (!isOnline) {
-      const cached = role ? loadCachedWidgets(role) : null;
-      if (cached && Object.keys(cached).length > 0) {
-        setDataMap(cached);
-        setFromCache(true);
-      } else {
-        setError("Widget data unavailable offline");
-      }
-      setLoading(false);
-      return () => { cancelled = true; };
-    }
-
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setError(null);
     setFromCache(false);
 
