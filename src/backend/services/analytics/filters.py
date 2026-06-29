@@ -16,6 +16,7 @@ class AnalyticsQueryFilters:
     region_ids: tuple[int, ...] = ()
     province: str | None = None
     municipality: str | None = None
+    fire_station: str | None = None
     incident_type: str | None = None
     alarm_level: str | None = None
     casualty_severity: str | None = None
@@ -44,6 +45,7 @@ class AnalyticsQueryFilters:
             "region_id": self.effective_region_id,
             "province": self.province,
             "municipality": self.municipality,
+            "fire_station": self.fire_station,
             "incident_type": self.incident_type,
             "alarm_level": self.alarm_level,
             "casualty_severity": self.casualty_severity,
@@ -75,6 +77,7 @@ def build_analytics_filters(
     region_ids: str | list[int] | tuple[int, ...] | None = None,
     province: str | None = None,
     municipality: str | None = None,
+    fire_station: str | None = None,
     incident_type: str | None = None,
     alarm_level: str | None = None,
     casualty_severity: str | None = None,
@@ -95,6 +98,7 @@ def build_analytics_filters(
             region_ids=parsed_region_ids,
             province=province,
             municipality=municipality,
+            fire_station=fire_station,
             incident_type=incident_type,
             alarm_level=alarm_level,
             casualty_severity=casualty_severity,
@@ -121,6 +125,7 @@ def append_common_filters(
     region = columns.get("region_id", f"{prefix}region_id")
     province = columns.get("province_name", f"{prefix}province_name")
     municipality = columns.get("municipality_name", f"{prefix}municipality_name")
+    fire_station = columns.get("fire_station_name", f"{prefix}fire_station_name")
     alarm = columns.get("alarm_level", f"{prefix}alarm_level")
     category = columns.get("general_category", f"{prefix}general_category")
     incident_id = columns.get("incident_id", f"{prefix}incident_id")
@@ -148,6 +153,9 @@ def append_common_filters(
     if filters.municipality:
         clauses.append(f"{municipality} = :municipality")
         params["municipality"] = filters.municipality
+    if filters.fire_station:
+        clauses.append(f"{fire_station} = :fire_station")
+        params["fire_station"] = filters.fire_station
     if filters.alarm_level:
         clauses.append(f"{alarm} = :alarm_level")
         params["alarm_level"] = filters.alarm_level

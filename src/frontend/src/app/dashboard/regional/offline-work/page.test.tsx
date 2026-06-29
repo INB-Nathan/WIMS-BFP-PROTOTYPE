@@ -104,7 +104,9 @@ beforeEach(() => {
 // ── Tests ──
 
 describe('OfflineWorkPage', () => {
-  it('redirects non-encoders to dashboard', async () => {
+  it('renders for any authenticated user, not just encoders', async () => {
+    // Any logged-in user can view their own offline queue regardless of role.
+    // Redirect only fires when user is null (not logged in at all).
     (useAuth as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
       user: { id: 'other', role: 'NATIONAL_VALIDATOR' },
       loading: false,
@@ -114,10 +116,9 @@ describe('OfflineWorkPage', () => {
     (offlineStore.getConflictOps as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     (offlineStore.getFailedOps as ReturnType<typeof vi.fn>).mockResolvedValue([]);
 
-    const { container } = render(<OfflineWorkPage />);
+    render(<OfflineWorkPage />);
     await waitFor(() => {
-      // Non-encoder renders null after the redirect effect
-      expect(container.innerHTML).toBe('');
+      expect(screen.getByText('Drafts')).toBeInTheDocument();
     });
   });
 

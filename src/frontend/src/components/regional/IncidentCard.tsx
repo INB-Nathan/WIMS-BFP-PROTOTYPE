@@ -75,6 +75,9 @@ export function IncidentCard({
   offlineStatus,
 }: Props) {
   const offlineUncached = isOnline === false && isDetailCached === false;
+  // Rejected incidents are view-only — no detail navigation makes sense for them.
+  const isRejected = inc.verification_status === 'REJECTED';
+  const disabled = offlineUncached || isRejected;
 
   // Disable archive button when an archive_action is already queued for this incident
   const hasQueuedArchive = offlineStatus?.operations.some(
@@ -87,29 +90,29 @@ export function IncidentCard({
   return (
     <article
       onClick={() => {
-        if (offlineUncached) return;
+        if (disabled) return;
         onCardClick(inc.incident_id);
       }}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
-          if (offlineUncached) return;
+          if (disabled) return;
           onCardClick(inc.incident_id);
         }
       }}
-      tabIndex={offlineUncached ? -1 : 0}
-      role={offlineUncached ? 'article' : 'link'}
-      aria-disabled={offlineUncached || undefined}
+      tabIndex={disabled ? -1 : 0}
+      role={disabled ? 'article' : 'link'}
+      aria-disabled={disabled || undefined}
       aria-label={`View incident ${inc.incident_id}`}
-      onMouseEnter={(e) => { if (!offlineUncached) onHoverStart(inc.incident_id, e); }}
-      onMouseMove={() => { if (!offlineUncached) onHoverMove(); }}
-      onMouseLeave={() => { if (!offlineUncached) onHoverEnd(); }}
+      onMouseEnter={(e) => { if (!disabled) onHoverStart(inc.incident_id, e); }}
+      onMouseMove={() => { if (!disabled) onHoverMove(); }}
+      onMouseLeave={() => { if (!disabled) onHoverEnd(); }}
       className={
-        offlineUncached
+        disabled
           ? 'cursor-not-allowed rounded-xl border border-gray-200 bg-white p-5 shadow-sm opacity-60 outline-none'
           : 'cursor-pointer rounded-xl border border-gray-200 bg-white p-5 shadow-sm outline-none transition-all hover:border-red-200 hover:bg-red-50/30 hover:shadow-md focus-visible:ring-2 focus-visible:ring-[#C62828]'
       }
-      style={{ borderColor: offlineUncached ? undefined : statusBorderColor(inc.verification_status) }}
+      style={{ borderColor: disabled ? undefined : statusBorderColor(inc.verification_status) }}
     >
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>
@@ -126,6 +129,11 @@ export function IncidentCard({
           {offlineUncached && (
             <span className="rounded-full bg-gray-100 border border-gray-200 px-2 py-0.5 text-xs font-semibold text-gray-500" aria-label="This incident is not available offline">
               Go online to view
+            </span>
+          )}
+          {isRejected && (
+            <span className="rounded-full bg-gray-100 border border-gray-200 px-2 py-0.5 text-xs font-semibold text-gray-500" aria-label="Rejected incidents cannot be opened">
+              View only
             </span>
           )}
         </div>

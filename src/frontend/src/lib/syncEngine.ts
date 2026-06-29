@@ -116,6 +116,12 @@ type AuthCheckResult = 'authenticated' | 'auth' | 'offline';
 
 // ── Internal helpers ─────────────────────────────────────────────────────────
 
+// Sync requests that hang indefinitely keep the "Syncing changes" spinner
+// stuck forever. These timeouts ensure a hung server or flaky connection
+// fails fast so the engine can retry on the next connectivity event.
+const SYNC_REQUEST_TIMEOUT_MS = 30_000;
+const SESSION_CHECK_TIMEOUT_MS = 10_000;
+
 type ApiFetchResult =
   | { ok: boolean; status: number; body: Record<string, unknown> }
   | { ok: false; status: 0; error: string }
@@ -125,9 +131,12 @@ async function apiFetch(
   path: string,
   options: RequestInit
 ): Promise<ApiFetchResult> {
+  const ctrl = new AbortController();
+  const tid = setTimeout(() => ctrl.abort(), SYNC_REQUEST_TIMEOUT_MS);
   try {
     const res = await fetch(path, {
       ...options,
+      signal: ctrl.signal,
       credentials: 'include',
       headers: { 'Content-Type': 'application/json', ...(options.headers ?? {}) },
     });
@@ -146,14 +155,22 @@ async function apiFetch(
 
     return { ok: res.ok, status: res.status, body };
   } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      return { ok: false, status: 0, error: 'Request timed out' };
+    }
     // Network error — connectivity lost
     return { ok: false, status: 0, error: err instanceof Error ? err.message : 'Network error' };
+  } finally {
+    clearTimeout(tid);
   }
 }
 
 async function checkSession(): Promise<AuthCheckResult> {
+  const ctrl = new AbortController();
+  const tid = setTimeout(() => ctrl.abort(), SESSION_CHECK_TIMEOUT_MS);
   try {
     const res = await fetch('/api/auth/session', {
+      signal: ctrl.signal,
       credentials: 'include',
       cache: 'no-store',
     });
@@ -166,6 +183,8 @@ async function checkSession(): Promise<AuthCheckResult> {
     return 'auth';
   } catch {
     return 'offline';
+  } finally {
+    clearTimeout(tid);
   }
 }
 
@@ -344,15 +363,21 @@ async function processArchiveAction(
   return { ok: false, status: res.status, error: typeof detail === 'string' ? detail : `HTTP ${res.status}` };
 }
 
-async function processLegacyCreate(item: PendingIncident): Promise<{ ok: boolean; status?: number; error?: string }> {
-  const res = await apiFetch('/api/v1/public/report', {
-    method: 'POST',
-    body: JSON.stringify(item.payload),
-  });
-  if (res.ok) return { ok: true };
-  if (res.status === 0) return { ok: false, status: 0, error: 'error' in res ? res.error : 'Network error' };
-  const body = 'body' in res ? res.body : {};
-  return { ok: false, status: res.status, error: (body.detail as string) ?? `HTTP ${res.status}` };
+/**
+ * Legacy create handler — REMOVED: previously routed to the civilian endpoint
+ * /api/v1/public/report, which silently dropped all structured incident data
+ * and set encoder_id=NULL. The legacy `incident-queue` store is only used for
+ * verify and archive_action ops (both have typed opType). Any item reaching
+ * this path has an unrecognized opType and should be surfaced as an error
+ * rather than silently sent to the wrong endpoint (data-loss guard, issue #468).
+ *
+ * If you see "Legacy create handler reached — unexpected opType" in sync errors,
+ * the item was queued by an older app version before the Phase 1B migration and
+ * must be manually removed or re-queued via the Phase 1B+ offlineOps store.
+ */
+async function processLegacyCreate(_item: PendingIncident): Promise<{ ok: boolean; status?: number; error?: string }> {
+  void _item;
+  return { ok: false, status: 0, error: 'Legacy create handler reached — unexpected opType. Data was NOT sent to the civilian endpoint (safe guard). Please delete this queued item and re-create it online.' };
 }
 
 async function processLegacyVerify(item: PendingIncident): Promise<{ ok: boolean; status?: number; error?: string }> {
@@ -589,6 +614,8 @@ export async function syncPendingIncidents(
         result = await processLegacyArchiveAction(item);
         break;
       default:
+        // Safe guard: never silently route legacy items to the civilian endpoint
+        // (processLegacyCreate now returns an error result instead of sending data).
         result = await processLegacyCreate(item);
         break;
     }
@@ -707,18 +734,26 @@ async function publicApiCall(
   // route the public endpoints would have.
   const basePath = path.startsWith('/api/') ? path.slice(4) : path;
   const url = basePath.startsWith('http') ? basePath : `/api${basePath.startsWith('/') ? '' : '/'}${basePath}`;
+  const ctrl = new AbortController();
+  const tid = setTimeout(() => ctrl.abort(), SYNC_REQUEST_TIMEOUT_MS);
   let res: Response;
   try {
     res = await fetch(url, {
       method,
+      signal: ctrl.signal,
       credentials: 'omit',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
   } catch (err) {
+    clearTimeout(tid);
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      return { ok: false, status: 0, error: 'Request timed out' };
+    }
     // Network error (TypeError from fetch) — connectivity lost.
     return { ok: false, status: 0, error: err instanceof Error ? err.message : 'Network error' };
   }
+  clearTimeout(tid);
 
   let json: Record<string, unknown> = {};
   try {

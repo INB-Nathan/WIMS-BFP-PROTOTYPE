@@ -39,11 +39,12 @@ import { AnalystIncidentList } from '@/components/analytics/AnalystIncidentList'
 import { ExportPreviewModal, type ExportFormat } from '@/components/analytics/ExportPreviewModal';
 import { MetricTile } from '@/components/analytics/MetricTile';
 import { ResponseTimeChart } from '@/components/analytics/ResponseTimeChart';
-import { TopNTable } from '@/components/analytics/TopNTable';
+import { TopNExplorer } from '@/components/analytics/TopNExplorer';
 import { TrendCharts } from '@/components/analytics/TrendCharts';
-import { readAnalystWorkflowTransfer } from '@/lib/analyst-workflow-transfer';
+import { createAnalystWorkflowTransferUrl, readAnalystWorkflowTransfer } from '@/lib/analyst-workflow-transfer';
 import { useAutoSync } from '@/lib/useAutoSync';
 import { useNetworkStatus } from '@/lib/useNetworkStatus';
+import { buildTopNDrilldownFilters, type TopNDimension } from '@/lib/topNDrilldown';
 
 const HeatmapViewer = dynamic(
   () => import('@/components/analytics/HeatmapViewer').then((m) => m.HeatmapViewer),
@@ -117,6 +118,7 @@ const WORKFLOWS = {
 
 type WorkflowSlug = keyof typeof WORKFLOWS;
 type Interval = (typeof INTERVALS)[number]['value'];
+type HeatmapSource = 'filtered' | 'selected';
 
 function isWorkflowSlug(value: string): value is WorkflowSlug {
   return value in WORKFLOWS;
@@ -209,6 +211,7 @@ export default function AnalystWorkflowPage() {
   const [regionId, setRegionId] = useState('');
   const [province, setProvince] = useState('');
   const [municipality, setMunicipality] = useState('');
+  const [fireStation, setFireStation] = useState('');
   const [incidentType, setIncidentType] = useState('');
   const [alarmLevel, setAlarmLevel] = useState('');
   const [casualtySeverity, setCasualtySeverity] = useState('');
@@ -217,12 +220,15 @@ export default function AnalystWorkflowPage() {
   const [interval, setInterval] = useState<Interval>('daily');
   const [cmpRanges, setCmpRanges] = useState(() => initialComparativeRanges());
   const [topNMetric, setTopNMetric] = useState('incidents');
-  const [topNDimension, setTopNDimension] = useState('municipality');
+  const [topNDimension, setTopNDimension] = useState<TopNDimension>('municipality');
+  const [topNSelectedName, setTopNSelectedName] = useState<string | null>(null);
+  const [topNIncidentFocusName, setTopNIncidentFocusName] = useState<string | null>(null);
   const [provinceOptions, setProvinceOptions] = useState<string[]>([]);
   const [municipalityOptions, setMunicipalityOptions] = useState<string[]>([]);
   const [appliedFilters, setAppliedFilters] = useState<AnalystIncidentListParams>({});
   const [selectedIncidentIds, setSelectedIncidentIds] = useState<number[]>([]);
   const [selectedSetActive, setSelectedSetActive] = useState(false);
+  const [heatmapSource, setHeatmapSource] = useState<HeatmapSource>('filtered');
   const [transferLoaded, setTransferLoaded] = useState(false);
   const [hydratedTransferId, setHydratedTransferId] = useState<string | null>();
 
@@ -252,6 +258,7 @@ export default function AnalystWorkflowPage() {
       setRegionId(filters.region_id ? String(filters.region_id) : '');
       setProvince(filters.province ?? '');
       setMunicipality(filters.municipality ?? '');
+      setFireStation(filters.fire_station ?? '');
       setIncidentType(filters.incident_type ?? '');
       setAlarmLevel(filters.alarm_level ?? '');
       setCasualtySeverity(filters.casualty_severity ?? '');
@@ -304,12 +311,13 @@ export default function AnalystWorkflowPage() {
     region_id: regionId ? parseInt(regionId, 10) : undefined,
     province: province || undefined,
     municipality: municipality || undefined,
+    fire_station: fireStation || undefined,
     incident_type: incidentType || undefined,
     alarm_level: alarmLevel || undefined,
     casualty_severity: casualtySeverity ? casualtySeverity as 'high' | 'medium' | 'low' : undefined,
     damage_min: damageMin ? parseFloat(damageMin) : undefined,
     damage_max: damageMax ? parseFloat(damageMax) : undefined,
-  }), [alarmLevel, casualtySeverity, damageMax, damageMin, endDate, incidentType, municipality, province, regionId, startDate]);
+  }), [alarmLevel, casualtySeverity, damageMax, damageMin, endDate, fireStation, incidentType, municipality, province, regionId, startDate]);
 
   const filtersSummary = useMemo(() => {
     const regionName = regionId ? regions.find((r) => String(r.region_id) === regionId)?.region_name ?? regionId : '';
@@ -319,13 +327,14 @@ export default function AnalystWorkflowPage() {
       regionName && `Region: ${regionName}`,
       province && `Province: ${province}`,
       municipality && `Municipality: ${municipality}`,
+      fireStation && `Fire Station: ${fireStation}`,
       incidentType && `Type: ${incidentType}`,
       alarmLevel && `Alarm: ${alarmLevel}`,
       casualtySeverity && `Casualty: ${casualtySeverity}`,
       damageMin && `Damage Min: PHP ${Number(damageMin).toLocaleString()}`,
       damageMax && `Damage Max: PHP ${Number(damageMax).toLocaleString()}`,
     ].filter(Boolean).join(' | ') || 'No filters (all verified incidents)';
-  }, [alarmLevel, casualtySeverity, damageMax, damageMin, endDate, incidentType, municipality, province, regionId, regions, startDate]);
+  }, [alarmLevel, casualtySeverity, damageMax, damageMin, endDate, fireStation, incidentType, municipality, province, regionId, regions, startDate]);
 
   const loadData = useCallback(async () => {
     if (!workflow || !role || !ANALYST_ROLES.includes(role)) return;
@@ -386,12 +395,27 @@ export default function AnalystWorkflowPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- initial workflow load only; Apply/Refresh buttons reload with current controls
   }, [role, workflow, transferLoaded]);
 
+  useEffect(() => {
+    if (!topNData || topNData.length === 0) {
+      setTopNSelectedName(null);
+      setTopNIncidentFocusName(null);
+      return;
+    }
+    setTopNSelectedName((current) => (
+      current && topNData.some((item) => item.name === current) ? current : topNData[0].name
+    ));
+    setTopNIncidentFocusName((current) => (
+      current && topNData.some((item) => item.name === current) ? current : null
+    ));
+  }, [topNData]);
+
   const resetFilters = () => {
     setStartDate('');
     setEndDate('');
     setRegionId('');
     setProvince('');
     setMunicipality('');
+    setFireStation('');
     setIncidentType('');
     setAlarmLevel('');
     setCasualtySeverity('');
@@ -401,18 +425,34 @@ export default function AnalystWorkflowPage() {
     setCmpRanges(initialComparativeRanges());
     setSelectedIncidentIds([]);
     setSelectedSetActive(false);
+    setTopNIncidentFocusName(null);
     setAppliedFilters({});
   };
 
   const activeFilterCount = Object.values(activeFilters).filter((value) => value !== undefined && value !== '').length;
   const exportUnavailableOffline = !networkStatus.isOnline;
   const transferReady = transferLoaded && hydratedTransferId === transferId;
-  const evidenceFilters = useMemo<AnalystIncidentListParams>(() => (
-    selectedIncidentIds.length > 0
-      && selectedSetActive
-      ? { ...appliedFilters, incident_ids: selectedIncidentIds }
-      : appliedFilters
-  ), [appliedFilters, selectedIncidentIds, selectedSetActive]);
+  const topNIncidentFilters = useMemo<AnalystIncidentListParams>(() => {
+    if (!topNIncidentFocusName) return appliedFilters;
+    return buildTopNDrilldownFilters(appliedFilters, topNDimension, topNIncidentFocusName, regions) ?? appliedFilters;
+  }, [appliedFilters, regions, topNDimension, topNIncidentFocusName]);
+  const evidenceFilters = useMemo<AnalystIncidentListParams>(() => {
+    const baseFilters = workflow === 'top-n' ? topNIncidentFilters : appliedFilters;
+    if (selectedIncidentIds.length > 0 && selectedSetActive) {
+      return { ...baseFilters, incident_ids: selectedIncidentIds };
+    }
+    return baseFilters;
+  }, [appliedFilters, selectedIncidentIds, selectedSetActive, topNIncidentFilters, workflow]);
+  const displayedHeatmap = useMemo<HeatmapGeoJSON | null>(() => {
+    if (!heatmap) return null;
+    if (heatmapSource === 'filtered') return heatmap;
+    const selectedIdSet = new Set(selectedIncidentIds);
+    return {
+      ...heatmap,
+      features: heatmap.features.filter((feature) => selectedIdSet.has(feature.properties.incident_id)),
+    };
+  }, [heatmap, heatmapSource, selectedIncidentIds]);
+
   const totalTrendCount = trends?.data.reduce((sum, item) => sum + item.count, 0) ?? 0;
   const peakTrend = trends?.data.reduce<{ bucket: string | null; count: number } | null>((best, item) => {
     if (!best || item.count > best.count) return item;
@@ -427,6 +467,21 @@ export default function AnalystWorkflowPage() {
   const maxResponse = responseTime && responseTime.length > 0
     ? Math.max(...responseTime.map((item) => Number(item.max_response_time || 0)))
     : null;
+  const selectedTopNTransferFilters = useMemo<AnalystIncidentListParams | null>(() => {
+    if (!topNSelectedName) return null;
+    return buildTopNDrilldownFilters(activeFilters, topNDimension, topNSelectedName, regions);
+  }, [activeFilters, regions, topNDimension, topNSelectedName]);
+
+  const handleTopNShowMatchingIncidents = useCallback(() => {
+    if (!topNSelectedName) return;
+    setSelectedSetActive(false);
+    setTopNIncidentFocusName(topNSelectedName);
+  }, [topNSelectedName]);
+
+  const handleTopNViewOnMap = useCallback(() => {
+    if (!selectedTopNTransferFilters) return;
+    router.push(createAnalystWorkflowTransferUrl('heatmap', { filters: selectedTopNTransferFilters }));
+  }, [router, selectedTopNTransferFilters]);
 
   if (loading) {
     return <div className="flex min-h-[40vh] items-center justify-center text-gray-500">Loading...</div>;
@@ -660,7 +715,7 @@ export default function AnalystWorkflowPage() {
                 </select>
               </FilterField>
               <FilterField label="Dimension">
-                <select value={topNDimension} onChange={(e) => setTopNDimension(e.target.value)} className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm">
+                <select value={topNDimension} onChange={(e) => setTopNDimension(e.target.value as TopNDimension)} className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm">
                   <option value="municipality">Municipality</option>
                   <option value="fire_station">Fire Station</option>
                   <option value="region">Region</option>
@@ -747,14 +802,36 @@ export default function AnalystWorkflowPage() {
       )}
 
       {workflow === 'heatmap' && (
-        <Panel title="Map View" icon={<MapPinned className="h-5 w-5" />} description="Each marker represents one verified incident with coordinates in the current filter result.">
+        <Panel
+          title="Map View"
+          icon={<MapPinned className="h-5 w-5" />}
+          description="Each marker represents one verified incident with coordinates in the current filter result."
+          action={(
+            <div className="inline-flex rounded-md border border-gray-200 bg-gray-50 p-1 text-xs font-semibold text-gray-600">
+              <button
+                type="button"
+                onClick={() => setHeatmapSource('filtered')}
+                className={`rounded px-2.5 py-1.5 transition-colors ${heatmapSource === 'filtered' ? 'bg-white text-red-700 shadow-sm' : 'hover:text-gray-800'}`}
+              >
+                Filtered ({heatmap?.features.length ?? 0})
+              </button>
+              <button
+                type="button"
+                onClick={() => setHeatmapSource('selected')}
+                className={`rounded px-2.5 py-1.5 transition-colors ${heatmapSource === 'selected' ? 'bg-white text-red-700 shadow-sm' : 'hover:text-gray-800'}`}
+              >
+                Selected ({selectedIncidentIds.length})
+              </button>
+            </div>
+          )}
+        >
           <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <MetricTile label="Mapped Incidents" value={(heatmap?.features.length ?? 0).toLocaleString()} detail="Features returned by /analytics/heatmap" />
+            <MetricTile label="Mapped Incidents" value={(displayedHeatmap?.features.length ?? 0).toLocaleString()} detail={heatmapSource === 'selected' ? 'Selected incidents shown on map' : 'Filtered incidents shown on map'} />
             <MetricTile label="Map Mode" value="Point" detail="GeoJSON incident locations" />
-            <MetricTile label="Evidence" value="Table Below" detail="Same filters applied to incident records" />
+            <MetricTile label="Evidence" value={heatmapSource === 'selected' ? 'Selected Set' : 'Filtered Set'} detail="Incident evidence table remains below" />
           </div>
           <div className="overflow-hidden rounded-md border border-gray-200">
-            {heatmap ? <HeatmapViewer geojson={heatmap} /> : <div className="flex h-[520px] items-center justify-center text-gray-500">No map data loaded.</div>}
+            {displayedHeatmap ? <HeatmapViewer geojson={displayedHeatmap} emptyMessage={heatmapSource === 'selected' ? 'No selected incidents to display on map' : 'No incidents to display on map'} /> : <div className="flex h-[520px] items-center justify-center text-gray-500">No map data loaded.</div>}
           </div>
         </Panel>
       )}
@@ -783,7 +860,16 @@ export default function AnalystWorkflowPage() {
 
       {workflow === 'top-n' && (
         <Panel title="Ranked Results" icon={<ListChecks className="h-5 w-5" />} description="The ranked result uses /analytics/top-n with the selected metric and dimension.">
-          <TopNTable data={topNData ?? []} metric={topNMetric} />
+          <TopNExplorer
+            data={topNData ?? []}
+            metric={topNMetric}
+            dimension={topNDimension}
+            selectedName={topNSelectedName}
+            onSelect={setTopNSelectedName}
+            onShowMatchingIncidents={handleTopNShowMatchingIncidents}
+            onViewOnMap={handleTopNViewOnMap}
+            drilldownActive={topNIncidentFocusName != null}
+          />
         </Panel>
       )}
 
@@ -796,7 +882,9 @@ export default function AnalystWorkflowPage() {
           description={
             workflow === 'incident-explorer'
               ? 'Selected-set control center with 100 rows per page for dense review.'
-              : 'Verified incidents matching this workflow’s local filters.'
+              : workflow === 'top-n' && topNIncidentFocusName
+                ? `Hotspot drilldown active for ${topNIncidentFocusName}.`
+                : 'Verified incidents matching this workflow’s local filters.'
           }
           initialSelectedIncidentIds={selectedIncidentIds}
           onSelectionChange={setSelectedIncidentIds}

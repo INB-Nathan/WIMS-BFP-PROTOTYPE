@@ -717,7 +717,7 @@ def commit_afor_import_command(
                 "land_area": ns.get("extent_total_land_area_hectares", 0),
                 "vehicles_affected": ns.get("vehicles_affected", 0),
                 "province_district": row_data.get("_province_text", ""),
-                "city_municipality": row_data.get("_city_text", ""),
+                "city_municipality": city_text,
                 "barangay": row_data.get("_barangay_text", ""),
                 "extent_description": ns.get("extent_description") or None,
                 "extent_objects_count": ns.get("extent_objects_count"),

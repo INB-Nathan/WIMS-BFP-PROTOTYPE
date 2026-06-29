@@ -61,6 +61,7 @@ def test_apply_schema_patches_runs_once_per_process(monkeypatch) -> None:
     monkeypatch.setattr(main, "_apply_ref_table_rls", fake_ref_rls)
     monkeypatch.setattr(main, "_apply_users_rls", fake_users_rls)
     monkeypatch.setattr(main, "_apply_postgres_init_sql_patch", fake_apply_postgres_init_sql_patch)
+    monkeypatch.setattr(main, "_backfill_verified_data_hash", lambda _db: None)
 
     main._reset_schema_patch_state_for_tests()
     try:
