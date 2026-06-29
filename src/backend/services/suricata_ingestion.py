@@ -43,6 +43,7 @@ def _push_ai_queue(log_id: int, severity_level: str) -> None:
     except Exception as exc:
         logger.warning("Failed to push log_id=%s to ai:queue: %s", log_id, exc)
 
+
 # In-memory position tracking for tail behavior (path -> byte offset).
 # Optional: migrate to Redis for multi-worker persistence.
 _eve_file_positions: dict[str, int] = {}
