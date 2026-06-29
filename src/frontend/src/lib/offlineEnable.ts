@@ -27,8 +27,18 @@ import {
 // Cap how many full detail records we pull so enabling offline mode stays quick
 // and doesn't hammer the API. List items are always cached (cheap); details are
 // the expensive part.
-const DETAIL_CACHE_CAP = 40;
+const DETAIL_CACHE_CAP = 60;
 const LIST_FETCH_LIMIT = 100;
+
+// Encoder routes whose RSC payloads and HTML shells must be in SW cache for
+// reliable offline navigation. Fetched explicitly with RSC headers so the SW
+// caches them under the /_rsc/<path> key (see sw.js RSC handler).
+const ENCODER_ROUTES = [
+  '/afor/create',
+  '/afor/import',
+  '/dashboard/regional',
+  '/dashboard/regional/audit',
+];
 
 export interface OfflineEnableProgress {
   step: string;
@@ -98,12 +108,29 @@ export async function enableOfflineMode(
 
   try {
     // 1. Pre-cache navigation routes (RSC payloads + page shells).
+    // Two parallel strategies:
+    //   a) router.prefetch() — warms the Next.js router in-memory cache AND
+    //      triggers an RSC fetch that the SW caches under /_rsc/<path>.
+    //   b) Explicit fetch with RSC headers — ensures the SW caches the RSC
+    //      payload even when router.prefetch resolves before the SW stores it.
     onProgress?.({ step: 'Preparing pages…', phase: 'pages', done: 0, total: 1 });
     if (signal?.aborted) throwCancelled();
-    prefetch?.('/afor/create');
-    prefetch?.('/afor/import');
-    prefetch?.('/dashboard/regional');
-    prefetch?.('/dashboard/regional/audit');
+    // Fire router.prefetch calls (async, best-effort; wait for them below).
+    const prefetchPromises = ENCODER_ROUTES.map((href) => {
+      if (prefetch) {
+        try { return Promise.resolve(prefetch(href)); } catch { /* no-op */ }
+      }
+      return Promise.resolve();
+    });
+    // Also fetch RSC payloads directly so the SW caches them regardless of
+    // whether router.prefetch() completed before the fetch handler stored them.
+    const rscWarmPromises = ENCODER_ROUTES.map((href) =>
+      fetch(href, {
+        headers: { RSC: '1', 'Next-Router-Prefetch': '1' },
+        credentials: 'include',
+      }).catch(() => { /* best-effort — offline or SW not ready */ }),
+    );
+    await Promise.allSettled([...prefetchPromises, ...rscWarmPromises]);
 
     // 2. Warm the heavy form/map chunks.
     onProgress?.({ step: 'Downloading encoding forms…', phase: 'chunks', done: 0, total: 1 });
@@ -118,15 +145,6 @@ export async function enableOfflineMode(
       encoderId,
     );
     const items = response.items ?? [];
-
-    if (items.length === 0 && !silent) {
-      return {
-        ok: false,
-        cachedDetails: 0,
-        cachedList: 0,
-        error: 'No incidents found to cache. Ensure your account has incidents visible, then try again.',
-      };
-    }
 
     // 4. Pull full detail for a capped batch so detail/edit views work offline.
     const ids = items.slice(0, DETAIL_CACHE_CAP).map((i) => i.incident_id);

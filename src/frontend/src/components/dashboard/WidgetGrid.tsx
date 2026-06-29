@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
+import { WifiOff } from "lucide-react";
 import { fetchWidgetData, type WidgetDataMap } from "@/lib/api/widgets";
 import { widgetById } from "./widget-definitions";
 import { WidgetCard } from "./WidgetCard";
@@ -38,6 +39,7 @@ export interface WidgetGridProps {
  *
  * Fetches all visible widget data in a single batch request,
  * then renders independent WidgetCard components.
+ * Skips the fetch entirely when offline to avoid "Failed to fetch" errors.
  *
  * Grid layout: 2 cols mobile, 3 cols tablet, 4 cols desktop.
  */
@@ -52,33 +54,17 @@ export function WidgetGrid({ widgetIds, role, onRemoveWidget }: WidgetGridProps)
   useEffect(() => {
     mountedRef.current = true;
 
-    // Create a stable key for the current widget set to detect changes
+    // Don't attempt network calls when offline — render already shows the offline placeholder.
+    if (!isOnline) return;
+
+
     const idsKey = widgetIds.join(",");
-    if (idsKey === "") {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- reset on empty
-      setDataMap({});
-      setLoading(false);
-      return;
-    }
+    if (idsKey === "") return;
 
     let cancelled = false;
-
-    // While offline, skip the network attempt immediately and serve the cache.
-    // isOnline in the deps means this effect re-runs as soon as connectivity
-    // is restored, at which point it falls through to the normal fetch path.
-    if (!isOnline) {
-      const cached = role ? loadCachedWidgets(role) : null;
-      if (cached && Object.keys(cached).length > 0) {
-        setDataMap(cached);
-        setFromCache(true);
-      } else {
-        setError("Widget data unavailable offline");
-      }
-      setLoading(false);
-      return () => { cancelled = true; };
-    }
-
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setError(null);
     setFromCache(false);
 
@@ -113,6 +99,15 @@ export function WidgetGrid({ widgetIds, role, onRemoveWidget }: WidgetGridProps)
 
   if (!role || widgetIds.length === 0) {
     return null;
+  }
+
+  if (!isOnline) {
+    return (
+      <div className="rounded-xl border border-gray-200 bg-gray-50 p-3 text-sm text-gray-500 flex items-center gap-2">
+        <WifiOff className="w-4 h-4 flex-shrink-0" />
+        <span>Dashboard widgets are not available offline.</span>
+      </div>
+    );
   }
 
   if (error && !loading && Object.keys(dataMap).length === 0) {

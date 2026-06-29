@@ -118,7 +118,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const raw = localStorage.getItem(SESSION_CACHE_KEY);
       if (raw) {
-        const cached = JSON.parse(raw) as { user: Pick<User, 'id' | 'role' | 'assignedRegionId'> };
+        const cached = JSON.parse(raw) as { user: Pick<User, 'id' | 'role' | 'assignedRegionId' | 'email' | 'preferred_username'> };
         if (cached.user) {
           setUser(cached.user);
           // Issue #5: cached user is OFFLINE READ-ONLY until a successful
@@ -161,6 +161,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 id: data.user.id,
                 role: data.user.role,
                 assignedRegionId: data.user.assignedRegionId ?? null,
+                // Persist display identity so the header shows the correct name
+                // when the session is restored offline (issue: shows "User" otherwise).
+                email: data.user.email ?? null,
+                preferred_username: data.user.preferred_username ?? null,
               },
             }));
           } catch { /* private mode */ }
@@ -250,9 +254,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (sessionStorage.getItem('wims:preload_done')) return;
     sessionStorage.setItem('wims:preload_done', '1');
 
-    enableOfflineMode(user.id, { silent: true }).catch((err) => {
+    enableOfflineMode(user.id, {
+      silent: true,
+      prefetch: (href) => router.prefetch(href),
+    }).catch((err) => {
       console.warn('[AuthContext] background offline preload failed:', err);
     });
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- router is stable; sessionStorage guard makes extra deps irrelevant
   }, [serverValidated, user?.id]);
 
   const login = useCallback(async () => {
