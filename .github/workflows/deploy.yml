@@ -222,6 +222,15 @@ jobs:
                 echo "Removing stale WIMS containers stuck in created state..."
                 echo "$stuck_ids" | xargs -r docker rm -f
               fi
+
+              # 3. Remove failed one-shot dependency containers. These services
+              #    are safe to recreate and can otherwise keep compose --wait
+              #    pinned to a previous failed DNS/startup attempt.
+              oneshot_ids=$(docker ps -a --filter 'status=exited' --filter 'status=dead' --format '{{.ID}} {{.Names}}' | awk '$2 ~ /^wims-(ollama-model-pull|openbao-bootstrap)$/ {print $1}')
+              if [ -n "$oneshot_ids" ]; then
+                echo "Removing stale failed WIMS one-shot containers..."
+                echo "$oneshot_ids" | xargs -r docker rm -f
+              fi
             }
 
             echo "Validating production compose configuration..."
