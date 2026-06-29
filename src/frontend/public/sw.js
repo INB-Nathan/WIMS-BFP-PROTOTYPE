@@ -73,7 +73,10 @@ const OFFLINE_HTML = `<!doctype html>
 <main style="max-width:560px;margin:12vh auto;padding:24px">
 <h1 style="font-size:24px;margin:0 0 12px">Offline content unavailable</h1>
 <p style="line-height:1.6">This page or incident is not saved on this device. Reconnect to load it, or return to a dashboard you opened earlier.</p>
-<a href="/dashboard" style="display:inline-block;margin-top:12px;color:#b91c1c;font-weight:700">Go to dashboard</a>
+<div style="display:flex;gap:12px;margin-top:16px;flex-wrap:wrap">
+<button onclick="history.back()" style="background:#b91c1c;color:#fff;border:none;border-radius:6px;padding:8px 16px;font-size:14px;font-weight:700;cursor:pointer">&#8592; Go back</button>
+<a href="/dashboard" style="display:inline-flex;align-items:center;padding:8px 16px;border:2px solid #b91c1c;border-radius:6px;color:#b91c1c;font-weight:700;font-size:14px;text-decoration:none">Dashboard</a>
+</div>
 </main>
 </body>
 </html>`;
@@ -319,22 +322,34 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     caches.match(request).then((response) => {
       if (response) return response;
-      return fetch(request).then(async (networkResponse) => {
-        if (
-          request.method === 'GET' &&
-          networkResponse.ok &&
-          requestUrl.origin === self.location.origin &&
-          (requestUrl.pathname.startsWith('/_next/static/') ||
-            request.destination === 'script' ||
-            request.destination === 'style' ||
-            request.destination === 'image' ||
-            request.destination === 'font')
-        ) {
-          const cache = await caches.open(CACHE_NAME);
-          cache.put(request, networkResponse.clone());
-        }
-        return networkResponse;
-      });
+      return fetch(request)
+        .then(async (networkResponse) => {
+          if (
+            request.method === 'GET' &&
+            networkResponse.ok &&
+            requestUrl.origin === self.location.origin &&
+            (requestUrl.pathname.startsWith('/_next/static/') ||
+              request.destination === 'script' ||
+              request.destination === 'style' ||
+              request.destination === 'image' ||
+              request.destination === 'font')
+          ) {
+            const cache = await caches.open(CACHE_NAME);
+            cache.put(request, networkResponse.clone());
+          }
+          return networkResponse;
+        })
+        .catch(() => {
+          // Offline and asset not in cache. Return a clean 503 so the
+          // FetchEvent resolves (not rejects) — an unhandled rejection here
+          // causes "network error response" console errors and can block
+          // page rendering for resources the browser expects to load.
+          return new Response('', {
+            status: 503,
+            statusText: 'Offline',
+            headers: { 'Content-Type': 'text/plain' },
+          });
+        });
     })
   );
 });

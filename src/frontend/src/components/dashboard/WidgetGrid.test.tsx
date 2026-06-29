@@ -13,6 +13,11 @@ import { AddWidgetDropdown } from "./AddWidgetDropdown";
 import { useDashboardWidgets } from "@/hooks/useDashboardWidgets";
 import type { WidgetDefinition } from "./widget-definitions";
 
+// ── Mock network status ───────────────────────────────────────────────────
+vi.mock("@/lib/useNetworkStatus", () => ({
+  useNetworkStatus: () => ({ isOnline: true, isReconnecting: false, isChecking: false }),
+}));
+
 // ── Mock widget API ───────────────────────────────────────────────────────
 const mockFetchWidgetData = vi.fn();
 vi.mock("@/lib/api/widgets", () => ({
@@ -89,7 +94,7 @@ describe("WidgetGrid", () => {
     expect(skeletons.length).toBeGreaterThan(0);
   });
 
-  it("shows error state when widget fetch fails", async () => {
+  it("shows error state when widget fetch fails with no cache", async () => {
     mockFetchWidgetData.mockRejectedValue(new Error("Network error"));
     render(
       <WidgetGrid
@@ -99,7 +104,7 @@ describe("WidgetGrid", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("Network error")).toBeDefined();
+      expect(screen.getByText("Widget data unavailable offline")).toBeDefined();
     });
   });
 

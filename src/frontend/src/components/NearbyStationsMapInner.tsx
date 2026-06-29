@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import type { FireStation } from '@/lib/api';
+import { firePinIcon } from './map/leafletIcons';
 
 // Fix default marker icons in react-leaflet (webpack/Next.js)
 // Self-hosted under /leaflet/ to avoid connect-src CSP violations.
@@ -16,14 +17,9 @@ const DefaultIcon = L.icon({
     popupAnchor: [1, -34],
 });
 
-const IncidentIcon = L.icon({
-    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png',
-    iconRetinaUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
-    shadowUrl: '/leaflet/marker-shadow.png',
-    iconSize: [25, 41],
-    iconAnchor: [12, 41],
-    popupAnchor: [1, -34],
-});
+// Inline SVG divIcon — avoids external CDN requests that violate img-src CSP.
+// raw.githubusercontent.com is not in img-src so PNG-based icons render black.
+const IncidentIcon = firePinIcon;
 
 function FitBounds({ points }: { points: [number, number][] }) {
     const map = useMap();
