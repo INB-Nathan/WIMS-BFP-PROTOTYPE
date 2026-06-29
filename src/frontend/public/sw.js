@@ -9,7 +9,7 @@
  *   it delegates to the page rather than POSTing directly.
  */
 
-const CACHE_NAME = 'wims-bfp-cache-v12';
+const CACHE_NAME = 'wims-bfp-cache-v13';
 // Separate long-lived cache for map tiles so they survive main-cache evictions.
 const TILE_CACHE_NAME = 'wims-tiles-v1';
 const SYNC_TAG = 'sync-pending-incidents';
@@ -117,6 +117,21 @@ const VALID_ANALYST_WORKFLOW_SLUGS = new Set([
   'top-n',
   'incident-explorer',
 ]);
+
+// Public routes that may legitimately fall back to the '/' cache entry.
+// Authenticated routes (/afor, /dashboard, /admin, etc.) must NOT fall back
+// to '/' because that serves the civilian reporting form, which would appear
+// as the page content while the URL still shows an authenticated route.
+function isPublicPath(pathname) {
+  return (
+    pathname === '/' ||
+    pathname === '/login' ||
+    pathname === '/callback' ||
+    pathname.startsWith('/tracking') ||
+    pathname.startsWith('/fire-stations') ||
+    pathname.startsWith('/privacy')
+  );
+}
 
 function canonicalPath(pathname) {
   if (
@@ -296,12 +311,18 @@ self.addEventListener('fetch', (event) => {
         } else if (isCanonicalDetail) {
           detailShell = await cache.match(requestUrl.origin + INCIDENT_DETAIL_SHELL);
         }
+        // Only serve the '/' cache entry as a fallback for public routes.
+        // Serving it for authenticated routes (e.g. /afor/create) would render
+        // the civilian reporting form at the wrong URL, confusing the encoder.
+        const publicFallback = isPublicPath(requestUrl.pathname)
+          ? await cache.match('/')
+          : null;
         return (
           (await cache.match(request)) ||
           (await cache.match(canonicalKey)) ||
           detailShell ||
           (await cache.match(APP_SHELL)) ||
-          (await cache.match('/')) ||
+          publicFallback ||
           new Response(OFFLINE_HTML, {
             status: 200,
             headers: { 'Content-Type': 'text/html; charset=utf-8' },

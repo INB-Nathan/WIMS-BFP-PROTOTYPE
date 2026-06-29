@@ -618,8 +618,10 @@ describe('AuthContext localStorage PII cache (WS6, V14.3.3)', () => {
     return <span data-testid="loading">{String(loading)}</span>;
   }
 
-  it('test_localstorage_cache_excludes_email_and_name', async () => {
-    // Mock a successful login returning full user with PII fields
+  it('test_localstorage_cache_includes_email_and_name', async () => {
+    // Email and preferred_username are intentionally persisted in the cache so
+    // the header can display the correct name in offline sessions (fix: header
+    // previously showed "User" when restored from localStorage).
     globalThis.fetch = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -658,9 +660,9 @@ describe('AuthContext localStorage PII cache (WS6, V14.3.3)', () => {
     expect(cached.user.id).toBe('u1');
     expect(cached.user.role).toBe('encoder');
 
-    // Must NOT have PII fields
-    expect(cached.user).not.toHaveProperty('email');
-    expect(cached.user).not.toHaveProperty('preferred_username');
+    // Must also persist display identity for offline header rendering
+    expect(cached.user.email).toBe('test@example.com');
+    expect(cached.user.preferred_username).toBe('testuser');
   });
 
   it('test_offline_restore_uses_minimal_user', async () => {
