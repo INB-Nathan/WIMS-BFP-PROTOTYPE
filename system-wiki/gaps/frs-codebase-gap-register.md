@@ -94,6 +94,7 @@ This register prevents agents from hallucinating completion. A module is not com
   - **Fix:** Same SPI captures `UPDATE_PASSWORD` (user completes reset-credentials form) and `RESET_PASSWORD_EMAIL` (Keycloak dispatches the reset email). Both map → `PASSWORD_RESET`/`success` in `wims.system_audit_trails`.
   - **Env var:** `WIMS_KEYCLOAK_EVENT_SECRET` — shared Bearer token between Keycloak SPI and backend. Must be set on VPS (both services) before the new Keycloak image rolls out. Backend fails closed (401) if unset; SPI fails open (logs warning, skips push) if unset on Keycloak.
   - **PR:** `feat/rp08-rp18-keycloak-event-spi` — branch + PR only; NOT merged.
+  - **Follow-up (2026-06-29, pen-test):** Live VPS at `194.233.81.162:/opt/wims-bfp` showed SPI pushing valid JSON but backend returning `422 JSON decode error`. Root cause: Java `HttpClient` defaults to HTTP/2; uvicorn is HTTP/1.1-only. HTTP/2 → HTTP/1.1 protocol negotiation on the first request corrupted the body. Fix: add `.version(HttpClient.Version.HTTP_1_1)` to the request builder in `WimsAuditEventListenerProvider.java`. After rebuild + Keycloak restart, `LOGIN_ERROR` events reach `wims.system_audit_trails` as `FAILED_LOGIN`/`failure`/`source=keycloak_spi`. See `system-wiki/log.md` 2026-06-29 pen-test fix entry.
 
 ### BREVO-EMAIL-CHANNEL (closed 2026-06-24)
 

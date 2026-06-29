@@ -159,10 +159,13 @@ outputs:
         - alert:
             # payload: yes             # enable dumping payload in Base64
             # Redis stream output for real-time pipeline (M7c #157)
+            # Pen-test fix 2026-06-29: redis-server was 127.0.0.1 (Suricata's
+            # own loopback) which never reached the Redis container. Use the
+            # Docker service hostname 'redis' on the bridge network.
             redis:
               enabled: yes
               redis-key: "suricata:alerts"
-              redis-server: "127.0.0.1"
+              redis-server: "redis"
               redis-port: 6379
 
             # payload-buffer-size: 4kb # max size of payload buffer to output in eve-log

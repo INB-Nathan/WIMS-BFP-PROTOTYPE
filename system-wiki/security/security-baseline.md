@@ -106,7 +106,20 @@ FRS Modules 7 and 8 define Suricata network monitoring and Qwen2.5-3B explainabi
 
 Raw Suricata threat telemetry is intentionally short-lived to avoid unbounded `wims.security_threat_logs` growth and dashboard full-table scans. The production default is `retention.security_threat_logs_days=1`. Weekly/monthly visibility is preserved by `wims.security_threat_log_rollups`, which stores hourly buckets for 7 days and daily buckets for 90 days (`retention.security_rollups_hourly_days`, `retention.security_rollups_daily_days`). Ingestion increments both hourly and daily rollups for every alert before deciding whether to store a raw row.
 
-SIEM raw storage is now noise-gated: background/scanner/bot alerts are stored in rollups only by default (`siem.store_low_value_raw=false`), while HIGH/CRITICAL and credential/high-signal alerts can still be retained raw. Raw rows are deduplicated within `siem.raw_dedup_window_minutes` (default 5) by source IP, SID, severity, and classification. The admin API exposes `/api/admin/security-logs/rollups` for hourly/daily time-range queries.
+SIEM raw storage is now noise-gated: background/scanner/bot alerts are stored in rollups only when `siem.store_low_value_raw=false`, while HIGH/CRITICAL and credential/high-signal alerts can still be retained raw. **Pen-test fix 2026-06-29:** default is now `true` so the admin `/admin/monitoring` view (which reads `security_threat_logs`, not rollups) sees scanner/probe/bot traffic during pen-test reviews. The 1-day raw retention bounds storage cost. Rollups remain intact for long-term analytics. To revert, set `siem.store_low_value_raw=false` via `/api/admin/system-config`. Raw rows are deduplicated within `siem.raw_dedup_window_minutes` (default 5) by source IP, SID, severity, and classification. The admin API exposes `/api/admin/security-logs/rollups` for hourly/daily time-range queries.
+
+### Rollups RLS Granular Split (2026-06-29)
+
+The `wims.security_threat_log_rollups` table uses three granular RLS policies (pen-test fix 2026-06-29). The legacy single `security_rollups_admin_all FOR ALL` policy blocked the `svc_suricata` service account (role `NATIONAL_ANALYST`) from inserting rollup rows, which caused every `tasks.suricata.ingest_suricata_eve` Celery task to fail. The new structure:
+
+- `security_rollups_admin_analyst_select` — SELECT: SYSTEM_ADMIN, NATIONAL_ANALYST
+- `security_rollups_insert` — INSERT: SYSTEM_ADMIN, NATIONAL_ANALYST (so `svc_suricata` can write)
+- `security_rollups_update` — UPDATE: SYSTEM_ADMIN, NATIONAL_ANALYST (so `ON CONFLICT DO UPDATE` upsert works)
+- `security_rollups_delete` — DELETE: SYSTEM_ADMIN only (audit integrity)
+
+### Keycloak SPI HTTP/1.1 Enforcement (2026-06-29)
+
+The `wims-audit-event-listener` Keycloak SPI now forces `HttpClient.Version.HTTP_1_1` on the audit push request. Java's `HttpClient` defaults to HTTP/2 since Java 11; uvicorn (the ASGI server used by the WIMS FastAPI backend) is HTTP/1.1-only. HTTP/2 → HTTP/1.1 protocol negotiation on the first request was corrupting the request body, surfacing as a 422 JSON decode error on `/api/auth/keycloak-event`. Explicit HTTP/1.1 eliminates the negotiation path.
 
 ### XAI Prompt Completeness (2026-06-23)
 `analyze_threat_log()` in `src/backend/services/ai_service.py` now includes `suricata_signature` and `classification` in the Ollama prompt (added between `SID=` and `payload=`). Custom WIMS SIDs 1000001-1000134 are NOT in any public Suricata feed, so the bare SID is opaque to Ollama — the human-readable signature (e.g. "WIMS OWASP A03 SQLi UNION SELECT") tells the LLM the attack type, and the classification (e.g. "high_signal_threat") tells the threat model. Without these, the LLM could only guess from the raw payload, producing generic narratives that failed the user's goal: XAI must tell humans **what the attack is and what to do for future purposes**. Regression test: `test_analyze_threat_log_prompt_includes_signature_and_classification` in `tests/integration/test_ai_ids_api.py` (captures the Ollama request body via `respx` and asserts both fields are present in the prompt).

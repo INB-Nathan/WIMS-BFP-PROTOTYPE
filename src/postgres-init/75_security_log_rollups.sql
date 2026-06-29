@@ -39,24 +39,47 @@ CREATE INDEX IF NOT EXISTS idx_security_rollups_severity_bucket
 ALTER TABLE wims.security_threat_log_rollups ENABLE ROW LEVEL SECURITY;
 ALTER TABLE wims.security_threat_log_rollups FORCE ROW LEVEL SECURITY;
 
+-- SELECT: SYSTEM_ADMIN or NATIONAL_ANALYST (unchanged)
 DROP POLICY IF EXISTS security_rollups_admin_analyst_select ON wims.security_threat_log_rollups;
 CREATE POLICY security_rollups_admin_analyst_select
 ON wims.security_threat_log_rollups FOR SELECT
 USING (wims.current_user_role() IN ('SYSTEM_ADMIN', 'NATIONAL_ANALYST'));
 
+-- INSERT/UPDATE/DELETE split (was a single FOR ALL policy that blocked
+-- NATIONAL_ANALYST, which is the role of the svc_suricata service account
+-- used by ingest_suricata_eve. See pen-test findings 2026-06-29.
+-- Granular policies keep the audit-integrity guarantee (DELETE is admin-only)
+-- while allowing the upsert in record_security_threat_rollups to succeed.
 DROP POLICY IF EXISTS security_rollups_admin_all ON wims.security_threat_log_rollups;
-CREATE POLICY security_rollups_admin_all
-ON wims.security_threat_log_rollups FOR ALL
-USING (wims.current_user_role() = 'SYSTEM_ADMIN')
-WITH CHECK (wims.current_user_role() = 'SYSTEM_ADMIN');
+DROP POLICY IF EXISTS security_rollups_insert ON wims.security_threat_log_rollups;
+CREATE POLICY security_rollups_insert
+ON wims.security_threat_log_rollups FOR INSERT
+WITH CHECK (wims.current_user_role() IN ('SYSTEM_ADMIN', 'NATIONAL_ANALYST'));
+
+DROP POLICY IF EXISTS security_rollups_update ON wims.security_threat_log_rollups;
+CREATE POLICY security_rollups_update
+ON wims.security_threat_log_rollups FOR UPDATE
+USING (wims.current_user_role() IN ('SYSTEM_ADMIN', 'NATIONAL_ANALYST'))
+WITH CHECK (wims.current_user_role() IN ('SYSTEM_ADMIN', 'NATIONAL_ANALYST'));
+
+DROP POLICY IF EXISTS security_rollups_delete ON wims.security_threat_log_rollups;
+CREATE POLICY security_rollups_delete
+ON wims.security_threat_log_rollups FOR DELETE
+USING (wims.current_user_role() = 'SYSTEM_ADMIN');
 
 -- Production retention defaults for noisy SIEM telemetry.
+-- Note: siem.store_low_value_raw defaults to 'true' so that the admin
+-- /admin/monitoring and /admin/system views (which read security_threat_logs,
+-- not the rollups) see scanner/probe/bot traffic during pen-test reviews.
+-- Rollups are still preserved for long-term analytics. The 1-day raw retention
+-- bounds storage cost. To revert to rollup-only visibility for low-value
+-- alerts, set this to 'false' via /api/admin/system-config or directly.
 INSERT INTO wims.system_config (config_key, config_value, description) VALUES
   ('retention.security_threat_logs_days', '1', '1 day for raw IDS alert logs; weekly/monthly views use rollups'),
   ('retention.security_rollups_hourly_days', '7', '7 days for hourly IDS alert rollups'),
   ('retention.security_rollups_daily_days', '90', '90 days for daily IDS alert rollups'),
   ('siem.raw_dedup_window_minutes', '5', 'Deduplicate raw SIEM alerts by source/SID/severity/classification within this window'),
-  ('siem.store_low_value_raw', 'false', 'When false, store background/scanner/bot low-value alerts only in rollups')
+  ('siem.store_low_value_raw', 'true', 'When true, store background/scanner/bot low-value alerts in raw + rollups; admin monitoring views see them. When false, low-value alerts go to rollups only.')
 ON CONFLICT (config_key) DO UPDATE
 SET config_value = EXCLUDED.config_value,
     description = EXCLUDED.description;
