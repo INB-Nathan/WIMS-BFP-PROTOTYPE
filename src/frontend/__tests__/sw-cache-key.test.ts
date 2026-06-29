@@ -32,7 +32,7 @@ const VALID_ANALYST_WORKFLOW_SLUGS = new Set([
   'incident-explorer',
 ]);
 
-const CACHE_NAME = 'wims-bfp-cache-v12';
+const CACHE_NAME = 'wims-bfp-cache-v13';
 const INCIDENT_DETAIL_SHELL = '/dashboard/regional/incidents/1';
 const ANALYST_DETAIL_SHELL = '/dashboard/analyst/incidents/1';
 const WILDLAND_SHELL = '/dashboard/analyst/incidents/1/wildland';
@@ -323,9 +323,9 @@ describe('canonicalPath — analyst families (v12)', () => {
   });
 });
 
-describe('CACHE_NAME + urlsToCache (v12)', () => {
-  it('CACHE_NAME is bumped to v12', () => {
-    expect(CACHE_NAME).toBe('wims-bfp-cache-v12');
+describe('CACHE_NAME + urlsToCache (v13)', () => {
+  it('CACHE_NAME is bumped to v13', () => {
+    expect(CACHE_NAME).toBe('wims-bfp-cache-v13');
   });
 
   it('the 3 analyst shells are in urlsToCache (fallback anchors)', () => {
@@ -354,8 +354,8 @@ describe('CACHE_NAME + urlsToCache (v12)', () => {
 });
 
 describe('public/sw.js source contract (Task 9)', () => {
-  it('CACHE_NAME is defined as wims-bfp-cache-v12', () => {
-    expect(SW_SOURCE).toMatch(/const\s+CACHE_NAME\s*=\s*['"]wims-bfp-cache-v12['"]/);
+  it('CACHE_NAME is defined as wims-bfp-cache-v13', () => {
+    expect(SW_SOURCE).toMatch(/const\s+CACHE_NAME\s*=\s*['"]wims-bfp-cache-v13['"]/);
   });
 
   it('defines all 3 analyst shell constants', () => {

@@ -216,7 +216,26 @@ def test_export_log_inserted(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         format="csv",
     )
 
-    params = mock_db.execute.call_args.args[1]
-    assert "export_type" in str(mock_db.execute.call_args.args[0])
-    assert params["export_type"] == "analyst"
-    assert params["row_count"] == 2
+    all_calls = mock_db.execute.call_args_list
+
+    # --- analytics_export_log INSERT (RP-14: first statement) ---
+    export_log_calls = [c for c in all_calls if "analytics_export_log" in str(c.args[0])]
+    assert len(export_log_calls) == 1, (
+        f"Expected exactly 1 analytics_export_log INSERT, got {len(export_log_calls)}"
+    )
+    export_sql = str(export_log_calls[0].args[0])
+    export_params = export_log_calls[0].args[1]
+    assert "analytics_export_log" in export_sql
+    assert "export_type" in export_sql
+    assert export_params["export_type"] == "analyst"
+    assert export_params["row_count"] == 2
+
+    # --- system_audit_trails BULK_EXPORT INSERT (RP-14: second statement) ---
+    audit_trail_calls = [c for c in all_calls if "system_audit_trails" in str(c.args[0])]
+    bulk_calls = [c for c in audit_trail_calls if c.args[1].get("action") == "BULK_EXPORT"]
+    assert len(bulk_calls) == 1, (
+        f"Expected exactly 1 system_audit_trails BULK_EXPORT INSERT, got {len(bulk_calls)}"
+    )
+    audit_sql = str(bulk_calls[0].args[0])
+    assert "system_audit_trails" in audit_sql
+    assert "export_type" not in audit_sql  # different table — no export_type column

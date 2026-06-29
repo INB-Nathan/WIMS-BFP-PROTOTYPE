@@ -15,7 +15,7 @@ function isChunkLoadError(error: Error): boolean {
 
 export default function AforError({
     error,
-    reset,
+    reset: _reset,
 }: {
     error: Error & { digest?: string };
     reset: () => void;
@@ -28,12 +28,11 @@ export default function AforError({
 
     // When the user is confirmed online and there's a chunk error, the chunks
     // are stale (e.g. a new deployment happened while they were offline).
-    // Hard-reload immediately to get the fresh bundle instead of showing an
-    // error screen.
+    // Defer the reload so React finishes its commit phase first.
     useEffect(() => {
-        if (isOnline && isChunkLoadError(error)) {
-            window.location.reload();
-        }
+        if (!isOnline || !isChunkLoadError(error)) return;
+        const t = setTimeout(() => window.location.reload(), 0);
+        return () => clearTimeout(t);
     }, [isOnline, error]);
 
     // While the connectivity probe is still in flight we don't know if we're

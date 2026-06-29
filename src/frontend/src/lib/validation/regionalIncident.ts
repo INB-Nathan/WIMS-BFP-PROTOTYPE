@@ -183,14 +183,14 @@ export const incidentUpdateSchema = z.object({
   receiver_name: labelField,
   prepared_by_officer: labelField,
   noted_by_officer: labelField,
-  disposition: labelField,
+
+  // String narrative (D4: 10000)
+  disposition: narrativeField,
+  narrative_report: narrativeField,
 
   // String descriptions (D4: 2000)
   recommendations: descField,
   remarks: descField,
-
-  // String narrative (D4: 10000)
-  narrative_report: narrativeField,
 
   // Non-negative optional counts
   civilian_injured: nonNegIntOpt,

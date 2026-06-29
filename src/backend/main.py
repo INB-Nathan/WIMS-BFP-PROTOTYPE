@@ -194,6 +194,63 @@ def _read_postgres_init_sql(filename: str) -> str:
     return _strip_sql_transaction_wrapper(path.read_text(encoding="utf-8"))
 
 
+def _backfill_verified_data_hash(db: Session) -> None:
+    """RP-06: populate data_hash for VERIFIED incidents whose hash is NULL.
+
+    Incidents seeded via SQL (29_seed_incidents.sql) and incidents verified
+    before the NSD-hash extension landed carry a NULL data_hash, making them
+    invisible to the NSD tamper check in verify_incident_hash_chain.
+    This idempotent patch computes and stores the canonical SHA-256 hash using
+    the same compute_incident_data_hash() call as the live verify path.
+
+    Relies on the data_hash carve-out in the no_update_verified rule
+    (migration 68 / startup patch above) to allow the UPDATE.
+    """
+    from services.regional_incidents.helpers import compute_incident_data_hash
+
+    rows = db.execute(
+        text("""
+            SELECT fi.incident_id, fi.encoder_id, u.keycloak_id,
+                   fi.region_id, fi.created_at, fi.verification_status
+            FROM wims.fire_incidents fi
+            LEFT JOIN wims.users u ON u.user_id = fi.encoder_id
+            WHERE fi.verification_status = 'VERIFIED'
+              AND fi.data_hash IS NULL
+        """)
+    ).fetchall()
+
+    if not rows:
+        return
+
+    updated = 0
+    for row in rows:
+        incident_id, encoder_id, keycloak_id, region_id, created_at, vstatus = row
+        try:
+            h = compute_incident_data_hash(
+                db,
+                int(incident_id),
+                encoder_id=encoder_id,
+                keycloak_id=keycloak_id,
+                region_id=region_id,
+                created_at=created_at,
+                verification_status=vstatus or "VERIFIED",
+            )
+            db.execute(
+                text("UPDATE wims.fire_incidents SET data_hash = :h WHERE incident_id = :iid"),
+                {"h": h, "iid": incident_id},
+            )
+            updated += 1
+        except Exception as exc:
+            logger.warning(
+                "RP-06 backfill: could not compute data_hash for incident_id=%s: %s",
+                incident_id,
+                exc,
+            )
+
+    db.commit()
+    logger.info("RP-06 data_hash backfill: %d verified incident(s) updated", updated)
+
+
 def _apply_postgres_init_sql_patch(db: Session, filename: str, label: str) -> None:
     sql = _read_postgres_init_sql(filename)
     db.connection().exec_driver_sql(sql)
@@ -598,6 +655,15 @@ def apply_schema_patches() -> None:
             "64_consent_log_ip_hash.sql",
             "consent_log.request_ip INET -> VARCHAR(128) for salted IP-hash storage",
         )
+
+        # RP-06: backfill data_hash for VERIFIED incidents seeded via SQL or
+        # verified before the NSD-hash extension landed. The no_update_verified
+        # rule carves out data_hash-only updates on VERIFIED rows (migration 68).
+        try:
+            _backfill_verified_data_hash(db)
+        except Exception as exc:
+            logger.warning("RP-06 data_hash backfill failed (non-fatal): %s", exc)
+            db.rollback()
     finally:
         db.close()
         with _schema_patches_lock:

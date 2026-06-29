@@ -656,20 +656,81 @@ def verify_incident_hash_chain(
         {"iid": incident_id},
     ).fetchall()
 
-    if not rows:
-        return {
-            "integrity_status": "unverified",
-            "rows_verified": 0,
-            "violations": [],
-        }
-
-    # Fetch fire_incidents.data_hash for the anchor check
-    fi_data_hash = db.execute(
-        text("SELECT data_hash FROM wims.fire_incidents WHERE incident_id = :iid"),
+    # Fetch provenance + data_hash before the early-return so the NSD recompute
+    # check (RP-06) can fire even for incidents with no correction chain yet.
+    prov_row = db.execute(
+        text("""
+            SELECT fi.data_hash, fi.encoder_id, u.keycloak_id,
+                   fi.region_id, fi.created_at, fi.verification_status
+            FROM wims.fire_incidents fi
+            LEFT JOIN wims.users u ON u.user_id = fi.encoder_id
+            WHERE fi.incident_id = :iid
+        """),
         {"iid": incident_id},
-    ).scalar()
+    ).fetchone()
 
+    fi_data_hash: str | None = prov_row[0] if prov_row else None
     violations: list[str] = []
+
+    # RP-06: recompute data_hash from current NSD and compare to the stored
+    # value.  A mismatch means an NSD field was edited outside the correction
+    # flow — which always updates fi.data_hash as part of the hash-chain write.
+    if fi_data_hash and prov_row:
+        _, enc_id, kc_id, reg_id, fi_created_at, fi_vstatus = prov_row
+        recomputed_data_hash = compute_incident_data_hash(
+            db,
+            incident_id,
+            encoder_id=enc_id,
+            keycloak_id=kc_id,
+            region_id=reg_id,
+            created_at=fi_created_at,
+            verification_status=fi_vstatus or "VERIFIED",
+        )
+        if recomputed_data_hash != fi_data_hash:
+            violations.append(
+                f"NSD tamper detected: stored data_hash={fi_data_hash[:16]}… "
+                f"!= recomputed={recomputed_data_hash[:16]}…"
+            )
+
+    if not rows:
+        if violations:
+            if log_violations:
+                logger.warning(
+                    "INTEGRITY_VIOLATION: NSD tamper for incident_id=%s (no chain): %s",
+                    incident_id,
+                    "; ".join(violations),
+                )
+                try:
+                    from database import _AdminSessionLocal
+                    from utils.audit import log_system_audit
+
+                    audit_db = _AdminSessionLocal()
+                    try:
+                        log_system_audit(
+                            db=audit_db,
+                            user_id=None,
+                            action_type="INTEGRITY_VIOLATION",
+                            table_affected="wims.incident_nonsensitive_details",
+                            record_id=incident_id,
+                            request=None,
+                            new_values={"violations": violations},
+                        )
+                        audit_db.commit()
+                    except Exception:
+                        audit_db.rollback()
+                        raise
+                    finally:
+                        audit_db.close()
+                except Exception:
+                    logger.exception(
+                        "Failed to write INTEGRITY_VIOLATION audit row for incident_id=%s",
+                        incident_id,
+                    )
+            return {"integrity_status": "tampered", "rows_verified": 0, "violations": violations}
+        if fi_data_hash:
+            return {"integrity_status": "valid", "rows_verified": 0, "violations": []}
+        return {"integrity_status": "unverified", "rows_verified": 0, "violations": []}
+
     prev_expected_hash: str | None = None
 
     for idx, row in enumerate(rows):

@@ -167,7 +167,7 @@ export function useAutoSync(): AutoSyncState {
         { duration: 4000 },
       );
     } else {
-      toast.success('Back online.', { duration: 2000 });
+      toast.success('Back online — refresh the page to reload dashboard data.', { duration: 5000 });
     }
 
     debounceTimer.current = setTimeout(() => {

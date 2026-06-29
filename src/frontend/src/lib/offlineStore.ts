@@ -412,9 +412,25 @@ export async function queueIncident(
         );
     }
 
+    // Guard — the legacy `incident-queue` store MUST have an explicit opType.
+    // Items without one (`undefined`) fall through to the civilian endpoint
+    // `/api/v1/public/report` in the sync engine, which silently drops all
+    // structured incident data (issue #468 / legacy-create-data-loss).
+    // Only `verify` and `archive_action` are valid for this store.
+    const validatedOpType: LegacyOfflineOpType | undefined = (
+        options.opType === 'verify' || options.opType === 'archive_action'
+    ) ? options.opType : undefined;
+    if (!validatedOpType) {
+        throw new Error(
+            'queueIncident: opType is required and must be "verify" or ' +
+            '"archive_action". The legacy `incident-queue` store is only ' +
+            'safe for these opTypes. Use queueOfflineOp() (Phase 1B+) for creates.'
+        );
+    }
+
     const encrypted = await encryptPayload(payload);
     await db.add(STORE_NAME, {
-        opType: options.opType,
+        opType: validatedOpType,
         localId: options.localId,
         encrypted,
         createdAt: Date.now(),

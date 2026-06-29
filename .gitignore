@@ -12,6 +12,7 @@ env/
 # Build outputs
 dist/
 build/
+target/
 *.egg-info/
 .next/
 out/

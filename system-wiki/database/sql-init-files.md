@@ -369,6 +369,48 @@ Adds `hitl_decision JSONB` column to `wims.security_threat_logs`. Stores HITL de
 - **Startup patch:** `main.py:_apply_ref_table_rls()` mirrors this migration to prevent startup reversion.
 - **Idempotent:** YES (`CREATE OR REPLACE` helper, `DROP POLICY IF EXISTS`).
 
+### `75_security_log_rollups.sql`
+
+**Purpose:** Security telemetry rollups (hourly + daily buckets) for SIEM noise control. Raw `security_threat_logs` are kept 1 day; rollups preserve weekly (hourly) and 90-day (daily) views.
+
+**Tables:**
+- `wims.security_threat_log_rollups` — composite PK on `(bucket_granularity, bucket_start, severity_level, classification, source_ip, suricata_sid)`, columns for `alert_count`, `first_seen`, `last_seen`, `suricata_signature`. Indexes on bucket and severity.
+
+**RLS policies (granular split — pen-test fix 2026-06-29):**
+- `security_rollups_admin_analyst_select` — SELECT: SYSTEM_ADMIN, NATIONAL_ANALYST
+- `security_rollups_insert` — INSERT: SYSTEM_ADMIN, NATIONAL_ANALYST (so `svc_suricata` can write)
+- `security_rollups_update` — UPDATE: SYSTEM_ADMIN, NATIONAL_ANALYST (so `ON CONFLICT DO UPDATE` upsert works)
+- `security_rollups_delete` — DELETE: SYSTEM_ADMIN only (audit integrity)
+
+The legacy single `security_rollups_admin_all FOR ALL` policy that blocked `NATIONAL_ANALYST` is dropped.
+
+**System config seeded:** `retention.security_threat_logs_days=1`, `retention.security_rollups_hourly_days=7`, `retention.security_rollups_daily_days=90`, `siem.raw_dedup_window_minutes=5`, `siem.store_low_value_raw=true` (pen-test fix: flipped from `false` so admin `/admin/monitoring` views see scanner/probe/bot traffic).
+
+**Seeds:** hourly + daily rollups are back-populated from any retained raw rows on first deploy (`ON CONFLICT DO NOTHING` so historical buckets win).
+
+### `76_add_xai_confidence_breakdown.sql`
+
+**Purpose:** Per-category confidence breakdown for AI analysis on security threat logs.
+
+- Adds `xai_confidence_breakdown JSONB` column to `wims.security_threat_logs` (nullable).
+- Stores `{ anomaly_detection, classification, overall }` alongside the existing scalar `xai_confidence`.
+- `ADD COLUMN IF NOT EXISTS` — idempotent.
+
+### `77_security_log_rollups_policy_fix.sql`
+
+**Purpose:** Live-DB migration for the pen-test fix 2026-06-29. Re-applies the 75 granular RLS policies and flips `siem.store_low_value_raw` from `false` to `true` on the live DB. The 75 file's `ON CONFLICT DO UPDATE` only affects fresh deploys — on the live DB, the row already exists with the old value, so this migration updates it explicitly.
+
+**Idempotent:** YES. Safe to re-run on any DB that already has 75 applied.
+
+- Drops `security_rollups_admin_all` (legacy `FOR ALL` policy)
+- Creates `security_rollups_insert`, `security_rollups_update`, `security_rollups_delete` granular policies
+- `UPDATE wims.system_config SET config_value = 'true' WHERE config_key = 'siem.store_low_value_raw'`
+
+**Apply to live VPS:**
+```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f src/postgres-init/77_security_log_rollups_policy_fix.sql
+```
+
 ---
 
 ## RLS Policy Summary

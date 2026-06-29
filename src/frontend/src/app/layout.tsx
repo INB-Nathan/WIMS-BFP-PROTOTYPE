@@ -16,6 +16,8 @@ export const metadata: Metadata = {
     apple: "/apple-touch-icon.png",
   },
   manifest: "/manifest.webmanifest",
+  // Gray PWA title bar — matches manifest.webmanifest theme_color.
+  themeColor: '#4b5563',
 };
 
 export default function RootLayout({

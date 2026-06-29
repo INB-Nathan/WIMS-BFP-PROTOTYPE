@@ -25,6 +25,12 @@ logger = logging.getLogger("wims.keycloak_event")
 
 router = APIRouter(prefix="/api/auth", tags=["keycloak-event"])
 
+# Pen-test fix 2026-06-29: when WIMS_DEBUG_KEYCLOAK_BODY=1, log the raw
+# request body bytes for /api/auth/keycloak-event. Off by default. This
+# captured the 422 'JSON decode error' in the live VPS and confirmed the
+# SPI is the source of the malformed body. Remove after diagnosis.
+WIMS_DEBUG_KEYCLOAK_BODY = os.environ.get("WIMS_DEBUG_KEYCLOAK_BODY", "") == "1"
+
 
 def _get_kc_secret() -> str:
     """Read WIMS_KEYCLOAK_EVENT_SECRET from env on each call (not at import time).
@@ -81,6 +87,16 @@ def ingest_keycloak_event(
     wims.system_audit_trails. user_id is always NULL — Keycloak user IDs are
     not looked up to avoid leaking account existence.
     """
+    if WIMS_DEBUG_KEYCLOAK_BODY:
+        # Capture the raw body bytes that the SPI sent. The Pydantic
+        # parser already consumed the body to build `body`, but Starlette
+        # caches it in request._body for re-read. We log the first 500
+        # bytes — enough to see the first 1-2 events without flooding logs.
+        raw = getattr(request, "_body", None)
+        if raw:
+            logger.info("RAW KC EVENT BODY (%d bytes): %s", len(raw), raw[:500])
+        else:
+            logger.warning("RAW KC EVENT BODY not available — Starlette may have flushed it")
     _verify_secret(request)
 
     event_type = (body.event_type or "").strip().upper()
