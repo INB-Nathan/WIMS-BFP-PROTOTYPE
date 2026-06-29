@@ -30,7 +30,7 @@ import { TypeDistributionChart } from '@/components/analytics/TypeDistributionCh
 import { ResponseTimeChart } from '@/components/analytics/ResponseTimeChart';
 import { AnalystIncidentList } from '@/components/analytics/AnalystIncidentList';
 import { MetricTile } from '@/components/analytics/MetricTile';
-import { TopNTable } from '@/components/analytics/TopNTable';
+import { TopNExplorer } from '@/components/analytics/TopNExplorer';
 import {
   AlertTriangle,
   BarChart3,
@@ -60,10 +60,10 @@ import {
   GhostAnalystKpiCard,
   GhostChartPanel,
   GhostMapPanel,
-  GhostMetricTiles,
   GhostIncidentTable,
 } from '@/components/ui/GhostAnalystPanel';
 import { useDashboardWidgets } from '@/hooks/useDashboardWidgets';
+import { buildTopNDrilldownFilters, type TopNDimension } from '@/lib/topNDrilldown';
 
 const HeatmapViewer = dynamic(
   () => import('@/components/analytics/HeatmapViewer').then((m) => m.HeatmapViewer),
@@ -93,6 +93,7 @@ const INTERVALS = [
 ];
 
 const ANALYST_ROLES = ['NATIONAL_ANALYST', 'SYSTEM_ADMIN'];
+type HeatmapSource = 'filtered' | 'selected';
 
 const WORKFLOW_LINKS: ReadonlyArray<{
   slug: AnalystWorkflowSlug;
@@ -287,8 +288,12 @@ export default function AnalystDashboardPage() {
   // AQ-14: Top-N
   const [topNData, setTopNData] = useState<TopNItem[] | null>(null);
   const [topNMetric, setTopNMetric] = useState('incidents');
-  const [topNDimension, setTopNDimension] = useState('municipality');
+  const [topNDimension, setTopNDimension] = useState<TopNDimension>('municipality');
+  const [topNSelectedName, setTopNSelectedName] = useState<string | null>(null);
+  const [topNIncidentFocusName, setTopNIncidentFocusName] = useState<string | null>(null);
   const [appliedIncidentFilters, setAppliedIncidentFilters] = useState<AnalystIncidentListParams>({});
+  const [selectedIncidentIds, setSelectedIncidentIds] = useState<number[]>([]);
+  const [heatmapSource, setHeatmapSource] = useState<HeatmapSource>('filtered');
 
   // Progressive disclosure: advanced filters collapsed by default
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
@@ -310,7 +315,7 @@ export default function AnalystDashboardPage() {
     damageMin?: string;
     damageMax?: string;
     topNMetric?: string;
-    topNDimension?: string;
+    topNDimension?: TopNDimension;
   };
 
   const loadData = useCallback(async (overrides?: FilterOverrides) => {
@@ -461,6 +466,20 @@ export default function AnalystDashboardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- initial load only; Apply button triggers refresh
   }, [role]);
 
+  useEffect(() => {
+    if (!topNData || topNData.length === 0) {
+      setTopNSelectedName(null);
+      setTopNIncidentFocusName(null);
+      return;
+    }
+    setTopNSelectedName((current) => (
+      current && topNData.some((item) => item.name === current) ? current : topNData[0].name
+    ));
+    setTopNIncidentFocusName((current) => (
+      current && topNData.some((item) => item.name === current) ? current : null
+    ));
+  }, [topNData]);
+
   const activeFilterCount = [
     startDate,
     endDate,
@@ -488,6 +507,16 @@ export default function AnalystDashboardPage() {
     ? responseTime.reduce((sum, item) => sum + Number(item.avg_response_time || 0), 0) / responseTime.length
     : null;
 
+  const displayedHeatmap = useMemo<HeatmapGeoJSON | null>(() => {
+    if (!heatmap) return null;
+    if (heatmapSource === 'filtered') return heatmap;
+    const selectedIdSet = new Set(selectedIncidentIds);
+    return {
+      ...heatmap,
+      features: heatmap.features.filter((feature) => selectedIdSet.has(feature.properties.incident_id)),
+    };
+  }, [heatmap, heatmapSource, selectedIncidentIds]);
+
   const dashboardTransferFilters = useMemo<AnalystIncidentListParams>(() => ({
     start_date: startDate || undefined,
     end_date: endDate || undefined,
@@ -511,6 +540,25 @@ export default function AnalystDashboardPage() {
     regionId,
     startDate,
   ]);
+
+  const topNIncidentFilters = useMemo<AnalystIncidentListParams>(() => {
+    if (!topNIncidentFocusName) return appliedIncidentFilters;
+    return buildTopNDrilldownFilters(appliedIncidentFilters, topNDimension, topNIncidentFocusName, regions) ?? appliedIncidentFilters;
+  }, [appliedIncidentFilters, regions, topNDimension, topNIncidentFocusName]);
+
+  const selectedTopNTransferFilters = useMemo<AnalystIncidentListParams | null>(() => {
+    if (!topNSelectedName) return null;
+    return buildTopNDrilldownFilters(dashboardTransferFilters, topNDimension, topNSelectedName, regions);
+  }, [dashboardTransferFilters, regions, topNDimension, topNSelectedName]);
+
+  const handleTopNShowMatchingIncidents = useCallback(() => {
+    if (topNSelectedName) setTopNIncidentFocusName(topNSelectedName);
+  }, [topNSelectedName]);
+
+  const handleTopNViewOnMap = useCallback(() => {
+    if (!selectedTopNTransferFilters) return;
+    router.push(createAnalystWorkflowTransferUrl('heatmap', { filters: selectedTopNTransferFilters }));
+  }, [router, selectedTopNTransferFilters]);
 
   const openWorkflow = (event: MouseEvent<HTMLAnchorElement>, workflow: AnalystWorkflowSlug) => {
     event.preventDefault();
@@ -1314,7 +1362,7 @@ export default function AnalystDashboardPage() {
                       <select
                         value={topNDimension}
                         onChange={(e) => {
-                          const dimension = e.target.value;
+                          const dimension = e.target.value as TopNDimension;
                           setTopNDimension(dimension);
                           void loadData({ topNDimension: dimension });
                         }}
@@ -1328,7 +1376,17 @@ export default function AnalystDashboardPage() {
                     </div>
                   </div>
                   {topNData && topNData.length > 0 ? (
-                    <TopNTable data={topNData} metric={topNMetric} emptyMessage="No top-N data." />
+                    <TopNExplorer
+                      data={topNData}
+                      metric={topNMetric}
+                      dimension={topNDimension}
+                      selectedName={topNSelectedName}
+                      onSelect={setTopNSelectedName}
+                      onShowMatchingIncidents={handleTopNShowMatchingIncidents}
+                      onViewOnMap={handleTopNViewOnMap}
+                      drilldownActive={topNIncidentFocusName != null}
+                      emptyMessage="No top-N data."
+                    />
                   ) : (
                     <p className="text-sm text-gray-500">No top-N data.</p>
                   )}
@@ -1337,10 +1395,14 @@ export default function AnalystDashboardPage() {
 
               {/* ── Incident list ── */}
               <AnalystIncidentList
-                filters={appliedIncidentFilters}
+                filters={topNIncidentFilters}
                 prominent
                 title="Incident Analysis Set"
-                description="Select verified incidents across pages, then send that selected set to a dedicated analyst workflow."
+                description={topNIncidentFocusName
+                  ? `Hotspot drilldown active for ${topNIncidentFocusName}.`
+                  : 'Select verified incidents across pages, then send that selected set to a dedicated analyst workflow.'}
+                initialSelectedIncidentIds={selectedIncidentIds}
+                onSelectionChange={setSelectedIncidentIds}
               />
             </div>
 
@@ -1351,9 +1413,33 @@ export default function AnalystDashboardPage() {
                 title="Incident Heatmap"
                 description="Geographic clustering of verified incidents"
                 freshness={{ cachedAt: cacheMeta.heatmap, isOnline: networkStatus.isOnline }}
+                action={(
+                  <div className="inline-flex rounded-md border border-gray-200 bg-gray-50 p-1 text-xs font-semibold text-gray-600">
+                    <button
+                      type="button"
+                      onClick={() => setHeatmapSource('filtered')}
+                      className={`rounded px-2.5 py-1.5 transition-colors ${heatmapSource === 'filtered' ? 'bg-white text-red-700 shadow-sm' : 'hover:text-gray-800'}`}
+                    >
+                      Filtered ({heatmap?.features.length ?? 0})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setHeatmapSource('selected')}
+                      className={`rounded px-2.5 py-1.5 transition-colors ${heatmapSource === 'selected' ? 'bg-white text-red-700 shadow-sm' : 'hover:text-gray-800'}`}
+                    >
+                      Selected ({selectedIncidentIds.length})
+                    </button>
+                  </div>
+                )}
               />
               <div className="p-0">
-                <HeatmapViewer geojson={heatmap} className="h-[520px] lg:h-[calc(100vh-7rem)] lg:min-h-[600px] lg:max-h-[920px]" />
+                {displayedHeatmap && (
+                  <HeatmapViewer
+                    geojson={displayedHeatmap}
+                    className="h-[520px] lg:h-[calc(100vh-7rem)] lg:min-h-[600px] lg:max-h-[920px]"
+                    emptyMessage={heatmapSource === 'selected' ? 'No selected incidents to display on map' : 'No incidents to display on map'}
+                  />
+                )}
               </div>
             </div>
           </div>

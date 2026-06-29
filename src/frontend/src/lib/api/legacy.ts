@@ -1387,6 +1387,7 @@ export interface HeatmapFilters {
   region_id?: number;
   province?: string;
   municipality?: string;
+  fire_station?: string;
   alarm_level?: string;
   /** API query `incident_type` filters `general_category` in analytics_incident_facts */
   incident_type?: string;
@@ -1407,6 +1408,7 @@ export interface ComparativeFilters {
   region_id?: number;
   province?: string;
   municipality?: string;
+  fire_station?: string;
   incident_type?: string;
   alarm_level?: string;
   casualty_severity?: 'high' | 'medium' | 'low' | string;
@@ -1431,6 +1433,7 @@ export async function fetchHeatmapData(filters: HeatmapFilters = {}): Promise<He
     region_id: filters.region_id,
     province: filters.province,
     municipality: filters.municipality,
+    fire_station: filters.fire_station,
     alarm_level: filters.alarm_level,
     incident_type: filters.incident_type,
     casualty_severity: filters.casualty_severity,
@@ -1448,6 +1451,7 @@ export async function fetchTrendData(filters: TrendFilters = {}): Promise<Trends
     region_id: filters.region_id,
     province: filters.province,
     municipality: filters.municipality,
+    fire_station: filters.fire_station,
     incident_type: filters.incident_type,
     alarm_level: filters.alarm_level,
     casualty_severity: filters.casualty_severity,
@@ -1468,6 +1472,7 @@ export async function fetchComparativeData(filters: ComparativeFilters): Promise
     region_id: filters.region_id,
     province: filters.province,
     municipality: filters.municipality,
+    fire_station: filters.fire_station,
     incident_type: filters.incident_type,
     alarm_level: filters.alarm_level,
     casualty_severity: filters.casualty_severity,
@@ -1522,6 +1527,7 @@ export async function fetchTypeDistribution(filters: AnalyticsGlobalFilters = {}
     region_id: filters.region_id,
     province: filters.province,
     municipality: filters.municipality,
+    fire_station: filters.fire_station,
     alarm_level: filters.alarm_level,
     casualty_severity: filters.casualty_severity,
     damage_min: filters.damage_min,
@@ -1537,6 +1543,7 @@ export async function fetchResponseTimeByRegion(filters: AnalyticsGlobalFilters 
     region_id: filters.region_id,
     province: filters.province,
     municipality: filters.municipality,
+    fire_station: filters.fire_station,
     incident_type: filters.incident_type,
     alarm_level: filters.alarm_level,
     casualty_severity: filters.casualty_severity,
@@ -1553,6 +1560,7 @@ export async function fetchCompareRegions(filters: AnalyticsGlobalFilters & { re
     end_date: filters.end_date,
     province: filters.province,
     municipality: filters.municipality,
+    fire_station: filters.fire_station,
     incident_type: filters.incident_type,
     alarm_level: filters.alarm_level,
     casualty_severity: filters.casualty_severity,
@@ -1572,6 +1580,7 @@ export async function fetchTopN(filters: AnalyticsGlobalFilters & { metric: stri
     region_id: filters.region_id,
     province: filters.province,
     municipality: filters.municipality,
+    fire_station: filters.fire_station,
     incident_type: filters.incident_type,
     alarm_level: filters.alarm_level,
     casualty_severity: filters.casualty_severity,
@@ -1726,6 +1735,7 @@ export interface AnalystIncidentListParams {
   region_id?: number;
   province?: string;
   municipality?: string;
+  fire_station?: string;
   incident_type?: string;
   alarm_level?: string;
   casualty_severity?: 'high' | 'medium' | 'low';
@@ -1745,6 +1755,7 @@ function buildAnalystIncidentListParams(params: AnalystIncidentListParams): stri
   if (params.region_id) parts.push(`region_id=${params.region_id}`);
   if (params.province) parts.push(`province=${encodeURIComponent(params.province)}`);
   if (params.municipality) parts.push(`municipality=${encodeURIComponent(params.municipality)}`);
+  if (params.fire_station) parts.push(`fire_station=${encodeURIComponent(params.fire_station)}`);
   if (params.incident_type) parts.push(`incident_type=${encodeURIComponent(params.incident_type)}`);
   if (params.alarm_level) parts.push(`alarm_level=${encodeURIComponent(params.alarm_level)}`);
   if (params.casualty_severity) parts.push(`casualty_severity=${params.casualty_severity}`);

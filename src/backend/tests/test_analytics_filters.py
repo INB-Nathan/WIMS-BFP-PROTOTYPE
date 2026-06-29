@@ -30,6 +30,7 @@ def test_analytics_filters_compile_casualty_damage_and_selected_ids():
         casualty_severity="medium",
         damage_min=10.0,
         damage_max=20.0,
+        fire_station="Makati Central Fire Station",
         selected_incident_ids=[5, 5, 2],
     )
     clauses: list[str] = []
@@ -48,5 +49,7 @@ def test_analytics_filters_compile_casualty_damage_and_selected_ids():
     assert (
         "COALESCE(aif.estimated_damage_php, nd.estimated_damage_php, 0) >= :damage_min" in clauses
     )
+    assert "fi.fire_station_name = :fire_station" in clauses
+    assert params["fire_station"] == "Makati Central Fire Station"
     assert "fi.incident_id = ANY(:selected_incident_ids)" in clauses
     assert params["selected_incident_ids"] == [2, 5]
