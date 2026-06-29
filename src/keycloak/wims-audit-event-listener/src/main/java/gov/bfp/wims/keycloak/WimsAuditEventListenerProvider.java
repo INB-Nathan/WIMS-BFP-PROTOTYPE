@@ -67,7 +67,14 @@ public class WimsAuditEventListenerProvider implements EventListenerProvider {
         String body = buildJson(keycloakEventType, username, error, eventId);
 
         try {
+            // Pen-test fix 2026-06-29: force HTTP/1.1. Java's HttpClient
+            // defaults to HTTP/2 since Java 11. Uvicorn (ASGI server used
+            // by the WIMS FastAPI backend) is HTTP/1.1 only — HTTP/2 → HTTP/1.1
+            // protocol negotiation on the first request can corrupt the
+            // request body, surfacing as a 422 JSON decode error on the
+            // backend. Explicit HTTP/1.1 eliminates the negotiation path.
             HttpRequest.Builder reqBuilder = HttpRequest.newBuilder()
+                .version(HttpClient.Version.HTTP_1_1)
                 .uri(URI.create(ingestUrl))
                 .timeout(Duration.ofSeconds(5))
                 .header("Content-Type", "application/json")
@@ -83,11 +90,14 @@ public class WimsAuditEventListenerProvider implements EventListenerProvider {
             );
 
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                logger.warnf("[wims-audit] Backend returned HTTP %d for event %s",
-                    response.statusCode(), keycloakEventType);
+                // Include response body in the log so the exact backend
+                // error message is captured for diagnosis.
+                logger.warnf("[wims-audit] Backend returned HTTP %d for event %s. Body: %s",
+                    response.statusCode(), keycloakEventType, response.body());
             } else {
                 logger.debugf("[wims-audit] Pushed %s → HTTP %d", keycloakEventType, response.statusCode());
             }
+            logger.debugf("[wims-audit] Sent body to %s: %s", ingestUrl, body);
         } catch (Exception e) {
             // Swallow — never block Keycloak login on audit failure.
             logger.warnf("[wims-audit] Push failed for event %s: %s",
