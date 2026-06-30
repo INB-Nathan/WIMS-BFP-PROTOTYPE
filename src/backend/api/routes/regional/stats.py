@@ -295,6 +295,44 @@ def get_regional_stats(
         {"eid": str(encoder_id)},
     ).fetchall()
 
+    # ── Encoder-personal VERIFIED stat cards (for "My Stats" view) ─────────
+    my_params: dict = {"eid": str(encoder_id), **date_params}
+
+    my_total = (
+        db.execute(
+            text(
+                f"""
+                SELECT COUNT(*)
+                FROM wims.fire_incidents fi
+                LEFT JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi.incident_id
+                WHERE fi.encoder_id = CAST(:eid AS uuid)
+                  AND fi.verification_status = 'VERIFIED'
+                  AND fi.is_archived = FALSE
+                  {date_clause}
+                """
+            ),
+            my_params,
+        ).scalar()
+        or 0
+    )
+
+    my_by_cat_rows = db.execute(
+        text(
+            f"""
+            SELECT nd.general_category, COUNT(*) AS cnt
+            FROM wims.fire_incidents fi
+            JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi.incident_id
+            WHERE fi.encoder_id = CAST(:eid AS uuid)
+              AND fi.verification_status = 'VERIFIED'
+              AND fi.is_archived = FALSE
+              {date_clause}
+            GROUP BY nd.general_category
+            ORDER BY cnt DESC
+            """
+        ),
+        my_params,
+    ).fetchall()
+
     return RegionalStatsResponse(
         total_incidents=total,
         total_incidents_this_week=total,
@@ -307,5 +345,8 @@ def get_regional_stats(
         households_affected=int(affected_row[1]) if affected_row else 0,
         families_affected=int(affected_row[2]) if affected_row else 0,
         individuals_affected=int(affected_row[3]) if affected_row else 0,
+        # Encoder-personal verified stats (for "My Stats" toggle)
+        my_total_incidents=my_total,
+        my_by_category=[{"category": r[0], "count": r[1]} for r in my_by_cat_rows],
         vehicles_affected=int(affected_row[4]) if affected_row else 0,
     )

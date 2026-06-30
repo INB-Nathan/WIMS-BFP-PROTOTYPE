@@ -324,6 +324,8 @@ export default function (pi: ExtensionAPI): void {
     },
   });
 
-  // Status line on connect
-  ctx.ui.setStatus("vps", `VPS: ${VPS_REMOTE}`);
+  // Status line on session start
+  pi.on("session_start", async (_event, ctx) => {
+    ctx.ui.setStatus("vps", `VPS: ${VPS_REMOTE}`);
+  });
 }

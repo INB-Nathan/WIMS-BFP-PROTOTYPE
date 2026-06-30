@@ -67,6 +67,9 @@ class RegionalStatsResponse(BaseModel):
     families_affected: int = 0
     individuals_affected: int = 0
     vehicles_affected: int = 0
+    # Encoder-personal verified stats (for "My Stats" view)
+    my_total_incidents: int = 0
+    my_by_category: list[dict[str, Any]] = []
 
 
 # =====================================================================
