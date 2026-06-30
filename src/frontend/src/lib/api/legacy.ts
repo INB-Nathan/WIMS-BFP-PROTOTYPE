@@ -374,6 +374,13 @@ export async function analyzeSecurityLog(logId: number): Promise<{
   return apiFetch(`/admin/security-logs/${logId}/analyze`, { method: 'POST' });
 }
 
+/** Check AI analysis status for a security log - GET /admin/security-logs/{logId}/analyze-status */
+export async function checkAnalysisStatus(
+  logId: number,
+): Promise<{ log_id: number; status: 'running' | 'completed' | 'idle' }> {
+  return apiFetch(`/admin/security-logs/${logId}/analyze-status`);
+}
+
 /** Update security log (admin) - structured HITL action or legacy free-text admin_action_taken */
 export async function updateAdminSecurityLog(
   logId: number,

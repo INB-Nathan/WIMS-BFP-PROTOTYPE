@@ -1,6 +1,7 @@
 export {
   analyzeSecurityLog,
   changeMyPassword,
+  checkAnalysisStatus,
   createAdminUser,
   createIncidentFromAlert,
   createScheduledReport,

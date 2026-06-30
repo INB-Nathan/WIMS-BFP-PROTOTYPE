@@ -27,6 +27,13 @@ logger = logging.getLogger("wims.ai_service")
 OLLAMA_MODEL = "qwen2.5:1.5b"
 
 # ---------------------------------------------------------------------------
+# Redis analysis lock — prevents concurrent analysis of the same log_id
+# TTL matches the max Ollama timeout so locks don't orphan on crash.
+# ---------------------------------------------------------------------------
+_ANALYSIS_LOCK_PREFIX = "wims:ai:lock:"
+_ANALYSIS_LOCK_TTL = int(os.environ.get("OLLAMA_TIMEOUT", "480")) + 60
+
+# ---------------------------------------------------------------------------
 # Ollama HTTP timeout (seconds). Override via OLLAMA_TIMEOUT env var.
 # Default 480s — Qwen2.5-3B on CPU-only takes up to 6+ min per inference.
 # ---------------------------------------------------------------------------
@@ -96,6 +103,65 @@ async def _record_inference_metric(function_name: str, elapsed_s: float) -> None
         await redis_client.aclose()
 
 
+# ---------------------------------------------------------------------------
+# Analysis lock (Redis) — prevents concurrent analysis of the same log
+# ---------------------------------------------------------------------------
+
+
+async def acquire_analysis_lock(log_id: int) -> bool:
+    """Try to acquire a Redis lock for analyzing this log.
+
+    Returns True if the lock was acquired (no concurrent analysis running).
+    The lock auto-expires after _ANALYSIS_LOCK_TTL seconds.
+    """
+    redis = _get_metrics_redis()
+    try:
+        result = await redis.set(
+            f"{_ANALYSIS_LOCK_PREFIX}{log_id}",
+            "1",
+            nx=True,
+            ex=_ANALYSIS_LOCK_TTL,
+        )
+        return result is True
+    finally:
+        await redis.aclose()
+
+
+async def release_analysis_lock(log_id: int) -> None:
+    """Release the Redis analysis lock for this log."""
+    redis = _get_metrics_redis()
+    try:
+        await redis.delete(f"{_ANALYSIS_LOCK_PREFIX}{log_id}")
+    finally:
+        await redis.aclose()
+
+
+async def get_analysis_status(log_id: int, db: Session) -> str:
+    """Return the analysis status for a log: 'running', 'completed', or 'idle'.
+
+    'running'  — Redis lock exists (analysis in progress)
+    'completed' — xai_narrative is populated in DB
+    'idle'     — neither
+    """
+    redis = _get_metrics_redis()
+    try:
+        lock_exists = await redis.exists(f"{_ANALYSIS_LOCK_PREFIX}{log_id}")
+    finally:
+        await redis.aclose()
+
+    if lock_exists:
+        return "running"
+
+    row = db.execute(
+        text("SELECT xai_narrative FROM wims.security_threat_logs WHERE log_id = :log_id"),
+        {"log_id": log_id},
+    ).fetchone()
+    if row and row[0]:
+        return "completed"
+
+    return "idle"
+
+
 def _ollama_url() -> str:
     return os.environ.get("OLLAMA_URL", "http://ollama:11434").rstrip("/")
 
@@ -145,7 +211,9 @@ def _ollama_payload(prompt: str) -> dict:
                           memory bandwidth.
     - num_predict: env-configured (default 256) — hard cap on output tokens;
                       the JSON response is typically 200-400 tokens.
-    - num_thread:    8  — match the host vCPU count.
+    - num_thread:    6  — match the Docker CPU limit (cpus: '6').
+                       Using more threads than available CPUs causes
+                       oversubscription and context-switching thrash.
     """
     return {
         "model": OLLAMA_MODEL,
@@ -155,7 +223,7 @@ def _ollama_payload(prompt: str) -> dict:
         "options": {
             "num_ctx": 1024,
             "num_predict": _ollama_num_predict(),
-            "num_thread": 8,
+            "num_thread": 6,
         },
     }
 
@@ -268,9 +336,12 @@ async def analyze_threat_log(log_id: int, db: Session, request: Request | None =
 
     payload = _ollama_payload(prompt)
 
-    if request is not None and await request.is_disconnected():
-        logger.info("Client disconnected before AI analysis of log %d", log_id)
-        raise HTTPException(status_code=499, detail="Client disconnected")
+    # Acquire Redis lock to prevent concurrent analysis of the same log
+    if not await acquire_analysis_lock(log_id):
+        raise HTTPException(
+            status_code=409,
+            detail=f"AI analysis is already running for log {log_id}",
+        )
 
     _t0 = time.perf_counter()
     resp = await _ollama_post_with_retry(payload, call_label="analyze_threat_log", db=db)
@@ -278,10 +349,6 @@ async def analyze_threat_log(log_id: int, db: Session, request: Request | None =
 
     data = resp.json()
     response_text = data.get("response", "")
-
-    if request is not None and await request.is_disconnected():
-        logger.info("Client disconnected during AI analysis of log %d, skipping DB write", log_id)
-        raise HTTPException(status_code=499, detail="Client disconnected")
 
     # Try to parse as JSON — if it fails, gracefully degrade to raw text.
     # The frontend normalizer (normalizeNarrative) handles both structured
@@ -342,6 +409,10 @@ async def analyze_threat_log(log_id: int, db: Session, request: Request | None =
         },
     )
     db.commit()
+
+    # Release the analysis lock — only after DB is committed so that the
+    # status endpoint reliably sees "completed" (xai_narrative IS NOT NULL).
+    await release_analysis_lock(log_id)
 
     # Publish security event
     await publish_security_event(
