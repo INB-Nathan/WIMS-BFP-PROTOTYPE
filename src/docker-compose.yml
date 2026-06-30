@@ -2,15 +2,17 @@ networks:
   wims_internal:
     driver: bridge
     name: wims_internal
-    # Pen-test follow-up 2026-06-29: explicit subnet + static IP for redis so
-    # wims-suricata (network_mode: "host") can resolve the `redis` hostname
-    # via `extra_hosts` without depending on a dynamic bridge IP assignment.
-    # Subnet 172.18.0.0/16 matches the default Docker bridge range that the
-    # existing stack was already using on the live VPS, so the change is
-    # in-place (no IP renumbering for the other 10 services).
+    # Pen-test follow-up 2026-06-29: explicit subnet + static IPs for redis,
+    # postgres, keycloak, openbao, and ollama. These IPs are referenced by
+    # extra_hosts entries that bypass broken Docker DNS after wims_internal
+    # network recreation on the live VPS (see PR #485-#487).
+    # Keep dynamic allocations in 172.18.0.128/25 so short-lived/dynamic
+    # containers cannot claim the low static addresses during parallel Compose
+    # startup (observed as Docker 28 "Address already in use" in CI).
     ipam:
       config:
-        - subnet: 172.18.0.0/16
+        - subnet: 172.18.0.0/24
+          ip_range: 172.18.0.128/25
 
 services:
   # --- Infrastructure & Databases ---
@@ -26,7 +28,8 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./postgres-init:/docker-entrypoint-initdb.d:ro
     networks:
-      - wims_internal
+      wims_internal:
+        ipv4_address: 172.18.0.3
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d wims"]
       interval: 5s
@@ -116,7 +119,8 @@ services:
       WIMS_AUDIT_INGEST_URL: http://backend:8000/api/auth/keycloak-event
       WIMS_KEYCLOAK_EVENT_SECRET: ${WIMS_KEYCLOAK_EVENT_SECRET:-}
     networks:
-      - wims_internal
+      wims_internal:
+        ipv4_address: 172.18.0.7
     depends_on:
       postgres:
         condition: service_healthy
@@ -159,7 +163,8 @@ services:
     environment:
       BAO_SKIP_VERIFY: "true"
     networks:
-      - wims_internal
+      wims_internal:
+        ipv4_address: 172.18.0.8
     healthcheck:
       test: ["CMD-SHELL", "bao status -address=http://localhost:8200 -format=json >/tmp/hc.json 2>/dev/null && grep -q initialized.*true /tmp/hc.json && grep -q sealed.*false /tmp/hc.json"]
       interval: 5s
@@ -182,6 +187,8 @@ services:
       OPENBAO_TOKEN: ${OPENBAO_TOKEN:-}
       OPENBAO_UNSEAL_KEY: ${OPENBAO_UNSEAL_KEY:-}
       OPENBAO_DEV_ROOT_TOKEN: ${OPENBAO_DEV_ROOT_TOKEN:-devroot}
+    extra_hosts:
+      - "openbao:172.18.0.8"
     networks:
       - wims_internal
     depends_on:
@@ -195,7 +202,8 @@ services:
     volumes:
       - ollama_data:/root/.ollama
     networks:
-      - wims_internal
+      wims_internal:
+        ipv4_address: 172.18.0.4
     healthcheck:
       test: ["CMD", "ollama", "list"]
       interval: 10s
@@ -215,6 +223,8 @@ services:
     command: pull qwen2.5:3b
     environment:
       - OLLAMA_HOST=http://ollama:11434
+    extra_hosts:
+      - "ollama:172.18.0.4"
     networks:
       - wims_internal
     depends_on:
