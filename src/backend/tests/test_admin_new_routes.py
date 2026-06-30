@@ -1222,7 +1222,7 @@ class TestGetRelatedAudit:
         mock_db = MagicMock()
         mock_result = MagicMock()
         mock_result.fetchone.side_effect = [
-            (1, datetime(2026, 1, 15, 10, 0, 0, tzinfo=timezone.utc), '192.168.1.1'),
+            (1, datetime(2026, 1, 15, 10, 0, 0, tzinfo=timezone.utc), "192.168.1.1"),
         ]
         # fetchone returns (log_id, ts, source_ip); fetchall returns empty for both queries
         mock_result.fetchall.return_value = []
@@ -1267,7 +1267,11 @@ class TestGetRelatedAudit:
         mock_db = MagicMock()
         # Alert query result
         mock_alert_result = MagicMock()
-        mock_alert_result.fetchone.return_value = (1, datetime(2026, 1, 15, 10, 0, 0, tzinfo=timezone.utc), '192.168.1.1')
+        mock_alert_result.fetchone.return_value = (
+            1,
+            datetime(2026, 1, 15, 10, 0, 0, tzinfo=timezone.utc),
+            "192.168.1.1",
+        )
         # Audit query result
         mock_audit_result = MagicMock()
         mock_audit_result.fetchall.return_value = [
