@@ -1,4 +1,4 @@
-"""IDS-to-SLM AI Analysis via Ollama (qwen2.5:3b)."""
+"""IDS-to-SLM AI Analysis via Ollama (qwen2.5:1.5b)."""
 
 from __future__ import annotations
 
@@ -24,13 +24,13 @@ from utils.external_service import (
 from utils.metrics import AI_INFERENCE_DURATION
 
 logger = logging.getLogger("wims.ai_service")
-OLLAMA_MODEL = "qwen2.5:3b"
+OLLAMA_MODEL = "qwen2.5:1.5b"
 
 # ---------------------------------------------------------------------------
 # Ollama HTTP timeout (seconds). Override via OLLAMA_TIMEOUT env var.
-# Default 120s — Qwen2.5-3B on CPU-only takes 30-120s per inference.
+# Default 480s — Qwen2.5-3B on CPU-only takes up to 6+ min per inference.
 # ---------------------------------------------------------------------------
-_OLLAMA_DEFAULT_TIMEOUT = 120.0
+_OLLAMA_DEFAULT_TIMEOUT = 480.0
 # Retry: 3 attempts, exponential backoff 2s/4s/8s, only on ConnectError + 5xx.
 _OLLAMA_MAX_RETRIES = 3
 _OLLAMA_RETRY_BASE_DELAY = 2.0
@@ -174,6 +174,25 @@ async def analyze_threat_log(log_id: int, db: Session, request: Request | None =
     if row is None:
         raise HTTPException(status_code=404, detail="Security log not found")
 
+    # ── Return cached analysis if already done ────────────────────────────
+    existing_narrative = row[7]
+    existing_confidence = row[8]
+    if existing_narrative:
+        return {
+            "log_id": row[0],
+            "timestamp": row[1].isoformat() if row[1] else None,
+            "source_ip": row[2],
+            "destination_ip": row[3],
+            "suricata_sid": row[4],
+            "severity_level": row[5],
+            "raw_payload": row[6],
+            "xai_narrative": existing_narrative,
+            "xai_confidence": existing_confidence,
+            "admin_action_taken": row[9],
+            "resolved_at": row[10].isoformat() if row[10] else None,
+            "reviewed_by": str(row[11]) if row[11] else None,
+        }
+
     severity_level = row[5]
     raw_payload = row[6] or ""
     suricata_sid = row[4]
@@ -207,6 +226,11 @@ async def analyze_threat_log(log_id: int, db: Session, request: Request | None =
         "prompt": prompt,
         "stream": False,
         "format": "json",
+        "options": {
+            "num_ctx": 1024,
+            "num_predict": 512,
+            "num_thread": 8,
+        },
     }
 
     if request is not None and await request.is_disconnected():
@@ -363,6 +387,11 @@ async def analyze_audit_logs(audit_ids: list[int], db: Session) -> dict:
         "prompt": prompt,
         "stream": False,
         "format": "json",
+        "options": {
+            "num_ctx": 1024,
+            "num_predict": 512,
+            "num_thread": 8,
+        },
     }
 
     _t0 = time.perf_counter()
