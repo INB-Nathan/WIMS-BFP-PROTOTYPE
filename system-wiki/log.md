@@ -1,3 +1,18 @@
+## [2026-06-30] fix(ai,deploy): graceful JSON degradation, keycloak proxy-headers, deploy model check
+
+- **Scope:** 8-edit clean hot-fix on top of `801ad9f` (replacing contaminated PR #492).
+- **Files modified:** `src/backend/services/ai_service.py`, `src/docker-compose.yml`, `.gitignore`, `.github/workflows/deploy.yml`
+- **Changes:**
+  - Graceful JSON degradation in `analyze_threat_log` and `analyze_audit_logs` — instead of HTTP 502 on bad Ollama JSON, falls back to raw text (threat_log) or empty strings (audit_logs) with 0.5 confidence.
+  - Prompt softened from "Output strictly JSON" to "Provide a structured analysis as JSON".
+  - `confidence_breakdown` DB param uses `None` (SQL NULL) instead of `json.dumps(None)` (JSON `"null"`) on graceful fallback.
+  - Docstring fix: `num_predict` default 512 → 256.
+  - Keycloak `--proxy-headers xforwarded` CLI flag added (belt-and-suspenders with `KC_PROXY_HEADERS` env var).
+  - `.pi/sessions/` added to `.gitignore`.
+  - Deploy workflow model check: `qwen2.5:3b` → `qwen2.5:1.5b`.
+- **Validation:** 16/16 tests pass, ruff check + format clean, reviewer subagent audit passed with no issues.
+- **Edge case noted:** `xai_confidence_breakdown` in the `analyze_threat_log` return dict can now be `None` (JSON `null`) on graceful fallback, where it was previously always a `dict`. No current callers iterate it as a dict, but future callers should guard against `None`. Documented in `system-wiki/backend/services.md`.
+
 ## [2026-06-30] fix(ai): bound Ollama auto-analysis on CPU VPS
 
 - **Scope:** Production VPS diagnosis showed Ollama connectivity was healthy, but Celery auto-AI requests to `qwen2.5:3b` took 5-16 minutes on CPU and could return 500/time out.

@@ -281,6 +281,18 @@ Sends batched audit trail entries to Ollama for behavioral pattern analysis. Ret
 
 **Errors:** 404 (not found), 409 (non-VERIFIED for narratives), 400 (invalid/missing IDs), 502 (Ollama unavailable/timed out/invalid JSON)
 
+### Notable Edge Cases
+
+**Graceful JSON degradation (2026-06-30, commit 76ade25):**
+- `analyze_threat_log` and `analyze_audit_logs` no longer raise 502 when Ollama returns invalid/malformed JSON. Instead they fall back to raw text (threat_log) or empty strings (audit_logs) with 0.5 confidence.
+
+**`xai_confidence_breakdown` can be `None` on graceful fallback:**
+- When JSON parsing fails in `analyze_threat_log`, `confidence_breakdown` is set to `None` (Python) instead of `{}`.
+- This flows into the return dict as `"xai_confidence_breakdown": None`, which serializes to JSON `null`.
+- The frontend `normalizeNarrative` already handles `null`/missing breakdown gracefully.
+- **Risk for future callers:** Any code that iterates `result["xai_confidence_breakdown"]` as a dict (e.g. `for k, v in result.items()`) would crash on `None`. All current callers (API route, Celery task) are safe.
+- The DB write uses `CAST(:breakdown AS jsonb)` with `None` → SQL `NULL` — handled correctly.
+
 ---
 
 ## Suricata Ingestion
