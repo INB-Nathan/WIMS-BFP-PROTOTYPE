@@ -43,7 +43,7 @@ class TestOllamaTimeout:
     def test_default_timeout_when_no_env(self):
         from services.ai_service import _ollama_timeout
 
-        assert _ollama_timeout() == 120.0
+        assert _ollama_timeout() == 480.0
 
     def test_env_var_overrides_default(self, monkeypatch):
         monkeypatch.setenv("OLLAMA_TIMEOUT", "180")
@@ -55,7 +55,7 @@ class TestOllamaTimeout:
         monkeypatch.setenv("OLLAMA_TIMEOUT", "not-a-number")
         from services.ai_service import _ollama_timeout
 
-        assert _ollama_timeout() == 120.0
+        assert _ollama_timeout() == 480.0
 
 
 class TestOllamaPayload:
