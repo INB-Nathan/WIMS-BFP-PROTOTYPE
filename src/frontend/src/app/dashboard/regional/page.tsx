@@ -57,6 +57,8 @@ interface RegionalStatsPayload {
   families_affected?: number;
   individuals_affected?: number;
   vehicles_affected?: number;
+  my_total_incidents?: number;
+  my_by_category?: Array<{ category: string | null; count: number }>;
 }
 
 const getRegionalDateBounds = getDateBoundsUtil;
@@ -184,8 +186,24 @@ export default function RegionalDashboardPage() {
   const [specificDateDraft, setSpecificDateDraft] = useState(savedFilters.specificDate ?? '');
   const [statsDateFilter, setStatsDateFilter] = useState<StatsDateFilterValue>('week');
 
-  const [rejectionNoticeDismissed, setRejectionNoticeDismissed] = useState(false);
+  // View-mode toggle: personal vs region stats
+  const [statsViewMode, setStatsViewMode] = useState<'region' | 'mine'>(() => {
+    try {
+      const stored = sessionStorage.getItem('wims:regional_stats_view');
+      return stored === 'mine' ? 'mine' : 'region';
+    } catch { return 'region'; }
+  });
+
+  const toggleStatsView = useCallback(() => {
+    setStatsViewMode((prev) => {
+      const next = prev === 'region' ? 'mine' : 'region';
+      try { sessionStorage.setItem('wims:regional_stats_view', next); } catch {}
+      return next;
+    });
+  }, []);
+
   const [pendingActionedBanner, setPendingActionedBanner] = useState(false);
+  const [rejectionNoticeDismissed, setRejectionNoticeDismissed] = useState(false);
   const lastKnownPendingCountRef = useRef<number | null>(null);
   const [isArchiveView, setIsArchiveView] = useState(false);
   const [archiveError, setArchiveError] = useState<string | null>(null);
