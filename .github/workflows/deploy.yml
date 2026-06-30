@@ -188,6 +188,11 @@ jobs:
             export KEYCLOAK_ADMIN_CLIENT_SECRET="$KEYCLOAK_ADMIN_CLIENT_SECRET"
             export DEPLOY_COMMIT="$DEPLOY_COMMIT"
 
+            # Suricata entrypoint's chown -R can change bind-mount file ownership
+            # to a different UID, which blocks git operations (unable to unlink old
+            # tracked files). Restore ownership before git reset.
+            sudo chown -R wims:wims /opt/wims-bfp/src/suricata/rules /opt/wims-bfp/src/suricata/logs 2>/dev/null || true
+
             cd /opt/wims-bfp
             git fetch origin master
             git reset --hard

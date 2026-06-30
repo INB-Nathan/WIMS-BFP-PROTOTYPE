@@ -407,6 +407,13 @@ services:
     container_name: wims-suricata
     restart: unless-stopped
     network_mode: "host"
+    environment:
+      # Match the wims host user (UID 1000) so the entrypoint's chown -R
+      # on /etc/suricata, /var/lib/suricata, and /var/log/suricata doesn't
+      # change bind-mount ownership to an unmatched UID, which would block
+      # subsequent git operations (pull, reset) by the wims user.
+      - PUID=1000
+      - PGID=1000
     cap_add:
       - NET_ADMIN
       - NET_RAW
