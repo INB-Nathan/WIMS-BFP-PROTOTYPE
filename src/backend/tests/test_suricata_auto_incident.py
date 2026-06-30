@@ -191,8 +191,9 @@ class TestCreateSecurityIncident:
         mock_exists = MagicMock(return_value=False)
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tf:
+            # severity=2 → HIGH under the corrected Suricata priority mapping
             tf.write(
-                '{"event_type":"alert","src_ip":"10.0.0.1","dest_ip":"8.8.8.8","alert":{"signature_id":1,"severity":3}}\n'
+                '{"event_type":"alert","src_ip":"10.0.0.1","dest_ip":"8.8.8.8","alert":{"signature_id":1,"severity":2}}\n'
             )
             tf.flush()
             temp_path = tf.name
@@ -218,8 +219,9 @@ class TestCreateSecurityIncident:
         mock_exists = MagicMock(return_value=False)
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tf:
+            # severity=3 → MEDIUM under the corrected Suricata priority mapping (rollup-only)
             tf.write(
-                '{"event_type":"alert","src_ip":"10.0.0.1","dest_ip":"8.8.8.8","alert":{"signature_id":1,"severity":2}}\n'
+                '{"event_type":"alert","src_ip":"10.0.0.1","dest_ip":"8.8.8.8","alert":{"signature_id":1,"severity":3}}\n'
             )
             tf.flush()
             temp_path = tf.name

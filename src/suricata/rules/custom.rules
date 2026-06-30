@@ -23,9 +23,12 @@ alert http any any -> any any (msg:"WIMS BFP Region hopping heuristic"; flow:est
 alert http any any -> any any (msg:"WIMS BFP Public report spam"; flow:established,to_server; http.method; content:"POST"; http.uri; pcre:"/\/api\/(v1\/public\/report|civilian\/reports)/"; detection_filter:track by_src, count 5, seconds 3600; classtype:policy-violation; sid:1000024; rev:1;)
 
 # ===== Keycloak Brute Force Protection =====
-alert http $EXTERNAL_NET any -> $HOME_NET $HTTP_PORTS (msg:"WIMS Keycloak token brute-force"; flow:established,to_server; http.method; content:"POST"; http.uri; content:"/auth/realms/bfp/token"; nocase; detection_filter:track by_src, count 10, seconds 60; classtype:attempted-recon; sid:1000100; rev:1;)
-alert http $EXTERNAL_NET any -> $HOME_NET $HTTP_PORTS (msg:"WIMS Keycloak login-actions brute-force"; flow:established,to_server; http.method; content:"POST"; http.uri; content:"/auth/realms/bfp/login-actions/authenticate"; nocase; detection_filter:track by_src, count 10, seconds 60; classtype:attempted-recon; sid:1000101; rev:1;)
-alert http $EXTERNAL_NET any -> $HOME_NET $HTTP_PORTS (msg:"WIMS Keycloak admin console brute-force"; flow:established,to_server; http.uri; content:"/auth/admin/"; nocase; detection_filter:track by_src, count 5, seconds 60; classtype:attempted-recon; sid:1000102; rev:1;)
+# G-4 fix: changed $HTTP_PORTS -> any so rules fire on the Docker bridge (port 8080)
+# as well as the public port 80. Keycloak listens on 8080 internally; after G-4 adds
+# docker0 capture, Suricata sees this cleartext traffic and needs port-agnostic matching.
+alert http $EXTERNAL_NET any -> $HOME_NET any (msg:"WIMS Keycloak token brute-force"; flow:established,to_server; http.method; content:"POST"; http.uri; content:"/auth/realms/bfp/token"; nocase; detection_filter:track by_src, count 10, seconds 60; classtype:attempted-recon; sid:1000100; rev:2;)
+alert http $EXTERNAL_NET any -> $HOME_NET any (msg:"WIMS Keycloak login-actions brute-force"; flow:established,to_server; http.method; content:"POST"; http.uri; content:"/auth/realms/bfp/login-actions/authenticate"; nocase; detection_filter:track by_src, count 10, seconds 60; classtype:attempted-recon; sid:1000101; rev:2;)
+alert http $EXTERNAL_NET any -> $HOME_NET any (msg:"WIMS Keycloak admin console brute-force"; flow:established,to_server; http.uri; content:"/auth/admin/"; nocase; detection_filter:track by_src, count 5, seconds 60; classtype:attempted-recon; sid:1000102; rev:2;)
 
 # ===== OWASP A03 SQLi — POST body (SID 1000103-1000107) =====
 alert http any any -> any any (msg:"WIMS OWASP A03 SQLi body OR boolean"; flow:established,to_server; http.request_body; pcre:"/(\s|%20|%09|%0a|%0d|\+|'|%27)(%4f|%6f|O|o)(%52|%72|R|r)(\s|%20|%09|%0a|%0d|\+)/i"; classtype:web-application-attack; sid:1000103; rev:1;)
@@ -83,5 +86,19 @@ alert http any any -> any any (msg:"WIMS OWASP A01 open redirect protocol-relati
 alert http any any -> any any (msg:"WIMS OWASP A01 open redirect external URL"; flow:established,to_server; http.uri; pcre:"/(next|url|return|callback|continue|dest|destination|go|out)=(https?%3a|https?:\/\/)/i"; detection_filter:track by_src, count 5, seconds 60; classtype:web-application-attack; sid:1000132; rev:2;)
 
 # ===== CRLF Injection / Response Splitting Detection (SID 1000133-1000134) =====
-alert http any any -> any any (msg:"WIMS OWASP A03 CRLF injection URI"; flow:established,to_server; http.uri; pcre:"/(%0d%0a|%0a%0d)(Set-Cookie|Location|Content-Type|HTTP\/)/i"; classtype:web-application-attack; sid:1000133; rev:2;)
+alert http any any -> any any (msg:"WIMS OWASP A03 CRLF injection URI"; flow:established,to_server; http.raw_uri; pcre:"/(%0d%0a|%0a%0d)(Set-Cookie|Location|Content-Type|HTTP\/)/i"; classtype:web-application-attack; sid:1000133; rev:3;)
 alert http any any -> any any (msg:"WIMS OWASP A03 CRLF injection body header injection"; flow:established,to_server; http.request_body; pcre:"/(%0d%0a|%0a%0d)(Set-Cookie|Location|Content-Type|HTTP\/)/i"; classtype:web-application-attack; sid:1000134; rev:1;)
+
+# ===== TD-02: Credential Spray (SID 1000135) =====
+# Fires when a single source hits the token endpoint ≥5 times in 30s.
+# Cannot distinguish single-account brute force from multi-account spray at
+# the packet level — both produce rapid POST bursts to the same URI.
+# Complements the per-account lockout enforced by Keycloak.
+alert http $EXTERNAL_NET any -> $HOME_NET any (msg:"WIMS Keycloak credential spray multi-account"; flow:established,to_server; http.method; content:"POST"; http.uri; content:"/auth/realms/bfp/protocol/openid-connect/token"; nocase; detection_filter:track by_src, count 5, seconds 30; classtype:attempted-recon; sid:1000135; rev:2;)
+
+# ===== TD-13: Disallowed File Upload (SID 1000136-1000137) =====
+# Detects PHP file uploads via multipart filename field or embedded PHP tags
+# in the request body. Targets POST requests to any endpoint (file upload is
+# not restricted to a single URI in the WIMS API).
+alert http any any -> any any (msg:"WIMS disallowed PHP filename in upload"; flow:established,to_server; http.method; content:"POST"; http.request_body; content:"filename="; nocase; content:".php"; nocase; distance:0; within:50; classtype:web-application-attack; sid:1000136; rev:1;)
+alert http any any -> any any (msg:"WIMS PHP code in upload body"; flow:established,to_server; http.method; content:"POST"; http.request_body; content:"<?php"; nocase; classtype:web-application-attack; sid:1000137; rev:1;)

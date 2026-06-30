@@ -2,6 +2,17 @@ networks:
   wims_internal:
     driver: bridge
     name: wims_internal
+    # Pen-test follow-up 2026-06-29: explicit subnet + static IPs for redis,
+    # postgres, keycloak, openbao, and ollama. These IPs are referenced by
+    # extra_hosts entries that bypass broken Docker DNS after wims_internal
+    # network recreation on the live VPS (see PR #485-#487).
+    # Keep dynamic allocations in 172.18.0.128/25 so short-lived/dynamic
+    # containers cannot claim the low static addresses during parallel Compose
+    # startup (observed as Docker 28 "Address already in use" in CI).
+    ipam:
+      config:
+        - subnet: 172.18.0.0/24
+          ip_range: 172.18.0.128/25
 
 services:
   # --- Infrastructure & Databases ---
@@ -17,7 +28,8 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./postgres-init:/docker-entrypoint-initdb.d:ro
     networks:
-      - wims_internal
+      wims_internal:
+        ipv4_address: 172.18.0.3
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d wims"]
       interval: 5s
@@ -31,8 +43,12 @@ services:
     image: redis:7.2-alpine
     container_name: wims-redis
     command: ["redis-server", "--maxmemory", "512mb", "--maxmemory-policy", "allkeys-lru"]
+    # Pen-test follow-up 2026-06-29: pin redis to 172.18.0.5 (the IP the live
+    # VPS was already using dynamically) so the wims-suricata `extra_hosts`
+    # mapping below stays valid across `docker compose down && up` cycles.
     networks:
-      - wims_internal
+      wims_internal:
+        ipv4_address: 172.18.0.5
     restart: always
     ports:
       - "127.0.0.1:6379:6379"
@@ -57,6 +73,17 @@ services:
     image: wims-keycloak-demo-otp:local
     container_name: wims-keycloak
     command: start-dev --import-realm
+    # Pen-test follow-up 2026-06-29 (deploy fix): the `ipam.config.subnet`
+    # added in PR #485 causes the wims_internal network to be recreated on
+    # deploy. After recreation, the Docker embedded DNS does NOT consistently
+    # resolve `postgres` from this keycloak container (verified on the live
+    # VPS — `getent hosts postgres` returns empty even after a fresh
+    # container recreate, while TCP to the static IP works). Inject the
+    # mapping directly into /etc/hosts to bypass the broken DNS. Same fix
+    # pattern as the wims-suricata `extra_hosts` in PR #485.
+    extra_hosts:
+      - "postgres:172.18.0.3"
+      - "redis:172.18.0.5"
     volumes:
       - ./keycloak/import:/opt/keycloak/data/import:ro
       - ./keycloak/themes/wims-bfp:/opt/keycloak/themes/wims-bfp:ro
@@ -92,7 +119,8 @@ services:
       WIMS_AUDIT_INGEST_URL: http://backend:8000/api/auth/keycloak-event
       WIMS_KEYCLOAK_EVENT_SECRET: ${WIMS_KEYCLOAK_EVENT_SECRET:-}
     networks:
-      - wims_internal
+      wims_internal:
+        ipv4_address: 172.18.0.7
     depends_on:
       postgres:
         condition: service_healthy
@@ -135,7 +163,8 @@ services:
     environment:
       BAO_SKIP_VERIFY: "true"
     networks:
-      - wims_internal
+      wims_internal:
+        ipv4_address: 172.18.0.8
     healthcheck:
       test: ["CMD-SHELL", "bao status -address=http://localhost:8200 -format=json >/tmp/hc.json 2>/dev/null && grep -q initialized.*true /tmp/hc.json && grep -q sealed.*false /tmp/hc.json"]
       interval: 5s
@@ -158,6 +187,8 @@ services:
       OPENBAO_TOKEN: ${OPENBAO_TOKEN:-}
       OPENBAO_UNSEAL_KEY: ${OPENBAO_UNSEAL_KEY:-}
       OPENBAO_DEV_ROOT_TOKEN: ${OPENBAO_DEV_ROOT_TOKEN:-devroot}
+    extra_hosts:
+      - "openbao:172.18.0.8"
     networks:
       - wims_internal
     depends_on:
@@ -170,8 +201,12 @@ services:
     container_name: wims-ollama
     volumes:
       - ollama_data:/root/.ollama
+    environment:
+      OLLAMA_NUM_PARALLEL: "1"
+      OLLAMA_MAX_LOADED_MODELS: "1"
     networks:
-      - wims_internal
+      wims_internal:
+        ipv4_address: 172.18.0.4
     healthcheck:
       test: ["CMD", "ollama", "list"]
       interval: 10s
@@ -191,6 +226,8 @@ services:
     command: pull qwen2.5:3b
     environment:
       - OLLAMA_HOST=http://ollama:11434
+    extra_hosts:
+      - "ollama:172.18.0.4"
     networks:
       - wims_internal
     depends_on:
@@ -202,6 +239,15 @@ services:
   backend:
     build: ./backend
     container_name: wims-backend
+    # Pen-test follow-up 2026-06-29 (deploy fix): see keycloak comment above
+    # for rationale. Same Docker DNS unreliability after wims_internal
+    # network recreation. Inject the 4 hostnames the backend connects to
+    # (postgres, redis, keycloak, ollama) into /etc/hosts.
+    extra_hosts:
+      - "postgres:172.18.0.3"
+      - "redis:172.18.0.5"
+      - "keycloak:172.18.0.7"
+      - "ollama:172.18.0.4"
     environment:
       - DATABASE_URL=postgresql://wims_app_user:wimsapp@postgres:5432/wims
       - DATABASE_ADMIN_URL=postgresql://postgres:${POSTGRES_PASSWORD:?error}@postgres:5432/wims
@@ -227,6 +273,7 @@ services:
       - WIMS_CRYPTO_PROVIDER=${WIMS_CRYPTO_PROVIDER:-env_aesgcm}
       # WS-B (RP-08/RP-18): shared secret for Keycloak → WIMS audit event push
       - WIMS_KEYCLOAK_EVENT_SECRET=${WIMS_KEYCLOAK_EVENT_SECRET:-}
+      - OLLAMA_NUM_PREDICT=${OLLAMA_NUM_PREDICT:-256}
     volumes:
       - incident_attachments_data:/app/storage
       - ./suricata/logs:/var/log/suricata:ro
@@ -255,6 +302,13 @@ services:
     build: ./backend
     container_name: wims-celery-worker
     command: celery -A main.celery_app worker --beat --loglevel=info
+    # Pen-test follow-up 2026-06-29 (deploy fix): see keycloak comment above
+    # for rationale. Same set of hostnames as the backend.
+    extra_hosts:
+      - "postgres:172.18.0.3"
+      - "redis:172.18.0.5"
+      - "keycloak:172.18.0.7"
+      - "ollama:172.18.0.4"
     environment:
       - DATABASE_URL=postgresql://wims_app_user:wimsapp@postgres:5432/wims
       - REDIS_URL=redis://redis:6379/0
@@ -277,12 +331,18 @@ services:
       - OPENBAO_TOKEN_FILE=/openbao-creds/.wims-app-token
       - OPENBAO_TRANSIT_MOUNT=${OPENBAO_TRANSIT_MOUNT:-transit}
       - WIMS_CRYPTO_PROVIDER=${WIMS_CRYPTO_PROVIDER:-env_aesgcm}
+      - OLLAMA_NUM_PREDICT=${OLLAMA_NUM_PREDICT:-256}
+      # MaxMind GeoLite2-City for IMPOSSIBLE_TRAVEL anomaly detector.
+      # Download GeoLite2-City.mmdb from maxmind.com and place it in ./geoip/.
+      # Detector silently skips if the file is absent.
+      - GEOIP_DB_PATH=/app/geoip/GeoLite2-City.mmdb
     volumes:
       - ./suricata/logs:/var/log/suricata:ro
       - ./postgres-init:/postgres-init:ro
       - incident_attachments_data:/app/storage
       - openbao_data:/openbao-creds:ro
       - ./firebase-creds.json:/app/firebase-creds.json:ro
+      - ./geoip:/app/geoip:ro
       # SECURITY NOTE: Docker socket mount is required for live Suricata rule
       # reload (suricata-update + kill -USR2). Without the socket, the Celery
       # worker cannot exec into the wims-suricata container to trigger a
@@ -350,7 +410,16 @@ services:
     cap_add:
       - NET_ADMIN
       - NET_RAW
+      - SYS_NICE       # needed for CPU affinity on multi-interface AF_PACKET capture (G-4)
     command: --af-packet=${SURICATA_INTERFACE:-eth0} --runmode workers
+    # Pen-test follow-up 2026-06-29: wims-suricata uses network_mode: "host"
+    # for AF_PACKET raw-socket capture, so it does NOT participate in the
+    # wims_internal bridge network and Docker DNS cannot resolve `redis` for
+    # it. `extra_hosts` injects the mapping into the container's /etc/hosts
+    # (separate from the host's /etc/hosts even with host networking). The
+    # 172.18.0.5 IP is pinned by the redis service's `ipv4_address` above.
+    extra_hosts:
+      - "redis:172.18.0.5"
     volumes:
       - ./suricata/logs:/var/log/suricata
       - ./suricata/rules:/var/lib/suricata/rules

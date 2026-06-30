@@ -1,3 +1,53 @@
+## [2026-06-30] fix(ai): bound Ollama auto-analysis on CPU VPS
+
+- **Scope:** Production VPS diagnosis showed Ollama connectivity was healthy, but Celery auto-AI requests to `qwen2.5:3b` took 5-16 minutes on CPU and could return 500/time out.
+- **Files modified:**
+  - `src/postgres-init/75_security_log_rollups.sql` — seed `auto_ai_analysis_enabled=false` so background HIGH/CRITICAL alert analysis is opt-in/manual by default. The deploy migration loop replays this idempotent seed.
+  - `src/backend/services/ai_service.py` — centralize Ollama payload construction and add `options.num_predict` default cap of 256, overrideable by `OLLAMA_NUM_PREDICT`.
+  - `src/docker-compose.yml` — set `OLLAMA_NUM_PARALLEL=1` and `OLLAMA_MAX_LOADED_MODELS=1` on Ollama; pass `OLLAMA_NUM_PREDICT` to backend and Celery.
+  - `src/backend/tests/test_ai_service_retry.py` and `src/backend/tests/test_auto_ai_defaults.py` — regression coverage for bounded generation, compose concurrency env, and auto-AI default-off seed.
+  - `system-wiki/backend/services.md` — document timeout, generation cap, concurrency guard, and auto-AI default.
+- **Behavior:** Manual XAI analysis still works. Background `tasks.ai_forwarding.process_ai_queue` now remains opt-in by default, preventing automatic Suricata alert bursts from monopolizing the CPU-only Ollama service. JSON generation requests are bounded to reduce worst-case runtime.
+- **Validation:** Targeted backend tests and lint run from `src/backend` before PR.
+
+## [2026-06-30] fix(ci): isolate Compose dynamic IPs from static host mappings
+
+- **Scope:** PR #487 CI follow-up. GitHub Actions Security Scan failed during `docker compose up -d --build` with Docker daemon `Address already in use` immediately after one-shot/dynamic services started and before the full stack reached nginx. The failure is consistent with dynamic Compose network allocations colliding with low static IPs that are only claimed when their containers start.
+- **Files modified:**
+  - `src/docker-compose.yml` — keep `wims_internal` on `172.18.0.0/24`, add `ipam.config.ip_range: 172.18.0.128/25` for dynamic containers, remove the unnecessary static IP from `celery-worker`, and remove the temporary `backend -> celery-worker` startup dependency.
+  - `src/backend/tests/test_suricata_redis_host_networking.py` — update the subnet contract to `/24` and add a regression test proving the dynamic `ip_range` does not overlap static service IPs.
+  - `src/nginx/nginx.conf`, `src/nginx/nginx.local.conf`, `src/nginx/nginx.ci.conf` — narrow `set_real_ip_from` from `172.18.0.0/16` to the configured `172.18.0.0/24` bridge subnet.
+  - `src/backend/tests/test_nginx_forwarded_headers.py` — pin the `/24` real-IP trust range so it stays aligned with Compose.
+  - `system-wiki/architecture/infrastructure-config.md`, `system-wiki/security/asvs-l2-state.json` — document the static-low/dynamic-high IPAM layout and nginx trusted proxy range.
+- **Behavior:** Static host mappings remain stable for redis/postgres/ollama/keycloak/openbao, while dynamic services (mailhog, bootstraps, model-pull, backend, celery, frontend, nginx) are allocated from `172.18.0.128/25`, avoiding Docker 28/Compose parallel-start address collisions in CI. Nginx's trusted proxy range now matches the `/24` bridge instead of trusting the broader `/16`.
+- **Validation:**
+  - `cd src/backend && pytest tests/test_suricata_redis_host_networking.py tests/test_nginx_forwarded_headers.py -q` — 26 passed.
+  - `cd src/backend && ruff check tests/test_suricata_redis_host_networking.py tests/test_nginx_forwarded_headers.py && ruff format --check tests/test_suricata_redis_host_networking.py tests/test_nginx_forwarded_headers.py` — clean.
+  - `cd src && docker compose -f docker-compose.yml -f docker-compose.ci.yml config --quiet` — valid.
+  - `/tmp/repro/no-iprange-race.yml` local Compose reproduction with low static IPs and no dynamic range split — reproduced Docker `Address already in use` during concurrent startup.
+  - `/tmp/repro/iprange-race.yml` local Compose reproduction with the same static-low/dynamic-high pattern — 12 alpine containers started concurrently without `Address already in use`, then were torn down.
+
+## [2026-06-29] fix(pen-test): Suricata redis host-networking follow-up
+
+- **Scope:** Follow-up to the 2026-06-29 pen-test fix (R2). PR #483 changed `suricata.yaml` from `redis-server: "127.0.0.1"` to `redis-server: "redis"`, but `wims-suricata` uses `network_mode: "host"` for AF_PACKET capture, so the `redis` hostname cannot be resolved via Docker DNS. The live VPS was relying on a hand-added `172.18.0.5 redis` entry in the host's `/etc/hosts` to make the pipeline work — not reproducible across fresh deploys.
+- **Files modified:**
+  - `src/docker-compose.yml` — three coordinated changes:
+    1. `networks.wims_internal` — add `ipam.config.subnet: 172.18.0.0/16` (so the static IP is in a valid range).
+    2. `services.redis` — pin to `172.18.0.5` via `networks.wims_internal.ipv4_address` (matches the live VPS's dynamic IP, so the change is in-place; no other service gets renumbered).
+    3. `services.wims-suricata` — add `extra_hosts: ["redis:172.18.0.5"]` so the hostname resolves inside the container even under `network_mode: "host"`.
+  - `src/suricata/suricata.yaml` — replace the PR #483 comment with a fuller explanation that references the `extra_hosts` dependency and the `network_mode: "host"` constraint.
+  - `src/backend/tests/test_suricata_redis_host_networking.py` — NEW: 9 contract tests pinning the structure (host networking, extra_hosts entry, static redis IP, IPAM subnet, in-subnet check, hostname vs IP in suricata.yaml, pen-test comment references extra_hosts + network_mode + date stamp).
+  - `system-wiki/architecture/infrastructure-config.md` — new "Suricata <-> Redis host networking" section documenting the constraint, the fix, why `127.0.0.1` would also work, and the contract test.
+- **Behavior:** After `docker compose up -d` on a fresh host, Suricata can resolve `redis` and alerts flow to `suricata:alerts` in Redis without requiring a host-level `/etc/hosts` entry. The static IP + IPAM subnet makes the `extra_hosts` mapping stable across `docker compose down && up` cycles.
+- **Validation:**
+  - `cd src/backend && pytest tests/test_suricata_redis_host_networking.py` — 9 passed.
+  - `pytest tests/test_security_log_rollups_rls.py tests/test_rls_init_contract.py` — 13 passed (no regression).
+  - `pytest tests/test_suricata_ingestion.py` — 18 passed (TestParseEveAlertLine, TestEveToThreatLogRow, TestEveClassifier); 2 pre-existing failures in TestIngestEveFile require a live Postgres (same gap as the 2026-06-29 pen-test fix).
+  - `ruff check` + `ruff format --check` on the new test — clean.
+  - `yaml.safe_load(src/docker-compose.yml)` + `yaml.safe_load(src/suricata/suricata.yaml)` — valid.
+- **Live VPS validation still required:** `cd /opt/wims-bfp/src && docker compose up -d` will recreate the wims_internal network with the new IPAM config and the redis container with the static IP. Because 172.18.0.5 was the existing dynamic IP, no service should be renumbered. After the recreate, remove the hand-added `/etc/hosts` entry (it's no longer needed) and restart wims-suricata: `docker compose restart wims-suricata`.
+- **Rollback:** Revert the three docker-compose changes and the suricata.yaml comment. The static IP is the only "destructive" change (it pins redis to one IP) — if the live VPS is already on 172.18.0.5 dynamically, the rollback is in-place. If somehow redis is on a different IP, the rollback could trigger IP renumbering for redis-dependent services.
+
 ## [2026-06-29] fix(pen-test): three logging pipeline gaps from 2026-06-29 review
 
 - **Scope:** Three independent root causes were preventing pen-test alerts from reaching the System Admin hub (`/admin/audit`, `/admin/monitoring`, `/admin/system`): (R1) Suricata file-tail ingestion blocked by RLS policy mismatch on `security_threat_log_rollups`; (R2) Suricata Redis output writing to loopback, never reaching the Redis container; (R3) Keycloak SPI audit events rejected with HTTP 422 (JSON decode error) due to Java `HttpClient` defaulting to HTTP/2 against uvicorn (HTTP/1.1-only).

@@ -238,9 +238,9 @@ def test_nginx_x_real_ip_uses_realip_remote_addr_on_all_blocks(config_path):
 @pytest.mark.parametrize("config_path", NGINX_CONFIGS, ids=lambda p: p.name)
 def test_nginx_set_real_ip_from_is_narrowed(config_path):
     """PR #446 P0-4: ``set_real_ip_from 172.16.0.0/12`` is 16x wider than
-    necessary. The trust range must be at most the actual Docker Compose
-    bridge subnet (default ``172.18.0.0/16``). 127.0.0.1 is still allowed
-    for local proxy chains.
+    necessary. The trust range must be at most the configured Docker Compose
+    bridge subnet (``172.18.0.0/24``). 127.0.0.1 is still allowed for local
+    proxy chains.
     """
     conf = config_path.read_text(encoding="utf-8")
     assert "172.16.0.0/12" not in conf, (
@@ -248,10 +248,14 @@ def test_nginx_set_real_ip_from_is_narrowed(config_path):
         f"than the actual Docker bridge subnet; this widens the XFF "
         f"trust range unnecessarily (PR #446 P0-4)"
     )
-    # Must declare at least one trusted proxy (the Docker bridge).
-    assert "set_real_ip_from" in conf, (
-        f"{config_path.name}: no set_real_ip_from directive; nginx will "
-        f"never rewrite $remote_addr from X-Forwarded-For"
+    # Must declare the configured Docker bridge and not a broader 172.18/16 range.
+    assert "172.18.0.0/16" not in conf, (
+        f"{config_path.name}: set_real_ip_from 172.18.0.0/16 is broader "
+        f"than the configured wims_internal bridge subnet"
+    )
+    assert "set_real_ip_from  172.18.0.0/24" in conf, (
+        f"{config_path.name}: missing set_real_ip_from 172.18.0.0/24 for "
+        f"the configured wims_internal bridge subnet"
     )
     # 127.0.0.1 is the local proxy chain (docker compose v2 sometimes
     # routes the gateway through the docker host loopback).

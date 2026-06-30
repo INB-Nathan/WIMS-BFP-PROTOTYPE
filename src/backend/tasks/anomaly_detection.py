@@ -48,6 +48,8 @@ import math
 import os
 from typing import Any
 
+import redis as _redis_lib
+
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -55,6 +57,9 @@ from celery_config import celery_app
 from database import SYSTEM_TASK_USER_ID, get_session
 
 logger = logging.getLogger(__name__)
+
+_AI_QUEUE_KEY = "ai:queue"
+_AI_QUEUE_MAXLEN = 1000
 
 _PII_EXPORT_ACTION = "PII_EXPORT"
 _SUSPICIOUS_QUERY_THRESHOLD = 10
@@ -71,6 +76,35 @@ _PASSWORD_RESET_WINDOW_MINUTES = 15
 # recent events are processed first when the bound is reached.
 # ---------------------------------------------------------------------------
 _MAX_AUDIT_ROWS = 10_000
+
+# ---------------------------------------------------------------------------
+# AI-queue helper
+# ---------------------------------------------------------------------------
+
+
+def _push_ai_queue_anomaly(log_id: int, severity: str) -> None:
+    """Fire-and-forget push to ai:queue for anomaly-sourced security_threat_logs rows.
+
+    Mirrors suricata_ingestion._push_ai_queue(). Only called when a NEW anomaly
+    row is inserted (dedup guard already passed). Skips MEDIUM/LOW severities to
+    avoid overwhelming the Ollama narrative queue with low-signal events.
+    """
+    if severity not in ("HIGH", "CRITICAL"):
+        return
+    try:
+        r = _redis_lib.Redis.from_url(
+            os.environ.get("REDIS_URL", "redis://redis:6379/0"),
+            decode_responses=True,
+        )
+        r.xadd(
+            _AI_QUEUE_KEY,
+            {"log_id": str(log_id), "severity": severity},
+            maxlen=_AI_QUEUE_MAXLEN,
+        )
+        r.close()
+    except Exception as exc:
+        logger.warning("Failed to push anomaly log_id=%s to ai:queue: %s", log_id, exc)
+
 
 # ---------------------------------------------------------------------------
 # Detector helpers
@@ -601,6 +635,47 @@ def _detect_impossible_travel(db: Session) -> list[dict[str, Any]]:
     return results
 
 
+def _detect_idor_probing(db: Session) -> list[dict[str, Any]]:
+    """Detect cross-region IDOR probing: >3 IDOR_PROBE events per user in 10 min.
+
+    Triggered when an encoder repeatedly requests incident IDs that belong to
+    another region or encoder. The IDOR_PROBE audit rows are written by
+    get_regional_incident_detail() in regional/encoder.py.
+    """
+    rows = db.execute(
+        text("""
+            SELECT user_id,
+                   date_trunc('minute', timestamp)
+                       - (EXTRACT(MINUTE FROM timestamp)::int % 10) * interval '1 minute'
+                       AS window_start,
+                   COUNT(*) AS cnt,
+                   (ARRAY_AGG(DISTINCT ip_address))[1] AS source_ip
+            FROM wims.system_audit_trails
+            WHERE action_type = 'IDOR_PROBE'
+              AND timestamp >= now() - interval '10 minutes'
+              AND user_id IS NOT NULL
+            GROUP BY user_id, window_start
+            HAVING COUNT(*) > 3
+        """)
+    ).fetchall()
+
+    results = []
+    for row in rows:
+        user_id, window_start, cnt, source_ip = row
+        window_key = window_start.strftime("%Y%m%d%H%M") if window_start else "unknown"
+        results.append(
+            {
+                "anomaly_type": "IDOR_PROBE",
+                "subject_user_id": str(user_id),
+                "severity": "HIGH",
+                "details": {"count": int(cnt), "window_start": str(window_start)},
+                "dedup_key": f"IDOR_PROBE:{user_id}:{window_key}",
+                "source_ip": source_ip,
+            }
+        )
+    return results
+
+
 # ---------------------------------------------------------------------------
 # Dual-write helper
 # ---------------------------------------------------------------------------
@@ -648,11 +723,12 @@ def _write_anomaly(
         return False  # dedup hit — already recorded
 
     threat_payload = json.dumps({**details, "anomaly_type": anomaly_type})
-    db.execute(
+    result = db.execute(
         text("""
             INSERT INTO wims.security_threat_logs
                 (severity_level, raw_payload, source_ip)
             VALUES (:severity, :payload, :source_ip)
+            RETURNING log_id
         """),
         {
             "severity": severity,
@@ -660,6 +736,9 @@ def _write_anomaly(
             "source_ip": source_ip,
         },
     )
+    log_id = result.scalar()
+    if log_id is not None:
+        _push_ai_queue_anomaly(log_id, severity)
     return True
 
 
@@ -675,6 +754,7 @@ _DETECTORS = [
     _detect_suspicious_query_pattern,
     _detect_impossible_travel,
     _detect_password_reset_abuse,
+    _detect_idor_probing,
 ]
 
 
