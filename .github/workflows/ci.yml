@@ -75,6 +75,20 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Pre-pull service images with retry
+        run: |
+          for image in "postgis/postgis:15-3.4-alpine"; do
+            echo "Pulling $image..."
+            for attempt in 1 2 3 4 5; do
+              if docker pull "$image" 2>&1; then
+                echo "$image pulled successfully"
+                break
+              fi
+              echo "Pull failed (attempt $attempt/5), sleeping $((attempt * 10))s..."
+              sleep $((attempt * 10))
+            done
+          done
+
       - name: Wait for PostgreSQL
         run: |
           for i in $(seq 1 30); do
@@ -181,6 +195,20 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Pre-pull service images with retry
+        run: |
+          for image in "postgis/postgis:15-3.4-alpine" "redis:7-alpine"; do
+            echo "Pulling $image..."
+            for attempt in 1 2 3 4 5; do
+              if docker pull "$image" 2>&1; then
+                echo "$image pulled successfully"
+                break
+              fi
+              echo "Pull failed (attempt $attempt/5), sleeping $((attempt * 10))s..."
+              sleep $((attempt * 10))
+            done
+          done
 
       - name: Setup Python ${{ env.PYTHON_VERSION }}
         uses: actions/setup-python@v5

@@ -57,6 +57,8 @@ interface RegionalStatsPayload {
   families_affected?: number;
   individuals_affected?: number;
   vehicles_affected?: number;
+  my_total_incidents?: number;
+  my_by_category?: Array<{ category: string | null; count: number }>;
 }
 
 const getRegionalDateBounds = getDateBoundsUtil;
@@ -184,8 +186,24 @@ export default function RegionalDashboardPage() {
   const [specificDateDraft, setSpecificDateDraft] = useState(savedFilters.specificDate ?? '');
   const [statsDateFilter, setStatsDateFilter] = useState<StatsDateFilterValue>('week');
 
-  const [rejectionNoticeDismissed, setRejectionNoticeDismissed] = useState(false);
+  // View-mode toggle: personal vs region stats
+  const [statsViewMode, setStatsViewMode] = useState<'region' | 'mine'>(() => {
+    try {
+      const stored = sessionStorage.getItem('wims:regional_stats_view');
+      return stored === 'mine' ? 'mine' : 'region';
+    } catch { return 'region'; }
+  });
+
+  const toggleStatsView = useCallback(() => {
+    setStatsViewMode((prev) => {
+      const next = prev === 'region' ? 'mine' : 'region';
+      try { sessionStorage.setItem('wims:regional_stats_view', next); } catch {}
+      return next;
+    });
+  }, []);
+
   const [pendingActionedBanner, setPendingActionedBanner] = useState(false);
+  const [rejectionNoticeDismissed, setRejectionNoticeDismissed] = useState(false);
   const lastKnownPendingCountRef = useRef<number | null>(null);
   const [isArchiveView, setIsArchiveView] = useState(false);
   const [archiveError, setArchiveError] = useState<string | null>(null);
@@ -362,6 +380,29 @@ export default function RegionalDashboardPage() {
     }
   };
 
+  // Pick the right data source based on view mode
+  const activeByCategory = statsViewMode === 'mine'
+    ? stats?.my_by_category
+    : stats?.by_category;
+
+  const activeTotal = statsViewMode === 'mine'
+    ? stats?.my_total_incidents
+    : stats?.total_incidents;
+
+  // categoryCount with active by_category (must be before early returns
+  // to satisfy React hooks call-order rules)
+  const activeCategoryCount = useCallback(
+    (aliases: Array<string | null>) => {
+      const aliasSet = new Set(aliases.map((a) => a?.toUpperCase()));
+      const total = activeByCategory?.reduce(
+        (sum, c) => (c.category && aliasSet.has(c.category.toUpperCase()) ? sum + c.count : sum),
+        0,
+      );
+      return (total ?? 0).toLocaleString();
+    },
+    [activeByCategory],
+  );
+
   // Show ghost panels while auth is loading — keeps layout stable
   // and avoids a jarring flash from "Loading Dashboard…" to full UI.
   if (!canAccessRegional && !loading) {
@@ -514,6 +555,7 @@ export default function RegionalDashboardPage() {
       location_display: [province, city].filter(Boolean).join(' - ') || street,
     };
   };
+
 
   const incidentCards = [
     {
