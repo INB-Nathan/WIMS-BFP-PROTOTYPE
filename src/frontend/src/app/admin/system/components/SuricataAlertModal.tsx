@@ -8,7 +8,7 @@ import {
   createIncidentFromAlert,
   fetchRelatedAuditLogs,
 } from '@/lib/api/admin';
-import type { RelatedAuditItem } from '@/lib/api/legacy';
+import type { RelatedAlertItem, RelatedAuditItem } from '@/lib/api/legacy';
 
 // ---------------------------------------------------------------------------
 // Interfaces
@@ -233,7 +233,6 @@ export function SuricataAlertModal({ log, onClose, onDecisionComplete }: Suricat
     'idle' | 'fetching' | 'analyzing' | 'normalizing' | 'complete' | 'error'
   >('idle');
   const [analysisElapsed, setAnalysisElapsed] = useState(0);
-  const analysisStartRef = useRef<number | null>(null);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
 
   // ── Decision / HITL state ────────────────────────────────────────────
@@ -248,6 +247,7 @@ export function SuricataAlertModal({ log, onClose, onDecisionComplete }: Suricat
 
   // ── Evidence state ───────────────────────────────────────────────────
   const [relatedEvidence, setRelatedEvidence] = useState<RelatedAuditItem[] | null>(null);
+  const [relatedAlerts, setRelatedAlerts] = useState<RelatedAlertItem[] | null>(null);
   const [isLoadingEvidence, setIsLoadingEvidence] = useState(false);
   const [relatedEvidenceCount, setRelatedEvidenceCount] = useState<number | null>(null);
   const [relatedEvidenceError, setRelatedEvidenceError] = useState<string | null>(null);
@@ -291,34 +291,29 @@ export function SuricataAlertModal({ log, onClose, onDecisionComplete }: Suricat
     setAnalysisElapsed(0);
     setAnalysisError(null);
     setRelatedEvidence(null);
+    setRelatedAlerts(null);
     setRelatedEvidenceError(null);
     setHitlMessage(null);
     setCreateIncidentResult(null);
   }, [log.log_id]);
 
-  // Stepper timer — tracks total elapsed since analysis first started, not per-stage
+  // Stepper timer
   useEffect(() => {
     if (
       analysisState === 'fetching' ||
       analysisState === 'analyzing' ||
       analysisState === 'normalizing'
     ) {
-      // Initialize the start ref on first entry into a running state
-      // (subsequent stage transitions keep the original start)
-      if (analysisStartRef.current === null) {
-        analysisStartRef.current = Date.now();
-      }
+      setAnalysisElapsed(0);
+      const start = Date.now();
       const interval = setInterval(() => {
-        setAnalysisElapsed((Date.now() - analysisStartRef.current!) / 1000);
+        setAnalysisElapsed((Date.now() - start) / 1000);
       }, 200);
       return () => clearInterval(interval);
     }
     if (analysisState === 'error' || analysisState === 'idle') {
       setAnalysisElapsed(0);
-      analysisStartRef.current = null;
     }
-    // 'complete' — interval is already cleared; elapsed stays frozen at final value.
-    // Ref is reset when log changes or user retries (via 'idle'/'error' branch above).
   }, [analysisState]);
 
   // Related evidence eager fetch on mount
@@ -329,11 +324,13 @@ export function SuricataAlertModal({ log, onClose, onDecisionComplete }: Suricat
         const data = await fetchRelatedAuditLogs(log.log_id);
         if (!cancelled) {
           setRelatedEvidence(data.items);
-          setRelatedEvidenceCount(data.items.length);
+          setRelatedAlerts(data.related_alerts);
+          setRelatedEvidenceCount(data.items.length + data.related_alerts.length);
         }
       } catch {
         if (!cancelled) {
           setRelatedEvidence(null);
+          setRelatedAlerts(null);
           setRelatedEvidenceCount(null);
         }
       }
@@ -463,7 +460,8 @@ export function SuricataAlertModal({ log, onClose, onDecisionComplete }: Suricat
     try {
       const data = await fetchRelatedAuditLogs(log.log_id);
       setRelatedEvidence(data.items);
-      setRelatedEvidenceCount(data.items.length);
+      setRelatedAlerts(data.related_alerts);
+      setRelatedEvidenceCount(data.items.length + data.related_alerts.length);
       setActiveTab('evidence');
     } catch (e: unknown) {
       setRelatedEvidenceError(
@@ -1255,55 +1253,97 @@ export function SuricataAlertModal({ log, onClose, onDecisionComplete }: Suricat
   // ── Evidence Tab ─────────────────────────────────────────────────────
 
   const renderEvidenceTab = () => (
-    <div>
-      <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">
-        Related Audit Evidence
-      </h4>
-      {isLoadingEvidence && (
-        <p className="text-sm text-gray-500 italic">Loading related evidence\u2026</p>
-      )}
-      {relatedEvidenceError && (
-        <p className="text-sm text-red-600">{relatedEvidenceError}</p>
-      )}
-      {!isLoadingEvidence && !relatedEvidenceError && relatedEvidence && relatedEvidence.length === 0 && (
-        <p className="text-sm text-gray-500">
-          No related audit records found in the &plusmn;1 hour window.
-        </p>
-      )}
-      {relatedEvidence && relatedEvidence.length > 0 && (
-        <div className="max-h-80 overflow-y-auto space-y-2">
-          {relatedEvidence.map((item) => (
-            <div
-              key={item.audit_id}
-              className="text-xs p-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-100 dark:border-gray-700"
-            >
-              <div className="flex justify-between items-center">
-                <span className="font-semibold text-blue-700 dark:text-blue-300">
-                  {item.action_type ?? '\u2014'}
-                </span>
-                <span className="text-gray-400">
-                  {item.timestamp
-                    ? new Date(item.timestamp).toLocaleString()
-                    : '\u2014'}
+    <div className="space-y-6">
+      {/* Same-Source-IP Alerts */}
+      {relatedAlerts && relatedAlerts.length > 0 && (
+        <div>
+          <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5">
+              <circle cx="12" cy="12" r="10" />
+              <path d="M12 8v4M12 16h.01" />
+            </svg>
+            Same Source IP Alerts
+            <span className="font-normal text-[10px] text-gray-400">
+              ({relatedAlerts.length})
+            </span>
+          </h4>
+          <div className="max-h-48 overflow-y-auto space-y-1.5">
+            {relatedAlerts.map((alert) => (
+              <div
+                key={alert.log_id}
+                className="text-xs p-2.5 bg-white dark:bg-gray-800 rounded-lg border border-gray-100 dark:border-gray-700 flex items-center gap-3"
+              >
+                {severityBadge(alert.severity_level)}
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-gray-800 dark:text-gray-200 truncate">
+                    {alert.suricata_signature || `SID ${alert.suricata_sid ?? '?'}`}
+                  </p>
+                  <p className="text-gray-400 text-[10px]">
+                    {alert.classification ? `${alert.classification} \u00b7 ` : ''}
+                    {alert.timestamp
+                      ? new Date(alert.timestamp).toLocaleString()
+                      : ''}
+                  </p>
+                </div>
+                <span className="font-mono text-[10px] text-gray-500 shrink-0">
+                  #{alert.log_id}
                 </span>
               </div>
-              <div className="text-gray-500 mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
-                {item.ip_address && (
-                  <span className="font-mono">{item.ip_address}</span>
-                )}
-                {item.user_agent && (
-                  <span className="truncate block max-w-full">
-                    {item.user_agent.substring(0, 80)}
-                  </span>
-                )}
-              </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       )}
+
+      {/* Audit Evidence */}
+      <div>
+        <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">
+          Related Audit Evidence
+        </h4>
+        {isLoadingEvidence && (
+          <p className="text-sm text-gray-500 italic">Loading related evidence\u2026</p>
+        )}
+        {relatedEvidenceError && (
+          <p className="text-sm text-red-600">{relatedEvidenceError}</p>
+        )}
+        {!isLoadingEvidence && !relatedEvidenceError && relatedEvidence && relatedEvidence.length === 0 && !relatedAlerts?.length && (
+          <p className="text-sm text-gray-500">
+            No related audit records found in the &plusmn;1 hour window.
+          </p>
+        )}
+        {relatedEvidence && relatedEvidence.length > 0 && (
+          <div className="max-h-64 overflow-y-auto space-y-2">
+            {relatedEvidence.map((item) => (
+              <div
+                key={item.audit_id}
+                className="text-xs p-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-100 dark:border-gray-700"
+              >
+                <div className="flex justify-between items-center">
+                  <span className="font-semibold text-blue-700 dark:text-blue-300">
+                    {item.action_type ?? '\u2014'}
+                  </span>
+                  <span className="text-gray-400">
+                    {item.timestamp
+                      ? new Date(item.timestamp).toLocaleString()
+                      : '\u2014'}
+                  </span>
+                </div>
+                <div className="text-gray-500 mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
+                  {item.ip_address && (
+                    <span className="font-mono">{item.ip_address}</span>
+                  )}
+                  {item.user_agent && (
+                    <span className="truncate block max-w-full">
+                      {item.user_agent.substring(0, 80)}
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
-
   // ── History Tab ──────────────────────────────────────────────────────
 
   const renderHistoryTab = () => {

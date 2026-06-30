@@ -52,7 +52,7 @@ vi.mock('@/lib/api/admin', () => ({
     analyzeSecurityLog: (logId: number) => mockAnalyzeSecurityLog(logId),
     updateAdminSecurityLog: vi.fn(),
     createIncidentFromAlert: vi.fn(),
-    fetchRelatedAuditLogs: vi.fn().mockResolvedValue({ log_id: 0, items: [] }),
+    fetchRelatedAuditLogs: vi.fn().mockResolvedValue({ log_id: 0, items: [], related_alerts: [] }),
 }));
 
 vi.mock('@/lib/useNetworkStatus', () => ({

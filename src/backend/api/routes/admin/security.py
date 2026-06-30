@@ -837,16 +837,23 @@ def get_related_audit(
 
     Returns an empty list when no related audit rows exist; 404 if the alert
     itself is missing.
+
+    Also queries `security_threat_logs` for other alerts sharing the same
+    ``source_ip`` within the ±1 hour window, returned as ``related_alerts``.
     """
-    # Verify the alert exists first
+    # Verify the alert exists and grab source_ip for cross-referencing
     alert = db.execute(
-        text("SELECT log_id, timestamp FROM wims.security_threat_logs WHERE log_id = :log_id"),
+        text(
+            "SELECT log_id, timestamp, source_ip "
+            "FROM wims.security_threat_logs WHERE log_id = :log_id"
+        ),
         {"log_id": log_id},
     ).fetchone()
     if alert is None:
         raise HTTPException(status_code=404, detail="Security log not found")
 
     alert_ts = alert[1]
+    alert_source_ip = alert[2]
     window_start = None
     window_end = None
     if alert_ts is not None:
@@ -887,6 +894,44 @@ def get_related_audit(
 
     rows = db.execute(query, params).fetchall()
 
+    # ── Same-source-IP alerts ───────────────────────────────────────────
+    related_alerts: list[dict] = []
+    if alert_source_ip is not None and window_start is not None and window_end is not None:
+        ip_query = text(
+            """
+            SELECT log_id, severity_level, suricata_sid, suricata_signature,
+                   classification, timestamp, source_ip
+            FROM wims.security_threat_logs
+            WHERE source_ip = :source_ip
+              AND log_id != :exclude_log_id
+              AND timestamp >= CAST(:window_start AS timestamptz)
+              AND timestamp <= CAST(:window_end AS timestamptz)
+            ORDER BY timestamp DESC
+            LIMIT 50
+        """
+        )
+        ip_rows = db.execute(
+            ip_query,
+            {
+                "source_ip": alert_source_ip,
+                "exclude_log_id": log_id,
+                "window_start": window_start,
+                "window_end": window_end,
+            },
+        ).fetchall()
+        related_alerts = [
+            {
+                "log_id": r[0],
+                "severity_level": r[1],
+                "suricata_sid": r[2],
+                "suricata_signature": r[3],
+                "classification": r[4],
+                "timestamp": r[5].isoformat() if r[5] else None,
+                "source_ip": r[6],
+            }
+            for r in ip_rows
+        ]
+
     return {
         "log_id": log_id,
         "items": [
@@ -904,6 +949,7 @@ def get_related_audit(
             }
             for r in rows
         ],
+        "related_alerts": related_alerts,
     }
 
 

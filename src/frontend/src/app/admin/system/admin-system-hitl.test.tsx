@@ -132,7 +132,7 @@ describe('Admin System — HITL Decision Buttons in Threat Telemetry Modal', () 
         mockFetchAuditLogs.mockResolvedValue({ items: [], total: 0 });
         mockUpdateAdminSecurityLog.mockResolvedValue({ status: 'ok', log_id: 1 });
         mockCreateIncidentFromAlert.mockResolvedValue({ status: 'ok', incident_id: 42 });
-        mockFetchRelatedAuditLogs.mockResolvedValue({ log_id: 1, items: [] });
+        mockFetchRelatedAuditLogs.mockResolvedValue({ log_id: 1, items: [], related_alerts: [] });
         mockFetchRegionsOfflineAware.mockResolvedValue({ response: [], fromCache: false });
     });
 
@@ -183,6 +183,7 @@ describe('Admin System — HITL Decision Buttons in Threat Telemetry Modal', () 
         mockFetchAdminSecurityLogs.mockResolvedValue({ items: [mockLogUnactioned], total: 1 });
         mockFetchRelatedAuditLogs.mockResolvedValue({
             log_id: 1,
+            related_alerts: [],
             items: [
                 {
                     audit_id: 10,
@@ -215,7 +216,7 @@ describe('Admin System — HITL Decision Buttons in Threat Telemetry Modal', () 
 
     it('shows empty state when View Related Evidence returns no results', async () => {
         mockFetchAdminSecurityLogs.mockResolvedValue({ items: [mockLogUnactioned], total: 1 });
-        mockFetchRelatedAuditLogs.mockResolvedValue({ log_id: 1, items: [] });
+        mockFetchRelatedAuditLogs.mockResolvedValue({ log_id: 1, items: [], related_alerts: [] });
         render(<AdminSystemPage />);
         await waitFor(() => expect(screen.getByText('Threat Telemetry')).toBeInTheDocument());
         const viewButtons = await screen.findAllByRole('button', { name: /View/i });

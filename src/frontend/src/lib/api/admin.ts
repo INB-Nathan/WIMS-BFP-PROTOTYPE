@@ -35,6 +35,7 @@ export type {
   FailedSyncOp,
   KeycloakSession,
   RateLimitConfig,
+  RelatedAlertItem,
   RelatedAuditItem,
   RelatedAuditResponse,
   WorkerStatusPaginatedResponse,

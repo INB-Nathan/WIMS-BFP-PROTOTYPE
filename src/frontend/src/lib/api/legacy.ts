@@ -406,9 +406,20 @@ export interface RelatedAuditItem {
   old_values: Record<string, unknown> | null;
 }
 
+export interface RelatedAlertItem {
+  log_id: number;
+  severity_level: string | null;
+  suricata_sid: number | null;
+  suricata_signature: string | null;
+  classification: string | null;
+  timestamp: string | null;
+  source_ip: string | null;
+}
+
 export interface RelatedAuditResponse {
   log_id: number;
   items: RelatedAuditItem[];
+  related_alerts: RelatedAlertItem[];
 }
 
 /** Fetch audit trail rows related to a security log (±1 hour window) */
