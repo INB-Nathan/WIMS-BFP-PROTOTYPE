@@ -138,7 +138,13 @@ def _make_summary_db(sev_rows, unreviewed, total, narrative_rows, active_count=N
     mock_narratives.fetchall.return_value = narrative_rows
 
     mock_db = MagicMock()
-    mock_db.execute.side_effect = [mock_sev, mock_unreviewed, mock_total, mock_active, mock_narratives]
+    mock_db.execute.side_effect = [
+        mock_sev,
+        mock_unreviewed,
+        mock_total,
+        mock_active,
+        mock_narratives,
+    ]
 
     def _get_db():
         yield mock_db
@@ -393,7 +399,14 @@ class TestSecurityLogsSummary:
 
         assert resp.status_code == 200
         data = resp.json()
-        assert set(data.keys()) == {"by_severity", "unreviewed_count", "total", "active_count", "dismissed_count", "recent_narratives"}
+        assert set(data.keys()) == {
+            "by_severity",
+            "unreviewed_count",
+            "total",
+            "active_count",
+            "dismissed_count",
+            "recent_narratives",
+        }
 
     def test_summary_by_severity_counts(self, client: TestClient):
         app.dependency_overrides[auth.get_current_wims_user] = lambda: _ADMIN
