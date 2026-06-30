@@ -3452,7 +3452,7 @@
       "level": 2,
       "evidence": {
         "source": "src/nginx/nginx.conf (proxy_set_header X-Real-IP $realip_remote_addr)",
-        "finding": "Real IP forwarding: X-Real-IP set to $realip_remote_addr (TCP socket). X-Forwarded-For uses $realip_remote_addr for rate limiting. Trusted proxy range: 172.18.0.0/16 + 127.0.0.1."
+        "finding": "Real IP forwarding: X-Real-IP set to $realip_remote_addr (TCP socket). X-Forwarded-For uses $realip_remote_addr for rate limiting. Trusted proxy range: 172.18.0.0/24 + 127.0.0.1."
       },
       "risk": null,
       "remediation": null,

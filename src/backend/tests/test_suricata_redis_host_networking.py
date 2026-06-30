@@ -7,7 +7,10 @@ network, so Docker DNS cannot resolve the `redis` hostname for it. The fix
 is:
 
   1. Pin the redis container to 172.18.0.5 via `ipv4_address` on the
-     wims_internal network (with explicit `ipam.subnet: 172.18.0.0/16`).
+     wims_internal network (with explicit `ipam.subnet: 172.18.0.0/24`).
+     Keep Compose's dynamic allocator in `ipam.ip_range: 172.18.0.128/25`
+     so one-shot/dynamic services cannot claim low static addresses during
+     parallel startup.
   2. Inject the `redis -> 172.18.0.5` mapping into the Suricata container
      via `extra_hosts: ["redis:172.18.0.5"]`.
 
@@ -109,10 +112,49 @@ class TestSuricataRedisHostNetworking:
         configs = ipam.get("config")
         assert configs, "ipam.config must be a non-empty list"
         subnets = [c.get("subnet") for c in configs]
-        assert "172.18.0.0/16" in subnets, (
-            f"wims_internal ipam.subnet must include 172.18.0.0/16 to "
+        assert "172.18.0.0/24" in subnets, (
+            f"wims_internal ipam.subnet must include 172.18.0.0/24 to "
             f"contain the static redis IP; got {subnets!r}"
         )
+
+    def test_wims_internal_dynamic_ip_range_avoids_static_ips(self) -> None:
+        """Dynamic Compose allocations must not overlap low static IPs.
+
+        Docker assigns dynamic addresses as containers start, not when future
+        static addresses appear later in the Compose graph. Keeping dynamic
+        allocations in 172.18.0.128/25 prevents short-lived services from
+        taking postgres/redis/keycloak/ollama/openbao addresses during
+        parallel startup.
+        """
+        import ipaddress
+
+        compose = _compose()
+        config = compose["networks"]["wims_internal"]["ipam"]["config"][0]
+        subnet = ipaddress.IPv4Network(config["subnet"])
+        dynamic_range = ipaddress.IPv4Network(config.get("ip_range", ""))
+
+        assert dynamic_range == ipaddress.IPv4Network("172.18.0.128/25"), (
+            f"wims_internal ipam.ip_range must be 172.18.0.128/25 so "
+            f"dynamic services cannot claim low static IPs; got {dynamic_range}"
+        )
+        assert dynamic_range.subnet_of(subnet), (
+            f"dynamic ip_range {dynamic_range} must be inside subnet {subnet}"
+        )
+
+        static_ips = {
+            svc: networks["wims_internal"]["ipv4_address"]
+            for svc, cfg in compose["services"].items()
+            if isinstance((networks := cfg.get("networks")), dict)
+            and isinstance(networks.get("wims_internal"), dict)
+            and "ipv4_address" in networks["wims_internal"]
+        }
+        assert static_ips, "expected at least one static service IP in compose"
+        for svc, ip in static_ips.items():
+            assert ipaddress.IPv4Address(ip) not in dynamic_range, (
+                f"{svc} static IP {ip} must stay outside dynamic ip_range "
+                f"{dynamic_range}; otherwise Compose can race into "
+                "Docker 'Address already in use' failures"
+            )
 
     def test_redis_static_ip_is_inside_ipam_subnet(self) -> None:
         """Cross-check: the redis ipv4_address must be inside the ipam

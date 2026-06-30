@@ -3,14 +3,16 @@ networks:
     driver: bridge
     name: wims_internal
     # Pen-test follow-up 2026-06-29: explicit subnet + static IPs for redis,
-    # postgres, keycloak, openbao, ollama, and celery-worker. These IPs are
-    # referenced by extra_hosts entries that bypass broken Docker DNS after
-    # wims_internal network recreation on the live VPS (see PR #485-#487).
-    # /24 is used instead of /16 because Docker 28.x IPAM has reliability
-    # issues with /16 subnets on GitHub Actions runners.
+    # postgres, keycloak, openbao, and ollama. These IPs are referenced by
+    # extra_hosts entries that bypass broken Docker DNS after wims_internal
+    # network recreation on the live VPS (see PR #485-#487).
+    # Keep dynamic allocations in 172.18.0.128/25 so short-lived/dynamic
+    # containers cannot claim the low static addresses during parallel Compose
+    # startup (observed as Docker 28 "Address already in use" in CI).
     ipam:
       config:
         - subnet: 172.18.0.0/24
+          ip_range: 172.18.0.128/25
 
 services:
   # --- Infrastructure & Databases ---
@@ -291,8 +293,6 @@ services:
         condition: service_healthy
       ollama-model-pull:
         condition: service_completed_successfully
-      celery-worker:
-        condition: service_started
 
   celery-worker:
     build: ./backend
@@ -347,8 +347,7 @@ services:
       # account and only interacts with the wims-suricata container by name.
       - /var/run/docker.sock:/var/run/docker.sock
     networks:
-      wims_internal:
-        ipv4_address: 172.18.0.10
+      - wims_internal
     depends_on:
       postgres:
         condition: service_healthy

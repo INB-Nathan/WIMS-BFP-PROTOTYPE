@@ -108,6 +108,8 @@ Changing `.env.production` does not update database roles already stored in the 
 
 **Docker DNS upstream refresh:** Both nginx configs use Docker's embedded resolver (`127.0.0.11`) and shared upstream zones with `server backend:8000 resolve` (`backend_servers`) and `server frontend:3000 resolve` (`frontend_servers`). Nginx refreshes both addresses after Compose recreates containers instead of retaining stale IPs and returning `502 Connection refused`. The deploy workflow also runs `nginx -s reload` after `compose up` as a safety net, and checks the frontend `/login` route post-deploy in addition to the existing Keycloak and API health probes.
 
+**Real-IP trusted proxy range:** `nginx.conf`, `nginx.local.conf`, and `nginx.ci.conf` trust only `172.18.0.0/24` (the configured `wims_internal` subnet) plus `127.0.0.1` for `real_ip_header X-Forwarded-For`. Keep this range aligned with the Compose subnet; do not broaden it back to `172.18.0.0/16` unless the bridge subnet is widened too.
+
 **Ollama model provisioning:** `ollama-model-pull` is a one-shot service that runs `ollama pull qwen2.5:3b` through the image's existing `ollama` entrypoint. Its Compose command is therefore `pull qwen2.5:3b`, not `ollama pull ...`. Backend startup waits for successful model provisioning.
 
 **Ollama VPS resource cap:** The current Contabo production VPS has 8 vCPUs / 23 GiB RAM. `docker-compose.yml` and `docker-compose.prod.yml` cap Ollama at `cpus: '4'` / `memory: 6gb` for `qwen2.5:3b`. This reserves enough headroom for Qwen2.5-3B inference while leaving CPU and memory for Postgres, Keycloak, backend, Celery, Suricata, Redis, nginx, and the host OS cache. Older 2-vCPU / 8 GB VPS overrides must not be used on the Contabo host because they under-allocate the model and database services.
@@ -163,13 +165,13 @@ The container exposes the running process as `Suricata-Main`; the Compose health
 
 The fix has three parts in `src/docker-compose.yml`:
 
-1. **Static IP for redis** — the `redis` service is pinned to `172.18.0.5` via `networks.wims_internal.ipv4_address`. This requires the network to have explicit `ipam.config.subnet: 172.18.0.0/16` (otherwise Docker picks a random subnet and the static IP is rejected). The 172.18.0.5 value matches the dynamic IP the live VPS was already using, so the change is in-place.
+1. **Static IPs on the low end of `wims_internal`** — `redis` is pinned to `172.18.0.5` via `networks.wims_internal.ipv4_address` so `wims-suricata` can use `extra_hosts`. PR #487 extends the same pattern to `postgres` (`172.18.0.3`), `ollama` (`172.18.0.4`), `keycloak` (`172.18.0.7`), and `openbao` (`172.18.0.8`) for backend/celery/bootstrap DNS-bypass mappings. The network declares `ipam.config.subnet: 172.18.0.0/24` and keeps dynamic allocations in `ipam.config.ip_range: 172.18.0.128/25` so one-shot/dynamic services cannot claim these low static addresses during parallel Compose startup.
 2. **`extra_hosts` on wims-suricata** — `extra_hosts: ["redis:172.18.0.5"]` injects the mapping into the container's /etc/hosts. This works even with `network_mode: "host"` because /etc/hosts is per-container filesystem, not per-network-namespace.
 3. **Config comment in `suricata.yaml`** — the pen-test comment above the `redis` block documents the dependency on the docker-compose entries.
 
 **Why not just use `redis-server: 127.0.0.1`?** That was the pre-fix config. With `network_mode: "host"`, 127.0.0.1 in the Suricata container IS the host loopback, and the redis port mapping `127.0.0.1:6379:6379` does make redis reachable from the host loopback. So 127.0.0.1 *would* work for Suricata. But the hostname approach is more explicit and doesn't depend on the port mapping being present (which was originally added for dev convenience, not for Suricata).
 
-**Contract test:** `src/backend/tests/test_suricata_redis_host_networking.py` pins the structure (9 tests). Regressions to the docker-compose, suricata.yaml, or pen-test comment are caught at `pytest` time without needing a live stack.
+**Contract test:** `src/backend/tests/test_suricata_redis_host_networking.py` pins the structure, including the static IPs and non-overlapping dynamic `ip_range`. Regressions to the docker-compose, suricata.yaml, or pen-test comment are caught at `pytest` time without needing a live stack.
 
 ---
 
