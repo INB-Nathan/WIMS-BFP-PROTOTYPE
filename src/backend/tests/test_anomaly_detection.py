@@ -559,6 +559,7 @@ class TestDetectBehavioralAnomaliesTask:
             fetch_result_empty,  # _detect_password_reset_abuse
             insert_result,  # _write_anomaly: anomaly_detections INSERT
             threat_result,  # _write_anomaly: security_threat_logs INSERT
+            fetch_result_empty,  # _detect_idor_probing
         ]
 
         with patch("tasks.anomaly_detection.get_session", return_value=mock_db):
@@ -634,6 +635,7 @@ class TestDetectBehavioralAnomaliesTask:
             fetch_result_empty,  # _detect_rapid_ip_switch
             fetch_result_empty,  # _detect_suspicious_query_pattern
             fetch_result_empty,  # _detect_password_reset_abuse
+            fetch_result_empty,  # _detect_idor_probing
         ]
 
         with (
@@ -1025,4 +1027,4 @@ def test_password_reset_abuse_in_detectors_list():
     assert _detect_password_reset_abuse in _DETECTORS, (
         "_detect_password_reset_abuse is not in _DETECTORS — the Celery beat task will not run it."
     )
-    assert len(_DETECTORS) == 7, f"Expected 7 detectors after rebase, got {len(_DETECTORS)}"
+    assert len(_DETECTORS) == 8, f"Expected 8 detectors after rebase, got {len(_DETECTORS)}"

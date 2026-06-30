@@ -34,13 +34,13 @@ services:
       - BACKEND_URL=http://backend:8000
 
   # Contabo production VPS has 8 vCPUs / 23 GiB RAM.
-  # Reserve half the CPU and 6 GB RAM for Qwen2.5-3B, leaving headroom for Postgres,
-  # Keycloak, backend, Celery, Suricata, Redis, nginx, and the host OS cache.
+  # Give 6 CPUs to Ollama (inference is CPU-bound), leaving 2 for all other
+  # services (Postgres, Keycloak, Suricata, etc. which total ~0.5 CPU idle).
   ollama:
     deploy:
       resources:
         limits:
-          cpus: '4'
+          cpus: '6'
           memory: 6gb
 
   # Production TLS certs — not available in local dev (override swaps nginx.conf).

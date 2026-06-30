@@ -72,3 +72,4 @@ system-wiki/.obsidian/
 
 # Worktrees (project-local, ignored)
 .worktrees/
+.pi/sessions/

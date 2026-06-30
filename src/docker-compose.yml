@@ -72,7 +72,6 @@ services:
     build: ./keycloak
     image: wims-keycloak-demo-otp:local
     container_name: wims-keycloak
-    command: start-dev --import-realm --proxy-headers xforwarded
     # Pen-test follow-up 2026-06-29 (deploy fix): the `ipam.config.subnet`
     # added in PR #485 causes the wims_internal network to be recreated on
     # deploy. After recreation, the Docker embedded DNS does NOT consistently
@@ -201,6 +200,9 @@ services:
     container_name: wims-ollama
     volumes:
       - ollama_data:/root/.ollama
+    environment:
+      OLLAMA_NUM_PARALLEL: "1"
+      OLLAMA_MAX_LOADED_MODELS: "1"
     networks:
       wims_internal:
         ipv4_address: 172.18.0.4
@@ -270,6 +272,7 @@ services:
       - WIMS_CRYPTO_PROVIDER=${WIMS_CRYPTO_PROVIDER:-env_aesgcm}
       # WS-B (RP-08/RP-18): shared secret for Keycloak → WIMS audit event push
       - WIMS_KEYCLOAK_EVENT_SECRET=${WIMS_KEYCLOAK_EVENT_SECRET:-}
+      - OLLAMA_NUM_PREDICT=${OLLAMA_NUM_PREDICT:-256}
     volumes:
       - incident_attachments_data:/app/storage
       - ./suricata/logs:/var/log/suricata:ro
@@ -327,6 +330,7 @@ services:
       - OPENBAO_TOKEN_FILE=/openbao-creds/.wims-app-token
       - OPENBAO_TRANSIT_MOUNT=${OPENBAO_TRANSIT_MOUNT:-transit}
       - WIMS_CRYPTO_PROVIDER=${WIMS_CRYPTO_PROVIDER:-env_aesgcm}
+      - OLLAMA_NUM_PREDICT=${OLLAMA_NUM_PREDICT:-256}
       # MaxMind GeoLite2-City for IMPOSSIBLE_TRAVEL anomaly detector.
       # Download GeoLite2-City.mmdb from maxmind.com and place it in ./geoip/.
       # Detector silently skips if the file is absent.
@@ -405,6 +409,7 @@ services:
     cap_add:
       - NET_ADMIN
       - NET_RAW
+      - SYS_NICE       # needed for CPU affinity on multi-interface AF_PACKET capture (G-4)
     command: --af-packet=${SURICATA_INTERFACE:-eth0} --runmode workers
     # Pen-test follow-up 2026-06-29: wims-suricata uses network_mode: "host"
     # for AF_PACKET raw-socket capture, so it does NOT participate in the

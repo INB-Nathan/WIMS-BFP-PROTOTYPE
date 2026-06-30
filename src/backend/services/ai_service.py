@@ -28,12 +28,14 @@ OLLAMA_MODEL = "qwen2.5:1.5b"
 
 # ---------------------------------------------------------------------------
 # Ollama HTTP timeout (seconds). Override via OLLAMA_TIMEOUT env var.
-# Default 480s — Qwen2.5-1.5B on CPU-only takes 30-90s per inference.
 # ---------------------------------------------------------------------------
 _OLLAMA_DEFAULT_TIMEOUT = 480.0
 # Retry: 3 attempts, exponential backoff 2s/4s/8s, only on ConnectError + 5xx.
 _OLLAMA_MAX_RETRIES = 3
 _OLLAMA_RETRY_BASE_DELAY = 2.0
+# Keep CPU-only inference bounded. The VPS runs Qwen on CPU, and uncapped JSON
+# generation has been observed to run for 8-16 minutes per request.
+_OLLAMA_DEFAULT_NUM_PREDICT = 256
 
 # Shared resilient wrapper for Ollama — gains circuit breaker, size cap,
 # and concurrency cap. Retry is handled by the wrapper (matches existing behavior
@@ -115,6 +117,48 @@ def _ollama_timeout(db=None) -> float:
     return _OLLAMA_DEFAULT_TIMEOUT
 
 
+def _ollama_num_predict() -> int:
+    """Return the maximum generated-token budget for Ollama requests."""
+    env_val = os.environ.get("OLLAMA_NUM_PREDICT")
+    if env_val is not None:
+        try:
+            value = int(env_val)
+            if value > 0:
+                return value
+        except (TypeError, ValueError):
+            pass
+        logger.warning(
+            "Invalid OLLAMA_NUM_PREDICT=%r, using default %d",
+            env_val,
+            _OLLAMA_DEFAULT_NUM_PREDICT,
+        )
+    return _OLLAMA_DEFAULT_NUM_PREDICT
+
+
+def _ollama_payload(prompt: str) -> dict:
+    """Build a bounded non-streaming JSON-generation payload for Ollama.
+
+    Options:
+    - num_ctx:    1024  — far below the model's default 32768, since prompts
+                          are short (~200 tokens) and KV cache dominates CPU
+                          memory bandwidth.
+    - num_predict: 512  — hard cap on output tokens; the JSON response is
+                          typically 200-400 tokens.
+    - num_thread:    8  — match the host vCPU count.
+    """
+    return {
+        "model": OLLAMA_MODEL,
+        "prompt": prompt,
+        "stream": False,
+        "format": "json",
+        "options": {
+            "num_ctx": 1024,
+            "num_predict": _ollama_num_predict(),
+            "num_thread": 8,
+        },
+    }
+
+
 async def _ollama_post_with_retry(payload: dict, call_label: str = "", db=None) -> httpx.Response:
     """POST to Ollama through the resilient wrapper.
 
@@ -174,6 +218,25 @@ async def analyze_threat_log(log_id: int, db: Session, request: Request | None =
     if row is None:
         raise HTTPException(status_code=404, detail="Security log not found")
 
+    # ── Return cached analysis if already done ────────────────────────────
+    existing_narrative = row[7]
+    existing_confidence = row[8]
+    if existing_narrative:
+        return {
+            "log_id": row[0],
+            "timestamp": row[1].isoformat() if row[1] else None,
+            "source_ip": row[2],
+            "destination_ip": row[3],
+            "suricata_sid": row[4],
+            "severity_level": row[5],
+            "raw_payload": row[6],
+            "xai_narrative": existing_narrative,
+            "xai_confidence": existing_confidence,
+            "admin_action_taken": row[9],
+            "resolved_at": row[10].isoformat() if row[10] else None,
+            "reviewed_by": str(row[11]) if row[11] else None,
+        }
+
     severity_level = row[5]
     raw_payload = row[6] or ""
     suricata_sid = row[4]
@@ -202,16 +265,7 @@ async def analyze_threat_log(log_id: int, db: Session, request: Request | None =
         "'sources' (array of strings indicating which data sources were used)."
     )
 
-    payload = {
-        "model": OLLAMA_MODEL,
-        "prompt": prompt,
-        "stream": False,
-        "format": "json",
-        "options": {
-            "num_ctx": 1024,
-            "num_predict": 1024,
-        },
-    }
+    payload = _ollama_payload(prompt)
 
     if request is not None and await request.is_disconnected():
         logger.info("Client disconnected before AI analysis of log %d", log_id)
@@ -370,12 +424,7 @@ async def analyze_audit_logs(audit_ids: list[int], db: Session) -> dict:
         "'confidence' (float 0.0-1.0)."
     )
 
-    payload = {
-        "model": OLLAMA_MODEL,
-        "prompt": prompt,
-        "stream": False,
-        "format": "json",
-    }
+    payload = _ollama_payload(prompt)
 
     _t0 = time.perf_counter()
     resp = await _ollama_post_with_retry(payload, call_label="analyze_audit_logs", db=db)
