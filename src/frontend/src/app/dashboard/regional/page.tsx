@@ -78,7 +78,6 @@ const DATE_FILTERS = [
   { label: 'All Time', value: 'all' },
 ] as const;
 
-
 type DateFilterValue = (typeof DATE_FILTERS)[number]['value'];
 
 const FILTER_STORAGE_KEY = 'wims:regional_filters';
@@ -184,6 +183,7 @@ export default function RegionalDashboardPage() {
   const [specificDate, setSpecificDate] = useState(savedFilters.specificDate ?? '');
   const [specificDateDraft, setSpecificDateDraft] = useState(savedFilters.specificDate ?? '');
   const [statsDateFilter, setStatsDateFilter] = useState<StatsDateFilterValue>('week');
+
   const [rejectionNoticeDismissed, setRejectionNoticeDismissed] = useState(false);
   const [pendingActionedBanner, setPendingActionedBanner] = useState(false);
   const lastKnownPendingCountRef = useRef<number | null>(null);
@@ -721,7 +721,6 @@ export default function RegionalDashboardPage() {
           </div>
         </div>
       )}
-
 
       {/* ── Offline Work quick link ── */}
       <div className="flex items-center justify-between">
