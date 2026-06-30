@@ -291,6 +291,8 @@ services:
         condition: service_healthy
       ollama-model-pull:
         condition: service_completed_successfully
+      celery-worker:
+        condition: service_started
 
   celery-worker:
     build: ./backend
