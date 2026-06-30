@@ -1265,7 +1265,6 @@ class TestGetRelatedAudit:
 
         app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
         mock_db = MagicMock()
-        mock_result = MagicMock()
         # Alert query result
         mock_alert_result = MagicMock()
         mock_alert_result.fetchone.return_value = (1, datetime(2026, 1, 15, 10, 0, 0, tzinfo=timezone.utc), '192.168.1.1')

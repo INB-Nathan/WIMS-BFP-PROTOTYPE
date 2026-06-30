@@ -218,6 +218,26 @@ function severityBadgeClass(level: string | null): string {
   return SEVERITY_STYLES[level ?? ''] ?? SEVERITY_STYLES.LOW;
 }
 
+/** Inline severity badge (JSX) used in the Evidence tab's related alerts list. */
+const severityBadge = (level: string | null) => {
+  const colors: Record<string, string> = {
+    CRITICAL: 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300',
+    HIGH: 'bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300',
+    MEDIUM: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300',
+    LOW: 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300',
+  };
+  const lvl = level?.toUpperCase() ?? '';
+  return (
+    <span
+      className={`inline-block px-1.5 py-0.5 text-[10px] font-bold rounded ${
+        colors[lvl] ?? 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
+      }`}
+    >
+      {lvl || '\u2014'}
+    </span>
+  );
+};
+
 // ---------------------------------------------------------------------------
 // Main Component
 // ---------------------------------------------------------------------------
@@ -233,6 +253,7 @@ export function SuricataAlertModal({ log, onClose, onDecisionComplete }: Suricat
     'idle' | 'fetching' | 'analyzing' | 'normalizing' | 'complete' | 'error'
   >('idle');
   const [analysisElapsed, setAnalysisElapsed] = useState(0);
+  const analysisStartRef = useRef<number | null>(null);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
 
   // ── Decision / HITL state ────────────────────────────────────────────
@@ -297,23 +318,29 @@ export function SuricataAlertModal({ log, onClose, onDecisionComplete }: Suricat
     setCreateIncidentResult(null);
   }, [log.log_id]);
 
-  // Stepper timer
+  // Stepper timer — tracks total elapsed since analysis first started, not per-stage
   useEffect(() => {
     if (
       analysisState === 'fetching' ||
       analysisState === 'analyzing' ||
       analysisState === 'normalizing'
     ) {
-      setAnalysisElapsed(0);
-      const start = Date.now();
+      // Initialize the start ref on first entry into a running state
+      // (subsequent stage transitions keep the original start)
+      if (analysisStartRef.current === null) {
+        analysisStartRef.current = Date.now();
+      }
       const interval = setInterval(() => {
-        setAnalysisElapsed((Date.now() - start) / 1000);
+        setAnalysisElapsed((Date.now() - analysisStartRef.current!) / 1000);
       }, 200);
       return () => clearInterval(interval);
     }
     if (analysisState === 'error' || analysisState === 'idle') {
       setAnalysisElapsed(0);
+      analysisStartRef.current = null;
     }
+    // 'complete' — interval is already cleared; elapsed stays frozen at final value.
+    // Ref is reset when log changes or user retries (via 'idle'/'error' branch above).
   }, [analysisState]);
 
   // Related evidence eager fetch on mount
