@@ -169,6 +169,8 @@ describe('M8: Security Monitoring page', () => {
       by_severity: { LOW: 0, MEDIUM: 0, HIGH: 0, CRITICAL: 0 },
       unreviewed_count: 0,
       total: 0,
+      active_count: 0,
+      dismissed_count: 0,
       recent_narratives: [],
     });
 
@@ -186,6 +188,8 @@ describe('M8: Security Monitoring page', () => {
       by_severity: { LOW: 5, MEDIUM: 10, HIGH: 3, CRITICAL: 2 },
       unreviewed_count: 0,
       total: 20,
+      active_count: 20,
+      dismissed_count: 0,
       recent_narratives: [],
     });
 
@@ -764,7 +768,7 @@ describe('M8: Security Monitoring page — per-row actions + filters (T11)', () 
 
     // Secondary actions
     expect(screen.getByText('Create Incident')).toBeInTheDocument();
-    expect(screen.getByText('Delete Alert')).toBeInTheDocument();
+    expect(screen.getByText('Dismiss Alert')).toBeInTheDocument();
   });
 
   it('HITL Confirm Threat calls updateAdminSecurityLog with CONFIRM_THREAT', async () => {
@@ -848,7 +852,7 @@ describe('M8: Security Monitoring page — per-row actions + filters (T11)', () 
     });
   });
 
-  it('Delete Alert calls deleteSecurityLog and refetches', async () => {
+  it('Dismiss Alert calls deleteSecurityLog and refetches', async () => {
     const user = userEvent.setup({ delay: null });
     vi.useRealTimers();
     vi.spyOn(window, 'confirm').mockReturnValue(true);
@@ -860,7 +864,7 @@ describe('M8: Security Monitoring page — per-row actions + filters (T11)', () 
       expect(screen.getByText('192.168.1.100')).toBeInTheDocument();
     });
 
-    await user.click(screen.getByText('Delete Alert'));
+    await user.click(screen.getByText('Dismiss Alert'));
 
     expect(window.confirm).toHaveBeenCalled();
     expect(mockDeleteSecurityLog).toHaveBeenCalledWith(1);

@@ -225,6 +225,15 @@ def get_security_logs_summary(
 
     total = int(db.execute(text("SELECT COUNT(*) FROM wims.security_threat_logs")).scalar() or 0)
 
+    active_count = int(db.execute(
+        text("""
+            SELECT COUNT(*) FROM wims.security_threat_logs
+            WHERE admin_action_taken IS NULL
+               OR admin_action_taken NOT IN ('Dismissed', 'False Positive (Dismissed)')
+        """)
+    ).scalar() or 0)
+    dismissed_count = total - active_count
+
     narrative_rows = db.execute(
         text(
             "SELECT log_id, severity_level, xai_narrative, timestamp "
@@ -248,6 +257,8 @@ def get_security_logs_summary(
         "by_severity": by_severity,
         "unreviewed_count": unreviewed,
         "total": total,
+        "active_count": active_count,
+        "dismissed_count": dismissed_count,
         "recent_narratives": recent_narratives,
     }
 
