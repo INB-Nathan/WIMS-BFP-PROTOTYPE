@@ -78,7 +78,6 @@ const DATE_FILTERS = [
   { label: 'All Time', value: 'all' },
 ] as const;
 
-
 type DateFilterValue = (typeof DATE_FILTERS)[number]['value'];
 
 const FILTER_STORAGE_KEY = 'wims:regional_filters';
@@ -184,6 +183,7 @@ export default function RegionalDashboardPage() {
   const [specificDate, setSpecificDate] = useState(savedFilters.specificDate ?? '');
   const [specificDateDraft, setSpecificDateDraft] = useState(savedFilters.specificDate ?? '');
   const [statsDateFilter, setStatsDateFilter] = useState<StatsDateFilterValue>('week');
+
   const [rejectionNoticeDismissed, setRejectionNoticeDismissed] = useState(false);
   const [pendingActionedBanner, setPendingActionedBanner] = useState(false);
   const lastKnownPendingCountRef = useRef<number | null>(null);
@@ -645,8 +645,28 @@ export default function RegionalDashboardPage() {
       {/* ── Stats section (collapsible, auto-hidden when offline) ── */}
       {showStats && (
         <>
-          {/* Period filter */}
-          <StatsDateFilterChips value={statsDateFilter} onChange={setStatsDateFilter} />
+          {/* Period filter + view toggle */}
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <StatsDateFilterChips value={statsDateFilter} onChange={setStatsDateFilter} />
+            <button
+              type="button"
+              onClick={toggleStatsView}
+              className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors"
+              style={{
+                borderColor: 'var(--border-color)',
+                color: 'var(--text-secondary)',
+                backgroundColor: statsViewMode === 'mine' ? 'var(--accent-bg, #EFF6FF)' : 'transparent',
+              }}
+            >
+              <span
+                className="h-2 w-2 rounded-full"
+                style={{
+                  backgroundColor: statsViewMode === 'mine' ? '#2563EB' : '#6B7280',
+                }}
+              />
+              {statsViewMode === 'mine' ? 'My Stats' : 'Region Stats'}
+            </button>
+          </div>
 
           {/* Incident type stats — show ghost cards while loading */}
           {!stats ? (
@@ -721,7 +741,6 @@ export default function RegionalDashboardPage() {
           </div>
         </div>
       )}
-
 
       {/* ── Offline Work quick link ── */}
       <div className="flex items-center justify-between">
