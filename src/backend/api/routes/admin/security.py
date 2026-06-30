@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from auth import get_system_admin
 from auth import get_db_with_rls
-from services.ai_service import analyze_threat_log
+from services.ai_service import analyze_threat_log, get_analysis_status
 from services.event_bus import publish_security_event_sync
 from services.suricata_ingestion import _create_security_incident
 from utils.audit import log_system_audit
@@ -449,6 +449,20 @@ async def bulk_action(
     )
     db.commit()
     return {"results": results}
+
+
+@router.get("/security-logs/{log_id}/analyze-status")
+async def get_analyze_status(
+    log_id: int,
+    _admin: Annotated[dict, Depends(get_system_admin)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
+):
+    """Return the AI analysis status for a security log.
+
+    Returns: {"status": "running" | "completed" | "idle", "log_id": int}
+    """
+    status = await get_analysis_status(log_id, db)
+    return {"log_id": log_id, "status": status}
 
 
 @router.post("/security-logs/{log_id}/analyze")

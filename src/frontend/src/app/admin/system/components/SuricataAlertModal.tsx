@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { normalizeNarrative } from '@/lib/xaiNarrativeNormalizer';
 import {
   analyzeSecurityLog,
+  checkAnalysisStatus,
   updateAdminSecurityLog,
   createIncidentFromAlert,
   fetchRelatedAuditLogs,
@@ -256,6 +257,11 @@ export function SuricataAlertModal({ log, onClose, onDecisionComplete }: Suricat
   const analysisStartRef = useRef<number | null>(null);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
 
+  // Whether analysis was started in a previous session (e.g. user navigated
+  // away and came back).  We detect this via the GET /analyze-status endpoint.
+  const [isBackgroundRunning, setIsBackgroundRunning] = useState(false);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   // ── Decision / HITL state ────────────────────────────────────────────
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [hitlMessage, setHitlMessage] = useState<{
@@ -316,7 +322,79 @@ export function SuricataAlertModal({ log, onClose, onDecisionComplete }: Suricat
     setRelatedEvidenceError(null);
     setHitlMessage(null);
     setCreateIncidentResult(null);
+    setIsBackgroundRunning(false);
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
   }, [log.log_id]);
+
+  // Check if a previous analysis is still running in the background
+  // (e.g. user navigated away and came back while analysis was in progress).
+  useEffect(() => {
+    if (log.xai_narrative) return; // already completed, nothing to check
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const { status } = await checkAnalysisStatus(log.log_id);
+        if (cancelled) return;
+        if (status === 'running') {
+          setIsBackgroundRunning(true);
+        }
+      } catch {
+        // Ignore — status endpoint is best-effort
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [log.log_id, log.xai_narrative]);
+
+  // Poll for completion when a background analysis is running
+  useEffect(() => {
+    if (!isBackgroundRunning) {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+      return;
+    }
+    pollRef.current = setInterval(async () => {
+      try {
+        const { status } = await checkAnalysisStatus(log.log_id);
+        if (status !== 'running') {
+          setIsBackgroundRunning(false);
+          if (pollRef.current) {
+            clearInterval(pollRef.current);
+            pollRef.current = null;
+          }
+          // Analysis finished while we were away — fetch the cached result
+          // from the existing /analyze endpoint (returns immediately when
+          // xai_narrative is already populated).
+          if (status === 'completed') {
+            try {
+              const updated = await analyzeSecurityLog(log.log_id);
+              onDecisionComplete(log.log_id, {
+                xai_narrative: updated.xai_narrative ?? undefined,
+                xai_confidence: updated.xai_confidence ?? undefined,
+              });
+            } catch {
+              // Fetch is best-effort; parent will re-read on next open
+            }
+          }
+        }
+      } catch {
+        // Polling is best-effort
+      }
+    }, 5000);
+    return () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+  }, [isBackgroundRunning, log.log_id, onDecisionComplete]);
 
   // Stepper timer — tracks total elapsed since analysis first started, not per-stage
   useEffect(() => {
@@ -711,6 +789,30 @@ export function SuricataAlertModal({ log, onClose, onDecisionComplete }: Suricat
   // ── AI Analysis Card ─────────────────────────────────────────────────
 
   const renderAiAnalysisCard = () => {
+    // State 0: Background analysis running (started in a previous session)
+    if (isBackgroundRunning) {
+      return (
+        <div className="bg-purple-50 dark:bg-purple-950/40 p-4 rounded-lg border border-purple-100 dark:border-purple-800">
+          <div className="flex items-center gap-1.5 mb-1">
+            <div className="w-6 h-6 rounded-md bg-purple-600 flex items-center justify-center">
+              <IconSparkles />
+            </div>
+            <h4 className="text-xs font-bold text-purple-700 dark:text-purple-300 uppercase tracking-wider">
+              AI Threat Analysis in Progress
+            </h4>
+          </div>
+          <p className="text-xs text-gray-500 mb-2">
+            Analysis was started earlier and is still running. Waiting for
+            completion&hellip;
+          </p>
+          <div className="flex items-center gap-2 text-xs text-gray-500">
+            <div className="w-4 h-4 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" />
+            Running via Ollama
+          </div>
+        </div>
+      );
+    }
+
     // State 1: No analysis yet → show Analyze button
     if (!log.xai_narrative && (analysisState === 'idle' || analysisState === 'error')) {
       return (

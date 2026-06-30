@@ -37,6 +37,13 @@ services:
   # Give 6 CPUs to Ollama (inference is CPU-bound), leaving 2 for all other
   # services (Postgres, Keycloak, Suricata, etc. which total ~0.5 CPU idle).
   ollama:
+    environment:
+      # Use memory-mapped IO for model loading (avoids anonymous RAM copy on
+      # cold start).  Single-user CPU inference benefits from OS page cache.
+      - OLLAMA_MMAP=1
+      # Match the Docker CPU limit below.  Oversubscribing threads causes
+      # context-switching thrash that kills throughput.
+      - OLLAMA_NUM_THREADS=6
     deploy:
       resources:
         limits:
