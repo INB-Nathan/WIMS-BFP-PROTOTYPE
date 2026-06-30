@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@octokit/rest": "^22.0.1",
     "firebase": "^12.13.0",
     "idb": "^8.0.3",
     "leaflet": "^1.9.4",
