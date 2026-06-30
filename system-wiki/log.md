@@ -171,3 +171,27 @@ Removed the AI incident narrative feature (PR #104 / #69) — backend-only featu
 - `xai_narrative` feature for security threat logs — unrelated, actively used
 - `narrative_report` field — human-written, unrelated
 
+
+## [2026-06-30] refactor: replace 3-layer GitHub PoC with pi gh extension
+
+- **Decision:** Dropped the 3-layer approach (PyGithub backend + Octokit frontend + gh CLI CI) in favor of pure `gh` CLI everywhere.
+- **Rationale:** `gh` CLI handles all needed GitHub operations (issue creation, PR comments, repo queries, CI automation). The Octokit frontend route added Octokit dependency for no benefit. PyGithub Celery tasks would duplicate what `gh` already does.
+- **What changed:**
+  - Removed `src/frontend/src/app/api/github/repo-summary/route.ts` (PoC 2 — Octokit)
+  - Removed `@octokit/rest` from frontend dependencies
+  - Kept `.github/workflows/ci.yml` github-integration job (PoC 3 — gh CLI in CI, already committed in 9e18ee4)
+  - Added `.pi/extensions/github-tools.ts` — pi extension registering 5 custom tools (`gh_repo_summary`, `gh_create_issue`, `gh_pr_comment`, `gh_list_prs`, `gh_list_issues`) that wrap `gh` CLI with auto repo detection and graceful degradation
+- **PoC 1 remnants** (uncommitted, on disk): `celery_config.py` and `tasks/__init__.py` still have `github_integration` registration; `tests/test_github_integration.py` is untracked. `tasks/github_integration.py` was lost. These should be cleaned up.
+
+## [2026-06-30] feat(ext): pi extensions for gh CLI + VPS SSH diagnostics
+
+- **Added `.pi/extensions/github-tools.ts`** — 5 custom tools wrapping `gh` CLI:
+  `gh_repo_summary`, `gh_create_issue`, `gh_pr_comment`, `gh_list_prs`, `gh_list_issues`.
+  Auto-detects repo, graceful degradation when `gh` unauthenticated/uninstalled.
+- **Added `.pi/extensions/vps-ssh.ts`** — 6 custom tools for production VPS ops:
+  `vps_ssh`, `vps_compose_ps`, `vps_compose_logs`, `vps_compose_up`,
+  `vps_deploy_check`, `vps_compose_down`. Auto-connects to wims@194.233.81.162.
+- **Removed** `src/frontend/src/app/api/github/repo-summary/route.ts` + `@octokit/rest`
+- **Remaining PoC 1 debris** (uncommitted): celery_config.py, tasks/__init__.py still
+  reference `tasks.github_integration`; untracked test_github_integration.py on disk.
+  Needs cleanup when convenient.
