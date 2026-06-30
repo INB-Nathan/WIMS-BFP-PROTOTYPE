@@ -89,7 +89,7 @@ vi.mock('@/lib/api', () => ({
   fetchUserSessions: vi.fn().mockResolvedValue({ sessions: [] }),
   terminateUserSessions: vi.fn(),
   revokeUserSessions: vi.fn(),
-  fetchRelatedAuditLogs: vi.fn().mockResolvedValue({ log_id: 1, items: [] }),
+  fetchRelatedAuditLogs: vi.fn().mockResolvedValue({ log_id: 1, items: [], related_alerts: [] }),
 }));
 
 describe('Admin System search wiring', () => {

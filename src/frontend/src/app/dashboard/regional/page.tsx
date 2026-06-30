@@ -57,8 +57,6 @@ interface RegionalStatsPayload {
   families_affected?: number;
   individuals_affected?: number;
   vehicles_affected?: number;
-  my_total_incidents?: number;
-  my_by_category?: Array<{ category: string | null; count: number }>;
 }
 
 const getRegionalDateBounds = getDateBoundsUtil;
@@ -79,7 +77,6 @@ const DATE_FILTERS = [
   { label: 'Specific Date', value: 'specific' },
   { label: 'All Time', value: 'all' },
 ] as const;
-
 
 type DateFilterValue = (typeof DATE_FILTERS)[number]['value'];
 
@@ -186,21 +183,6 @@ export default function RegionalDashboardPage() {
   const [specificDate, setSpecificDate] = useState(savedFilters.specificDate ?? '');
   const [specificDateDraft, setSpecificDateDraft] = useState(savedFilters.specificDate ?? '');
   const [statsDateFilter, setStatsDateFilter] = useState<StatsDateFilterValue>('week');
-  const [statsViewMode, setStatsViewMode] = useState<'region' | 'mine'>(() => {
-    try {
-      const stored = sessionStorage.getItem('wims:regional_stats_view');
-      return stored === 'mine' ? 'mine' : 'region';
-    } catch { return 'region'; }
-  });
-
-  // Switch view mode and persist
-  const toggleStatsView = useCallback(() => {
-    setStatsViewMode((prev) => {
-      const next = prev === 'region' ? 'mine' : 'region';
-      try { sessionStorage.setItem('wims:regional_stats_view', next); } catch {}
-      return next;
-    });
-  }, []);
 
   const [rejectionNoticeDismissed, setRejectionNoticeDismissed] = useState(false);
   const [pendingActionedBanner, setPendingActionedBanner] = useState(false);
@@ -533,34 +515,12 @@ export default function RegionalDashboardPage() {
     };
   };
 
-  // Pick the right data source based on view mode
-  const activeByCategory = statsViewMode === 'mine'
-    ? stats?.my_by_category
-    : stats?.by_category;
-
-  const activeTotal = statsViewMode === 'mine'
-    ? stats?.my_total_incidents
-    : stats?.total_incidents;
-
-  // categoryCount with active by_category
-  const activeCategoryCount = useCallback(
-    (aliases: Array<string | null>) => {
-      const aliasSet = new Set(aliases.map((a) => a?.toUpperCase()));
-      const total = activeByCategory?.reduce(
-        (sum, c) => (c.category && aliasSet.has(c.category.toUpperCase()) ? sum + c.count : sum),
-        0,
-      );
-      return (total ?? 0).toLocaleString();
-    },
-    [activeByCategory],
-  );
-
   const incidentCards = [
     {
       key: 'total-period',
-      title: statsViewMode === 'mine' ? 'My Verified' : 'Total Verified',
+      title: 'Total Verified',
       icon: Flame,
-      value: (activeTotal ?? 0).toLocaleString(),
+      value: stats?.total_incidents?.toLocaleString() ?? '0',
       iconBg: '#FEE2E2',
       iconColor: '#991B1B',
     },
@@ -568,7 +528,7 @@ export default function RegionalDashboardPage() {
       key: 'STRUCTURAL',
       title: 'Structural',
       icon: Building2,
-      value: activeCategoryCount(['STRUCTURAL', 'Structural']),
+      value: categoryCount(stats, ['STRUCTURAL', 'Structural']),
       iconBg: '#FEF3C7',
       iconColor: '#D97706',
     },
@@ -576,7 +536,7 @@ export default function RegionalDashboardPage() {
       key: 'NON_STRUCTURAL',
       title: 'Non-Structural',
       icon: TreePine,
-      value: activeCategoryCount(['NON_STRUCTURAL', 'NON-STRUCTURAL', 'Non-Structural']),
+      value: categoryCount(stats, ['NON_STRUCTURAL', 'NON-STRUCTURAL', 'Non-Structural']),
       iconBg: '#DCFCE7',
       iconColor: '#16A34A',
     },
@@ -584,7 +544,7 @@ export default function RegionalDashboardPage() {
       key: 'VEHICULAR',
       title: 'Vehicular',
       icon: Car,
-      value: activeCategoryCount(['VEHICULAR', 'TRANSPORTATION', 'Vehicular', 'Transportation']),
+      value: categoryCount(stats, ['VEHICULAR', 'TRANSPORTATION', 'Vehicular', 'Transportation']),
       iconBg: '#DBEAFE',
       iconColor: '#2563EB',
     },
@@ -685,28 +645,8 @@ export default function RegionalDashboardPage() {
       {/* ── Stats section (collapsible, auto-hidden when offline) ── */}
       {showStats && (
         <>
-          {/* Period filter + view toggle */}
-          <div className="flex items-center justify-between gap-2 flex-wrap">
-            <StatsDateFilterChips value={statsDateFilter} onChange={setStatsDateFilter} />
-            <button
-              type="button"
-              onClick={toggleStatsView}
-              className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors"
-              style={{
-                borderColor: 'var(--border-color)',
-                color: 'var(--text-secondary)',
-                backgroundColor: statsViewMode === 'mine' ? 'var(--accent-bg, #EFF6FF)' : 'transparent',
-              }}
-            >
-              <span
-                className="h-2 w-2 rounded-full"
-                style={{
-                  backgroundColor: statsViewMode === 'mine' ? '#2563EB' : '#6B7280',
-                }}
-              />
-              {statsViewMode === 'mine' ? 'My Stats' : 'Region Stats'}
-            </button>
-          </div>
+          {/* Period filter */}
+          <StatsDateFilterChips value={statsDateFilter} onChange={setStatsDateFilter} />
 
           {/* Incident type stats — show ghost cards while loading */}
           {!stats ? (
@@ -781,7 +721,6 @@ export default function RegionalDashboardPage() {
           </div>
         </div>
       )}
-
 
       {/* ── Offline Work quick link ── */}
       <div className="flex items-center justify-between">

@@ -934,6 +934,7 @@ class TestAuditLogsAnalyze:
         app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
         mock_db = MagicMock()
         mock_result = MagicMock()
+        # fetchone returns (log_id, ts, source_ip); fetchall returns empty for both queries
         mock_result.fetchall.return_value = []
         mock_db.execute.return_value = mock_result
 
@@ -1221,8 +1222,9 @@ class TestGetRelatedAudit:
         mock_db = MagicMock()
         mock_result = MagicMock()
         mock_result.fetchone.side_effect = [
-            (1, datetime(2026, 1, 15, 10, 0, 0, tzinfo=timezone.utc)),
+            (1, datetime(2026, 1, 15, 10, 0, 0, tzinfo=timezone.utc), "192.168.1.1"),
         ]
+        # fetchone returns (log_id, ts, source_ip); fetchall returns empty for both queries
         mock_result.fetchall.return_value = []
         mock_db.execute.return_value = mock_result
 
@@ -1237,6 +1239,7 @@ class TestGetRelatedAudit:
         data = response.json()
         assert data["log_id"] == 1
         assert data["items"] == []
+        assert data["related_alerts"] == []
 
     def test_returns_404_when_alert_missing(self, client: TestClient):
         """Returns 404 when the alert does not exist."""
@@ -1262,11 +1265,16 @@ class TestGetRelatedAudit:
 
         app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
         mock_db = MagicMock()
-        mock_result = MagicMock()
-        mock_result.fetchone.side_effect = [
-            (1, datetime(2026, 1, 15, 10, 0, 0, tzinfo=timezone.utc)),
-        ]
-        mock_result.fetchall.return_value = [
+        # Alert query result
+        mock_alert_result = MagicMock()
+        mock_alert_result.fetchone.return_value = (
+            1,
+            datetime(2026, 1, 15, 10, 0, 0, tzinfo=timezone.utc),
+            "192.168.1.1",
+        )
+        # Audit query result
+        mock_audit_result = MagicMock()
+        mock_audit_result.fetchall.return_value = [
             (
                 10,
                 "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
@@ -1280,7 +1288,11 @@ class TestGetRelatedAudit:
                 None,
             ),
         ]
-        mock_db.execute.return_value = mock_result
+        # IP query result (empty — no same-IP alerts)
+        mock_ip_result = MagicMock()
+        mock_ip_result.fetchall.return_value = []
+        # First execute returns alert, second returns audit, third returns IP query result
+        mock_db.execute.side_effect = [mock_alert_result, mock_audit_result, mock_ip_result]
 
         def mock_get_db():
             yield mock_db
@@ -1298,6 +1310,7 @@ class TestGetRelatedAudit:
         assert item["ip_address"] == "192.168.1.100"
         assert item["user_agent"] == "TestAgent/1.0"
         assert item["timestamp"] is not None
+        assert "related_alerts" in data
 
     def test_requires_admin(self, client: TestClient):
         """Non-admin (encoder) returns 403."""
