@@ -143,8 +143,8 @@ def _ollama_payload(prompt: str) -> dict:
     - num_ctx:    1024  — far below the model's default 32768, since prompts
                           are short (~200 tokens) and KV cache dominates CPU
                           memory bandwidth.
-    - num_predict: 512  — hard cap on output tokens; the JSON response is
-                          typically 200-400 tokens.
+    - num_predict: env-configured (default 256) — hard cap on output tokens;
+                      the JSON response is typically 200-400 tokens.
     - num_thread:    8  — match the host vCPU count.
     """
     return {
@@ -256,7 +256,7 @@ async def analyze_threat_log(log_id: int, db: Session, request: Request | None =
         f"Analyze this Suricata IDS alert: severity={json.dumps(severity_level)}, "
         f'SID={suricata_sid}, signature="{suricata_signature}", '
         f"classification={classification}, payload={json.dumps(raw_payload)}. "
-        "Output strictly JSON with keys: "
+        "Provide a structured analysis as JSON with these keys: "
         "'anomaly_description' (string), "
         "'log_evidence' (string), "
         "'risk_assessment' (string), "
@@ -277,44 +277,54 @@ async def analyze_threat_log(log_id: int, db: Session, request: Request | None =
     await _record_inference_metric("analyze_threat_log", time.perf_counter() - _t0)
 
     data = resp.json()
-    response_text = data.get("response", "{}")
-    try:
-        parsed = json.loads(response_text)
-    except json.JSONDecodeError:
-        raise HTTPException(status_code=502, detail="Ollama returned invalid JSON")
+    response_text = data.get("response", "")
 
     if request is not None and await request.is_disconnected():
         logger.info("Client disconnected during AI analysis of log %d, skipping DB write", log_id)
         raise HTTPException(status_code=499, detail="Client disconnected")
 
-    # Extract sources
-    sources = parsed.get("sources", ["Suricata EVE log", "Ollama"])
-    if not isinstance(sources, list):
-        sources = ["Suricata EVE log", "Ollama"]
+    # Try to parse as JSON — if it fails, gracefully degrade to raw text.
+    # The frontend normalizer (normalizeNarrative) handles both structured
+    # JSON and plain text narratives.
+    narrative = response_text
+    confidence = 0.5
+    confidence_breakdown = None
 
-    narrative_data = {
-        "anomaly_description": parsed.get("anomaly_description", ""),
-        "log_evidence": parsed.get("log_evidence", ""),
-        "risk_assessment": parsed.get("risk_assessment", ""),
-        "recommended_action": parsed.get("recommended_action", ""),
-        "sources": sources,
-    }
-    narrative = json.dumps(narrative_data)
     try:
-        confidence = float(parsed.get("confidence", 0.0))
-    except (TypeError, ValueError):
-        confidence = 0.0
-    confidence = max(0.0, min(1.0, confidence))
+        parsed = json.loads(response_text)
+        if isinstance(parsed, dict):
+            sources = parsed.get("sources", ["Suricata EVE log", "Ollama"])
+            if not isinstance(sources, list):
+                sources = ["Suricata EVE log", "Ollama"]
 
-    # Extract confidence breakdown
-    raw_breakdown = parsed.get("confidence_breakdown", {})
-    confidence_breakdown = {}
-    for key in ("anomaly_detection", "classification", "overall"):
-        val = raw_breakdown.get(key, confidence)
-        try:
-            confidence_breakdown[key] = max(0.0, min(1.0, float(val)))
-        except (TypeError, ValueError):
-            confidence_breakdown[key] = confidence
+            narrative_data = {
+                "anomaly_description": parsed.get("anomaly_description", ""),
+                "log_evidence": parsed.get("log_evidence", ""),
+                "risk_assessment": parsed.get("risk_assessment", ""),
+                "recommended_action": parsed.get("recommended_action", ""),
+                "sources": sources,
+            }
+            narrative = json.dumps(narrative_data)
+
+            try:
+                confidence = float(parsed.get("confidence", 0.5))
+            except (TypeError, ValueError):
+                confidence = 0.5
+            confidence = max(0.0, min(1.0, confidence))
+
+            raw_breakdown = parsed.get("confidence_breakdown", {})
+            if raw_breakdown:
+                confidence_breakdown = {}
+                for key in ("anomaly_detection", "classification", "overall"):
+                    val = raw_breakdown.get(key, confidence)
+                    try:
+                        confidence_breakdown[key] = max(0.0, min(1.0, float(val)))
+                    except (TypeError, ValueError):
+                        confidence_breakdown[key] = confidence
+    except json.JSONDecodeError:
+        logger.warning(
+            "Ollama response for log %d was not valid JSON, storing as raw narrative", log_id
+        )
 
     db.execute(
         text("""
@@ -327,7 +337,7 @@ async def analyze_threat_log(log_id: int, db: Session, request: Request | None =
         {
             "narrative": narrative,
             "confidence": confidence,
-            "breakdown": json.dumps(confidence_breakdown),
+            "breakdown": json.dumps(confidence_breakdown) if confidence_breakdown else None,
             "log_id": log_id,
         },
     )
@@ -409,7 +419,7 @@ async def analyze_audit_logs(audit_ids: list[int], db: Session) -> dict:
         f"Analyze these system audit trail entries for suspicious patterns"
         f" (unusual CRUD patterns, role-based anomalies, geographic anomalies,"
         f" off-hours access). Entries: {json.dumps(entries, default=str)}. "
-        "Output strictly JSON with keys: "
+        "Provide a structured analysis as JSON with these keys: "
         "'anomaly_description' (string), "
         "'log_evidence' (string), "
         "'risk_assessment' (string), "
@@ -424,24 +434,34 @@ async def analyze_audit_logs(audit_ids: list[int], db: Session) -> dict:
     await _record_inference_metric("analyze_audit_logs", time.perf_counter() - _t0)
 
     data = resp.json()
-    response_text = data.get("response", "{}")
-    try:
-        parsed = json.loads(response_text)
-    except json.JSONDecodeError:
-        raise HTTPException(status_code=502, detail="Ollama returned invalid JSON")
+    response_text = data.get("response", "")
+    anomaly_description = ""
+    log_evidence = ""
+    risk_assessment = ""
+    recommended_action = ""
+    confidence = 0.5
 
     try:
-        confidence = float(parsed.get("confidence", 0.0))
-    except (TypeError, ValueError):
-        confidence = 0.0
-    confidence = max(0.0, min(1.0, confidence))
+        parsed = json.loads(response_text)
+        if isinstance(parsed, dict):
+            anomaly_description = parsed.get("anomaly_description", "")
+            log_evidence = parsed.get("log_evidence", "")
+            risk_assessment = parsed.get("risk_assessment", "")
+            recommended_action = parsed.get("recommended_action", "")
+            try:
+                confidence = float(parsed.get("confidence", 0.5))
+            except (TypeError, ValueError):
+                confidence = 0.5
+            confidence = max(0.0, min(1.0, confidence))
+    except json.JSONDecodeError:
+        logger.warning("Ollama returned invalid JSON for audit analysis, using raw text")
 
     return {
         "audit_ids": audit_ids,
-        "anomaly_description": parsed.get("anomaly_description", ""),
-        "log_evidence": parsed.get("log_evidence", ""),
-        "risk_assessment": parsed.get("risk_assessment", ""),
-        "recommended_action": parsed.get("recommended_action", ""),
+        "anomaly_description": anomaly_description,
+        "log_evidence": log_evidence,
+        "risk_assessment": risk_assessment,
+        "recommended_action": recommended_action,
         "confidence": confidence,
         "entries_analyzed": len(entries),
     }

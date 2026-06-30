@@ -72,7 +72,7 @@ services:
     build: ./keycloak
     image: wims-keycloak-demo-otp:local
     container_name: wims-keycloak
-    command: start-dev --import-realm
+    command: start-dev --import-realm --proxy-headers xforwarded
     # Pen-test follow-up 2026-06-29 (deploy fix): the `ipam.config.subnet`
     # added in PR #485 causes the wims_internal network to be recreated on
     # deploy. After recreation, the Docker embedded DNS does NOT consistently
