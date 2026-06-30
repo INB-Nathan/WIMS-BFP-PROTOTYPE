@@ -380,6 +380,27 @@ export default function RegionalDashboardPage() {
     }
   };
 
+  const activeByCategory = statsViewMode === 'mine'
+    ? stats?.my_by_category
+    : stats?.by_category;
+
+  const activeTotal = statsViewMode === 'mine'
+    ? stats?.my_total_incidents
+    : stats?.total_incidents;
+
+  // categoryCount with active by_category
+  const activeCategoryCount = useCallback(
+    (aliases: Array<string | null>) => {
+      const aliasSet = new Set(aliases.map((a) => a?.toUpperCase()));
+      const total = activeByCategory?.reduce(
+        (sum, c) => (c.category && aliasSet.has(c.category.toUpperCase()) ? sum + c.count : sum),
+        0,
+      );
+      return (total ?? 0).toLocaleString();
+    },
+    [activeByCategory],
+  );
+
   // Show ghost panels while auth is loading — keeps layout stable
   // and avoids a jarring flash from "Loading Dashboard…" to full UI.
   if (!canAccessRegional && !loading) {
@@ -534,27 +555,6 @@ export default function RegionalDashboardPage() {
   };
 
   // Pick the right data source based on view mode
-  const activeByCategory = statsViewMode === 'mine'
-    ? stats?.my_by_category
-    : stats?.by_category;
-
-  const activeTotal = statsViewMode === 'mine'
-    ? stats?.my_total_incidents
-    : stats?.total_incidents;
-
-  // categoryCount with active by_category
-  const activeCategoryCount = useCallback(
-    (aliases: Array<string | null>) => {
-      const aliasSet = new Set(aliases.map((a) => a?.toUpperCase()));
-      const total = activeByCategory?.reduce(
-        (sum, c) => (c.category && aliasSet.has(c.category.toUpperCase()) ? sum + c.count : sum),
-        0,
-      );
-      return (total ?? 0).toLocaleString();
-    },
-    [activeByCategory],
-  );
-
   const incidentCards = [
     {
       key: 'total-period',
