@@ -405,6 +405,7 @@ services:
     cap_add:
       - NET_ADMIN
       - NET_RAW
+      - SYS_NICE       # needed for CPU affinity on multi-interface AF_PACKET capture (G-4)
     command: --af-packet=${SURICATA_INTERFACE:-eth0} --runmode workers
     # Pen-test follow-up 2026-06-29: wims-suricata uses network_mode: "host"
     # for AF_PACKET raw-socket capture, so it does NOT participate in the

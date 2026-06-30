@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from auth import get_current_wims_user, get_regional_encoder
 from auth import get_db_with_rls
+from database import _AdminSessionLocal
 from services.kms import get_crypto_provider
 from services.regional_incidents.helpers import (
     _CATEGORY_DB_VARIANTS,
@@ -23,6 +24,55 @@ from utils.crypto import SecurityProviderError
 
 logger = logging.getLogger("wims.regional")
 router = APIRouter()
+
+
+def _check_idor_probe(
+    db: Session,
+    incident_id: int,
+    user: dict,
+    request: "Request",
+) -> None:
+    """Emit an IDOR_PROBE audit event when an encoder's 404 hides an existing record.
+
+    Uses the admin session (bypasses RLS) to determine whether the incident exists
+    at all. If it does, the row was hidden by RLS or the encoder_id filter, which
+    indicates a cross-region or cross-user ID enumeration attempt.
+
+    The admin session is closed immediately after the existence check; the audit
+    event is written back through the caller's RLS-gated session so it is
+    subject to normal transaction management (committed by the caller's path or
+    rolled back on error). Since the 404 is raised immediately after this function
+    returns, the audit write and commit happen in a short window.
+    """
+    admin_db = _AdminSessionLocal()
+    try:
+        exists = admin_db.execute(
+            text("SELECT 1 FROM wims.fire_incidents WHERE incident_id = :iid"),
+            {"iid": incident_id},
+        ).fetchone()
+    finally:
+        admin_db.close()
+
+    if exists:
+        try:
+            log_system_audit(
+                db=db,
+                user_id=user.get("user_id"),
+                action_type="IDOR_PROBE",
+                table_affected="wims.fire_incidents",
+                record_id=incident_id,
+                request=request,
+                new_values={"attempted_incident_id": incident_id},
+                result="blocked",
+            )
+            db.commit()
+        except Exception:
+            db.rollback()
+            logger.warning(
+                "Failed to write IDOR_PROBE audit for incident_id=%s user=%s",
+                incident_id,
+                user.get("user_id"),
+            )
 
 
 @router.get("/incidents")
@@ -275,6 +325,7 @@ def list_encoder_drafts(
 @router.get("/incidents/{incident_id}")
 def get_regional_incident_detail(
     incident_id: int,
+    request: Request,
     user: Annotated[dict, Depends(get_current_wims_user)],
     db: Annotated[Session, Depends(get_db_with_rls)],
 ):
@@ -320,6 +371,12 @@ def get_regional_incident_detail(
         ).fetchone()
 
     if not row:
+        # G-1 IDOR detection: for non-validator users, check whether the incident
+        # exists globally (bypassing RLS + encoder_id filter). If it does, the row
+        # was hidden from this user — emit an IDOR_PROBE audit event so the admin
+        # security dashboard surfaces cross-region enumeration attempts.
+        if not is_validator:
+            _check_idor_probe(db, incident_id, user, request)
         raise HTTPException(status_code=404, detail="Incident not found or access denied")
 
     # Fetch nonsensitive
