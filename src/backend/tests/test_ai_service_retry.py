@@ -14,8 +14,11 @@ from fastapi import HTTPException
 def _clear_ollama_env_and_client():
     """Clear env vars and shared Ollama client state that affect retry tests."""
     saved = os.environ.get("OLLAMA_TIMEOUT")
+    saved_num_predict = os.environ.get("OLLAMA_NUM_PREDICT")
     if "OLLAMA_TIMEOUT" in os.environ:
         del os.environ["OLLAMA_TIMEOUT"]
+    if "OLLAMA_NUM_PREDICT" in os.environ:
+        del os.environ["OLLAMA_NUM_PREDICT"]
 
     import services.ai_service as ai_service
 
@@ -27,6 +30,11 @@ def _clear_ollama_env_and_client():
         os.environ["OLLAMA_TIMEOUT"] = saved
     elif "OLLAMA_TIMEOUT" in os.environ:
         del os.environ["OLLAMA_TIMEOUT"]
+
+    if saved_num_predict is not None:
+        os.environ["OLLAMA_NUM_PREDICT"] = saved_num_predict
+    elif "OLLAMA_NUM_PREDICT" in os.environ:
+        del os.environ["OLLAMA_NUM_PREDICT"]
 
 
 class TestOllamaTimeout:
@@ -48,6 +56,27 @@ class TestOllamaTimeout:
         from services.ai_service import _ollama_timeout
 
         assert _ollama_timeout() == 120.0
+
+
+class TestOllamaPayload:
+    """Tests for bounded Ollama generation payloads."""
+
+    def test_payload_caps_num_predict_by_default(self):
+        from services.ai_service import _ollama_payload
+
+        payload = _ollama_payload("test prompt")
+
+        assert payload["stream"] is False
+        assert payload["format"] == "json"
+        assert payload["options"]["num_predict"] == 256
+
+    def test_num_predict_env_override(self, monkeypatch):
+        monkeypatch.setenv("OLLAMA_NUM_PREDICT", "128")
+        from services.ai_service import _ollama_payload
+
+        payload = _ollama_payload("test prompt")
+
+        assert payload["options"]["num_predict"] == 128
 
 
 class TestRetryLogic:
@@ -259,3 +288,27 @@ class TestDockerComposeConfig:
         assert limits["memory"].lower() in ("6gb", "6g", "6144m"), (
             f"Expected 6GB memory, got {limits['memory']}"
         )
+
+    def test_ollama_parallelism_limited_for_cpu_inference(self):
+        import yaml
+        from pathlib import Path
+
+        compose_path = Path(__file__).resolve().parent.parent.parent / "docker-compose.yml"
+        with open(compose_path) as f:
+            data = yaml.safe_load(f)
+
+        ollama_env = data["services"]["ollama"].get("environment", {})
+        assert ollama_env["OLLAMA_NUM_PARALLEL"] == "1"
+        assert ollama_env["OLLAMA_MAX_LOADED_MODELS"] == "1"
+
+    def test_backend_and_celery_set_generation_cap(self):
+        import yaml
+        from pathlib import Path
+
+        compose_path = Path(__file__).resolve().parent.parent.parent / "docker-compose.yml"
+        with open(compose_path) as f:
+            data = yaml.safe_load(f)
+
+        for service in ("backend", "celery-worker"):
+            env = data["services"][service]["environment"]
+            assert "OLLAMA_NUM_PREDICT=${OLLAMA_NUM_PREDICT:-256}" in env

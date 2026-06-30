@@ -80,7 +80,7 @@ INSERT INTO wims.system_config (config_key, config_value, description) VALUES
   ('retention.security_rollups_daily_days', '90', '90 days for daily IDS alert rollups'),
   ('siem.raw_dedup_window_minutes', '5', 'Deduplicate raw SIEM alerts by source/SID/severity/classification within this window'),
   ('siem.store_low_value_raw', 'true', 'When true, store background/scanner/bot low-value alerts in raw + rollups; admin monitoring views see them. When false, low-value alerts go to rollups only.'),
-  ('auto_ai_analysis_enabled', 'true', 'When true, HIGH/CRITICAL alerts are automatically queued for Ollama XAI narrative generation')
+  ('auto_ai_analysis_enabled', 'false', 'When true, HIGH/CRITICAL alerts are automatically queued for Ollama XAI narrative generation')
 ON CONFLICT (config_key) DO UPDATE
 SET config_value = EXCLUDED.config_value,
     description = EXCLUDED.description;
