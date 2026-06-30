@@ -251,12 +251,15 @@ All three Ollama call sites use `_ollama_post_with_retry()`:
 - **3 retries** with exponential backoff (2s / 4s / 8s) on `ConnectError` and 5xx.
 - **No retry** on `TimeoutException` — inference is CPU-bound; retrying doubles load.
 - **Timeout** from `OLLAMA_TIMEOUT` env var (default 120s), falling back to `system_config.ai_timeout_seconds`.
+- **Generation cap** from `OLLAMA_NUM_PREDICT` env var (default 256 generated tokens) is sent as `options.num_predict` on JSON-generation calls to bound CPU-only inference latency.
+- **Production concurrency guard:** Docker Compose sets `OLLAMA_NUM_PARALLEL=1` and `OLLAMA_MAX_LOADED_MODELS=1` for the Ollama service to avoid multiple CPU generations/model loads competing on the 4-vCPU limit.
+- **Auto-AI default:** `auto_ai_analysis_enabled` is seeded as `false`; background HIGH/CRITICAL alert analysis is opt-in, while manual admin analysis remains available.
 
-### `analyze_threat_log(log_id, db) -> dict`
+### `analyze_threat_log(log_id, db) -> dict
 
 1. Fetches security log row from `wims.security_threat_logs`
 2. Builds prompt with 5-key structured JSON output (anomaly_description, log_evidence, risk_assessment, recommended_action, confidence)
-3. POSTs to `{OLLAMA_URL}/api/generate` with `model="qwen2.5:3b"`, `stream=False`, `format="json"` via `_ollama_post_with_retry()`
+3. POSTs to `{OLLAMA_URL}/api/generate` with `model="qwen2.5:3b"`, `stream=False`, `format="json"`, `options.num_predict` via `_ollama_post_with_retry()`
 4. Parses response JSON for 5 keys and `confidence`
 5. Updates `wims.security_threat_logs` SET `xai_narrative`, `xai_confidence`
 6. Returns full log row with updated XAI fields
