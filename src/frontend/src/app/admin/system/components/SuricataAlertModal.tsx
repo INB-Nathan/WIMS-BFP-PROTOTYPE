@@ -233,6 +233,7 @@ export function SuricataAlertModal({ log, onClose, onDecisionComplete }: Suricat
     'idle' | 'fetching' | 'analyzing' | 'normalizing' | 'complete' | 'error'
   >('idle');
   const [analysisElapsed, setAnalysisElapsed] = useState(0);
+  const analysisStartRef = useRef<number | null>(null);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
 
   // ── Decision / HITL state ────────────────────────────────────────────
@@ -295,23 +296,29 @@ export function SuricataAlertModal({ log, onClose, onDecisionComplete }: Suricat
     setCreateIncidentResult(null);
   }, [log.log_id]);
 
-  // Stepper timer
+  // Stepper timer — tracks total elapsed since analysis first started, not per-stage
   useEffect(() => {
     if (
       analysisState === 'fetching' ||
       analysisState === 'analyzing' ||
       analysisState === 'normalizing'
     ) {
-      setAnalysisElapsed(0);
-      const start = Date.now();
+      // Initialize the start ref on first entry into a running state
+      // (subsequent stage transitions keep the original start)
+      if (analysisStartRef.current === null) {
+        analysisStartRef.current = Date.now();
+      }
       const interval = setInterval(() => {
-        setAnalysisElapsed((Date.now() - start) / 1000);
+        setAnalysisElapsed((Date.now() - analysisStartRef.current!) / 1000);
       }, 200);
       return () => clearInterval(interval);
     }
     if (analysisState === 'error' || analysisState === 'idle') {
       setAnalysisElapsed(0);
+      analysisStartRef.current = null;
     }
+    // 'complete' — interval is already cleared; elapsed stays frozen at final value.
+    // Ref is reset when log changes or user retries (via 'idle'/'error' branch above).
   }, [analysisState]);
 
   // Related evidence eager fetch on mount
