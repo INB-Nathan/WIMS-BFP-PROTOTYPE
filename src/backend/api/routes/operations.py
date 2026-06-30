@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Annotated, Any, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -511,6 +511,7 @@ def update_operation(
 @router.delete("/{operation_id}", status_code=204)
 def delete_operation(
     operation_id: int,
+    request: Request,
     db: Annotated[Session, Depends(get_db_with_rls)],
     current_user: Annotated[dict, Depends(get_national_validator)],
 ) -> None:
@@ -530,6 +531,7 @@ def delete_operation(
         action_type="OPERATION_DELETE",
         table_affected="operations",
         record_id=operation_id,
+        request=request,
     )
     db.commit()
 
