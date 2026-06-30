@@ -347,7 +347,8 @@ services:
       # account and only interacts with the wims-suricata container by name.
       - /var/run/docker.sock:/var/run/docker.sock
     networks:
-      - wims_internal
+      wims_internal:
+        ipv4_address: 172.18.0.9
     depends_on:
       postgres:
         condition: service_healthy
