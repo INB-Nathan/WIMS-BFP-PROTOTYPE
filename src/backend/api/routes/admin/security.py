@@ -83,6 +83,7 @@ def get_security_logs(
     date_to: Optional[str] = Query(default=None),
     q: Optional[str] = Query(default=None),
     classification: Optional[str] = Query(default=None),
+    show_dismissed: bool = Query(default=False),
 ):
     """Fetch security threat logs with optional filters, full-text search, and pagination."""
     where_clauses: list[str] = []
@@ -132,6 +133,13 @@ def get_security_logs(
     if q:
         where_clauses.append("search_vector @@ websearch_to_tsquery('english', :q)")
         params["q"] = q
+
+    if not show_dismissed:
+        where_clauses.append(
+            "(admin_action_taken IS NULL OR admin_action_taken NOT IN (:dismissed_val, :fp_val))"
+        )
+        params["dismissed_val"] = "Dismissed"
+        params["fp_val"] = "False Positive (Dismissed)"
 
     where_sql = ""
     if where_clauses:

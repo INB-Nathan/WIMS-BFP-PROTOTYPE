@@ -93,6 +93,8 @@ export default function SecurityMonitoringPage() {
   const [offlineUnavailable, setOfflineUnavailable] = useState<boolean>(false);
   // Refresh key for BlockedIpsPanel — bump to force remount after filter block
   const [blockedIpsKey, setBlockedIpsKey] = useState(0);
+  // T15: hide dismissed by default
+  const [showDismissed, setShowDismissed] = useState(false);
 
   const PAGE_SIZE = 20;
 
@@ -144,6 +146,7 @@ export default function SecurityMonitoringPage() {
         date_from: dateFrom || undefined,
         date_to: dateTo || undefined,
         q: searchQ.trim() || undefined,
+        show_dismissed: showDismissed || undefined,
         limit: PAGE_SIZE,
         offset: page * PAGE_SIZE,
       });
@@ -162,7 +165,7 @@ export default function SecurityMonitoringPage() {
     } finally {
       setLoading(false);
     }
-  }, [isAdmin, isOnline, activeSeverities, page, sourceIp, dateFrom, dateTo, searchQ]);
+  }, [isAdmin, isOnline, activeSeverities, page, sourceIp, dateFrom, dateTo, searchQ, showDismissed]);
 
   useEffect(() => {
     loadMonitoring();
@@ -497,9 +500,13 @@ export default function SecurityMonitoringPage() {
               {summary?.active_count ?? total}
             </div>
             {(summary?.dismissed_count ?? 0) > 0 && (
-              <div className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
-                {summary!.dismissed_count} dismissed
-              </div>
+              <button
+                onClick={() => setShowDismissed(true)}
+                className="text-xs mt-1 underline hover:no-underline cursor-pointer"
+                style={{ color: 'var(--text-muted)' }}
+              >
+                {summary!.dismissed_count} dismissed — click to view
+              </button>
             )}
           </div>
         </div>
@@ -650,6 +657,21 @@ export default function SecurityMonitoringPage() {
                 className="px-3 py-1.5 rounded-md text-xs border"
                 style={{ borderColor: 'var(--border-color)', backgroundColor: 'var(--card-bg)', color: 'var(--text-primary)' }}
               />
+            </div>
+            {/* T15: Show dismissed toggle */}
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>&nbsp;</label>
+              <button
+                onClick={() => { setShowDismissed((v) => !v); setPage(0); }}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                  showDismissed
+                    ? 'border-[var(--bfp-maroon)] text-[var(--bfp-maroon)] bg-white'
+                    : 'border-gray-300 text-gray-500 bg-gray-50'
+                }`}
+                data-testid="show-dismissed-toggle"
+              >
+                {showDismissed ? 'Include Dismissed' : 'Dismissed Hidden'}
+              </button>
             </div>
           </div>
         </div>
