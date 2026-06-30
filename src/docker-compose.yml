@@ -2,15 +2,15 @@ networks:
   wims_internal:
     driver: bridge
     name: wims_internal
-    # Pen-test follow-up 2026-06-29: explicit subnet + static IP for redis so
-    # wims-suricata (network_mode: "host") can resolve the `redis` hostname
-    # via `extra_hosts` without depending on a dynamic bridge IP assignment.
-    # Subnet 172.18.0.0/16 matches the default Docker bridge range that the
-    # existing stack was already using on the live VPS, so the change is
-    # in-place (no IP renumbering for the other 10 services).
+    # Pen-test follow-up 2026-06-29: explicit subnet + static IPs for redis,
+    # postgres, keycloak, openbao, ollama, and celery-worker. These IPs are
+    # referenced by extra_hosts entries that bypass broken Docker DNS after
+    # wims_internal network recreation on the live VPS (see PR #485-#487).
+    # /24 is used instead of /16 because Docker 28.x IPAM has reliability
+    # issues with /16 subnets on GitHub Actions runners.
     ipam:
       config:
-        - subnet: 172.18.0.0/16
+        - subnet: 172.18.0.0/24
 
 services:
   # --- Infrastructure & Databases ---
@@ -348,7 +348,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     networks:
       wims_internal:
-        ipv4_address: 172.18.0.9
+        ipv4_address: 172.18.0.10
     depends_on:
       postgres:
         condition: service_healthy
