@@ -1,0 +1,5 @@
+{
+  "sessionDir": ".pi/sessions",
+  "compaction": { "reserveTokens": 24576 },
+  "defaultProjectTrust": "always"
+}

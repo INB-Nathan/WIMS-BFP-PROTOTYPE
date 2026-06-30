@@ -1,4 +1,4 @@
-"""IDS-to-SLM AI Analysis via Ollama (qwen2.5:3b)."""
+"""IDS-to-SLM AI Analysis via Ollama (qwen2.5:1.5b)."""
 
 from __future__ import annotations
 
@@ -24,13 +24,13 @@ from utils.external_service import (
 from utils.metrics import AI_INFERENCE_DURATION
 
 logger = logging.getLogger("wims.ai_service")
-OLLAMA_MODEL = "qwen2.5:3b"
+OLLAMA_MODEL = "qwen2.5:1.5b"
 
 # ---------------------------------------------------------------------------
 # Ollama HTTP timeout (seconds). Override via OLLAMA_TIMEOUT env var.
-# Default 120s — Qwen2.5-3B on CPU-only takes 30-120s per inference.
+# Default 480s — Qwen2.5-1.5B on CPU-only takes 30-90s per inference.
 # ---------------------------------------------------------------------------
-_OLLAMA_DEFAULT_TIMEOUT = 120.0
+_OLLAMA_DEFAULT_TIMEOUT = 480.0
 # Retry: 3 attempts, exponential backoff 2s/4s/8s, only on ConnectError + 5xx.
 _OLLAMA_MAX_RETRIES = 3
 _OLLAMA_RETRY_BASE_DELAY = 2.0
@@ -192,7 +192,7 @@ async def analyze_threat_log(log_id: int, db: Session, request: Request | None =
         f"Analyze this Suricata IDS alert: severity={json.dumps(severity_level)}, "
         f'SID={suricata_sid}, signature="{suricata_signature}", '
         f"classification={classification}, payload={json.dumps(raw_payload)}. "
-        "Output strictly JSON with keys: "
+        "Provide a structured analysis as JSON with these keys: "
         "'anomaly_description' (string), "
         "'log_evidence' (string), "
         "'risk_assessment' (string), "
@@ -207,6 +207,10 @@ async def analyze_threat_log(log_id: int, db: Session, request: Request | None =
         "prompt": prompt,
         "stream": False,
         "format": "json",
+        "options": {
+            "num_ctx": 1024,
+            "num_predict": 1024,
+        },
     }
 
     if request is not None and await request.is_disconnected():
@@ -218,57 +222,65 @@ async def analyze_threat_log(log_id: int, db: Session, request: Request | None =
     await _record_inference_metric("analyze_threat_log", time.perf_counter() - _t0)
 
     data = resp.json()
-    response_text = data.get("response", "{}")
-    try:
-        parsed = json.loads(response_text)
-    except json.JSONDecodeError:
-        raise HTTPException(status_code=502, detail="Ollama returned invalid JSON")
+    response_text = data.get("response", "")
 
     if request is not None and await request.is_disconnected():
         logger.info("Client disconnected during AI analysis of log %d, skipping DB write", log_id)
         raise HTTPException(status_code=499, detail="Client disconnected")
 
-    # Extract sources
-    sources = parsed.get("sources", ["Suricata EVE log", "Ollama"])
-    if not isinstance(sources, list):
-        sources = ["Suricata EVE log", "Ollama"]
+    # Try to parse as JSON — if it fails, gracefully degrade to raw text.
+    # The frontend normalizer (normalizeNarrative) handles both structured
+    # JSON and plain text narratives.
+    narrative = response_text
+    confidence = 0.5
+    confidence_breakdown = None
 
-    narrative_data = {
-        "anomaly_description": parsed.get("anomaly_description", ""),
-        "log_evidence": parsed.get("log_evidence", ""),
-        "risk_assessment": parsed.get("risk_assessment", ""),
-        "recommended_action": parsed.get("recommended_action", ""),
-        "sources": sources,
-    }
-    narrative = json.dumps(narrative_data)
     try:
-        confidence = float(parsed.get("confidence", 0.0))
-    except (TypeError, ValueError):
-        confidence = 0.0
-    confidence = max(0.0, min(1.0, confidence))
+        parsed = json.loads(response_text)
+        if isinstance(parsed, dict):
+            sources = parsed.get("sources", ["Suricata EVE log", "Ollama"])
+            if not isinstance(sources, list):
+                sources = ["Suricata EVE log", "Ollama"]
 
-    # Extract confidence breakdown
-    raw_breakdown = parsed.get("confidence_breakdown", {})
-    confidence_breakdown = {}
-    for key in ("anomaly_detection", "classification", "overall"):
-        val = raw_breakdown.get(key, confidence)
-        try:
-            confidence_breakdown[key] = max(0.0, min(1.0, float(val)))
-        except (TypeError, ValueError):
-            confidence_breakdown[key] = confidence
+            narrative_data = {
+                "anomaly_description": parsed.get("anomaly_description", ""),
+                "log_evidence": parsed.get("log_evidence", ""),
+                "risk_assessment": parsed.get("risk_assessment", ""),
+                "recommended_action": parsed.get("recommended_action", ""),
+                "sources": sources,
+            }
+            narrative = json.dumps(narrative_data)
+
+            try:
+                confidence = float(parsed.get("confidence", 0.5))
+            except (TypeError, ValueError):
+                confidence = 0.5
+            confidence = max(0.0, min(1.0, confidence))
+
+            raw_breakdown = parsed.get("confidence_breakdown", {})
+            if raw_breakdown:
+                confidence_breakdown = {}
+                for key in ("anomaly_detection", "classification", "overall"):
+                    val = raw_breakdown.get(key, confidence)
+                    try:
+                        confidence_breakdown[key] = max(0.0, min(1.0, float(val)))
+                    except (TypeError, ValueError):
+                        confidence_breakdown[key] = confidence
+    except json.JSONDecodeError:
+        logger.warning("Ollama response for log %d was not valid JSON, storing as raw narrative", log_id)
 
     db.execute(
         text("""
             UPDATE wims.security_threat_logs
             SET xai_narrative = :narrative,
                 xai_confidence = :confidence,
-                xai_confidence_breakdown = CAST(:breakdown AS jsonb)
+                xai_confidence_breakdown = :breakdown
             WHERE log_id = :log_id
         """),
         {
             "narrative": narrative,
             "confidence": confidence,
-            "breakdown": json.dumps(confidence_breakdown),
+            "breakdown": json.dumps(confidence_breakdown) if confidence_breakdown else None,
             "log_id": log_id,
         },
     )
