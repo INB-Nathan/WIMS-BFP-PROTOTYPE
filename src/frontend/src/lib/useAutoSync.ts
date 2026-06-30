@@ -107,10 +107,34 @@ export function useAutoSync(): AutoSyncState {
           { detail: { incidents: result.syncedIncidents ?? [] } },
         ));
       } else if (result.conflicts > 0) {
-        toast.warning(
-          `Synced ${result.synced}. ${result.conflicts} item${result.conflicts === 1 ? '' : 's'} need your attention.`,
-        );
-        // Don't increment — refreshOpsCounts after sync will pick up exact state
+        const duplicateCount = result.errors.filter((e) => e.error === '409_duplicate').length;
+        const conflictCount = result.conflicts - duplicateCount;
+
+        if (duplicateCount > 0 && conflictCount === 0) {
+          toast.warning(
+            `${duplicateCount} duplicate${duplicateCount === 1 ? '' : 's'} detected — check the Conflicts tab to review.`,
+            {
+              action: {
+                label: 'View Conflicts',
+                onClick: () => { window.location.href = '/dashboard/regional/offline-work?tab=conflicts'; },
+              },
+            },
+          );
+        } else if (duplicateCount > 0) {
+          toast.warning(
+            `${duplicateCount} duplicate${duplicateCount === 1 ? '' : 's'} detected; ${conflictCount} other conflict${conflictCount === 1 ? '' : 's'} need attention.`,
+            {
+              action: {
+                label: 'View Conflicts',
+                onClick: () => { window.location.href = '/dashboard/regional/offline-work?tab=conflicts'; },
+              },
+            },
+          );
+        } else {
+          toast.warning(
+            `Synced ${result.synced}. ${result.conflicts} item${result.conflicts === 1 ? '' : 's'} need your attention.`,
+          );
+        }
       } else if (result.failed > 0 && result.synced > 0) {
         toast.warning(`Synced ${result.synced}, ${result.failed} failed — will retry`);
       } else if (result.failed > 0) {

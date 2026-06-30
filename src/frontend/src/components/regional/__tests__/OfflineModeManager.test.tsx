@@ -48,6 +48,7 @@ vi.mock('@/lib/offlineEnable', () => ({
 vi.mock('@/lib/offlineStore', () => ({
   clearAllOfflineData: vi.fn().mockResolvedValue(undefined),
   setActiveOfflineUser: vi.fn().mockResolvedValue(undefined),
+  getCachedIncidents: vi.fn().mockResolvedValue([]),
   getPendingOps: vi.fn().mockResolvedValue([]),
 }));
 
@@ -56,7 +57,6 @@ vi.mock('@/lib/useNetworkStatus', () => ({
 }));
 
 import { OfflineModeManager } from '../OfflineModeManager';
-import { isOfflineModeEnabled } from '@/lib/offlineModeFlags';
 
 describe('OfflineModeManager', () => {
   beforeEach(() => {
@@ -66,16 +66,16 @@ describe('OfflineModeManager', () => {
     mockRole = 'REGIONAL_ENCODER';
   });
 
-  it('renders Enable offline mode button when offline mode is disabled', () => {
+  it('renders Update offline data button', () => {
     render(<OfflineModeManager variant="panel" />);
-    expect(screen.getByText('Enable offline mode')).toBeInTheDocument();
+    expect(screen.getByText('Update offline data')).toBeInTheDocument();
   });
 
   it('shows progress during setup', async () => {
     const user = userEvent.setup();
     render(<OfflineModeManager variant="panel" />);
 
-    await user.click(screen.getByText('Enable offline mode'));
+    await user.click(screen.getByText('Update offline data'));
 
     // Simulate progress updates via the callback captured by the mock
     await waitFor(() => {
@@ -93,12 +93,12 @@ describe('OfflineModeManager', () => {
     expect(screen.getByText('Cancel')).toBeInTheDocument();
   });
 
-  it('does not call markOfflineModeEnabled on cancellation', async () => {
+  it('cancellation aborts the update and restores button', async () => {
     const user = userEvent.setup();
     render(<OfflineModeManager variant="panel" />);
 
-    // Click enable — the mock doesn't resolve yet, so we stay in busy state
-    await user.click(screen.getByText('Enable offline mode'));
+    // Click update — the mock doesn't resolve yet, so we stay in busy state
+    await user.click(screen.getByText('Update offline data'));
 
     await waitFor(() => {
       expect(screen.getByText('Cancel')).toBeInTheDocument();
@@ -108,7 +108,7 @@ describe('OfflineModeManager', () => {
     await user.click(screen.getByText('Cancel'));
 
     await waitFor(() => {
-      expect(screen.getByText('Enable offline mode')).toBeInTheDocument();
+      expect(screen.getByText('Update offline data')).toBeInTheDocument();
     });
     expect(screen.queryByText('Cancel')).not.toBeInTheDocument();
   });
@@ -119,15 +119,21 @@ describe('OfflineModeManager', () => {
     expect(container.innerHTML).toBe('');
   });
 
-  it('shows banner variant when disabled', () => {
+  it('shows banner variant when no incidents are cached', async () => {
+    // cachedCount starts null (loading), then resolves to 0 → banner shows
     render(<OfflineModeManager variant="banner" />);
-    expect(screen.getByText(/This device is not set up for offline use/)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText(/Download incidents for offline viewing/)).toBeInTheDocument();
+    });
     expect(screen.getByText('Set up in My Profile')).toBeInTheDocument();
   });
 
-  it('hides banner variant when enabled', () => {
-    vi.mocked(isOfflineModeEnabled).mockReturnValue(true);
+  it('hides banner variant when incidents are already cached', async () => {
+    const { getCachedIncidents } = await import('@/lib/offlineStore');
+    vi.mocked(getCachedIncidents).mockResolvedValue([{ serverId: 1, cachedAt: Date.now(), encoderId: 'test-encoder' } as never]);
     const { container } = render(<OfflineModeManager variant="banner" />);
-    expect(container.innerHTML).toBe('');
+    await waitFor(() => {
+      expect(container.innerHTML).toBe('');
+    });
   });
 });

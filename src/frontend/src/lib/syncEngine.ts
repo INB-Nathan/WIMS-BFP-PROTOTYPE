@@ -249,8 +249,20 @@ async function processCreate(
 
   const createBody = 'body' in res ? res.body : {};
   if (res.status === 409) {
-    const code = (createBody.detail as Record<string, string> | null)?.code ?? createBody.code as string;
-    if (code === 'DUPLICATE_DETECTED') return { ok: false, conflictCode: '409_duplicate', status: 409 };
+    const detail = createBody.detail as Record<string, unknown> | null;
+    const code = (detail?.code as string) ?? (createBody.code as string);
+    if (code === 'DUPLICATE_DETECTED') {
+      return {
+        ok: false,
+        conflictCode: '409_duplicate',
+        status: 409,
+        serverVersion: {
+          matched_incident_id: detail?.matched_incident_id ?? null,
+          matched_status: detail?.matched_status ?? null,
+          confidence: detail?.confidence ?? null,
+        },
+      };
+    }
     return { ok: false, conflictCode: '409_conflict', serverVersion: createBody.server_version as Record<string, unknown>, status: 409 };
   }
 
@@ -280,7 +292,7 @@ async function processUpdate(
 async function processSubmit(
   op: OfflineOpDecrypted,
   syncedServerIds: Map<string, number>
-): Promise<{ ok: boolean; conflictCode?: string; status?: number; error?: string }> {
+): Promise<{ ok: boolean; conflictCode?: string; serverVersion?: Record<string, unknown>; status?: number; error?: string }> {
   const serverId = resolveServerId(op, syncedServerIds);
   if (!serverId) return { ok: false, error: 'serverId not yet resolved (create may have failed)', status: undefined };
 
@@ -290,8 +302,25 @@ async function processSubmit(
   if (res.status === 0) return { ok: false, status: 0, error: 'error' in res ? res.error : 'Network error' };
   if (res.status === 409) {
     const submitBody = 'body' in res ? res.body : {};
-    const code = (submitBody.detail as Record<string, string> | null)?.code ?? submitBody.code as string;
-    return { ok: false, conflictCode: code === 'DUPLICATE_DETECTED' ? '409_duplicate' : '409_conflict', status: 409 };
+    const detail = submitBody.detail as Record<string, unknown> | null;
+    const code = (detail?.code as string) ?? (submitBody.code as string);
+    if (code === 'DUPLICATE_DETECTED') {
+      // Store duplicate metadata in serverVersion so the Conflicts page can surface
+      // the matched incident and offer the encoder the same diff-panel experience
+      // they would get on manual online submission.
+      return {
+        ok: false,
+        conflictCode: '409_duplicate',
+        status: 409,
+        serverVersion: {
+          incident_id: serverId,
+          matched_incident_id: detail?.matched_incident_id ?? null,
+          matched_status: detail?.matched_status ?? null,
+          confidence: detail?.confidence ?? null,
+        },
+      };
+    }
+    return { ok: false, conflictCode: '409_conflict', status: 409 };
   }
   const submitErrBody = 'body' in res ? res.body : {};
   return { ok: false, status: res.status, error: (submitErrBody.detail as string) ?? `HTTP ${res.status}` };

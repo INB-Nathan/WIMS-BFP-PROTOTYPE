@@ -1,15 +1,8 @@
 'use client';
 
-/**
- * Offline Work Center — unified view of all queued offline work.
- *
- * Displays Drafts, Queued, Failed, and Conflicts as tabbed or stacked
- * sections so the encoder can see, manage, and act on every offline operation.
- */
-
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -87,13 +80,58 @@ function formatSyncErrors(
     .join('; ');
 }
 
+// ── Pending op grouping ─────────────────────────────────────────────────────
+// A "create + submit" queued together is one logical incident from the user's
+// perspective. Group child ops (those whose linkedLocalId points to another
+// pending op) under their parent so the UI shows one card per incident.
+
+interface PendingGroup {
+  parent: OfflineOpDecrypted;
+  children: OfflineOpDecrypted[];
+}
+
+function groupPendingOps(ops: OfflineOpDecrypted[]): PendingGroup[] {
+  const byLocalId = new Map<string, OfflineOpDecrypted>();
+  for (const op of ops) byLocalId.set(op.localId, op);
+
+  const childLocalIds = new Set<string>();
+  for (const op of ops) {
+    if (op.linkedLocalId && byLocalId.has(op.linkedLocalId)) {
+      childLocalIds.add(op.localId);
+    }
+  }
+
+  const groups: PendingGroup[] = [];
+  for (const op of ops) {
+    if (childLocalIds.has(op.localId)) continue; // rendered under parent
+    const children = ops.filter((c) => c.linkedLocalId === op.localId);
+    groups.push({ parent: op, children });
+  }
+  return groups;
+}
+
+function groupedLabel(group: PendingGroup): string {
+  if (group.children.length === 0) return operationDisplay(group.parent);
+  // "Create incident & submit for review" → "Create & submit"
+  const childSuffix = group.children
+    .map((c) => operationDisplay(c).toLowerCase())
+    .join(', ');
+  return `${operationDisplay(group.parent)} & ${childSuffix}`;
+}
+
 export default function OfflineWorkPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user, loading } = useAuth();
   const encoderId = (user as { id?: string })?.id ?? '';
 
   const { syncing } = useAutoSync();
-  const [activeSection, setActiveSection] = useState<Section>('drafts');
+  const tabParam = searchParams.get('tab') as Section | null;
+  const [activeSection, setActiveSection] = useState<Section>(
+    tabParam && ['drafts', 'queued', 'failed', 'conflicts'].includes(tabParam)
+      ? tabParam
+      : 'drafts',
+  );
   const [drafts, setDrafts] = useState<OfflineOpDecrypted[]>([]);
   const [pendingOps, setPendingOps] = useState<OfflineOpDecrypted[]>([]);
   const [conflictOps, setConflictOps] = useState<OfflineOpDecrypted[]>([]);
@@ -186,9 +224,12 @@ export default function OfflineWorkPage() {
 
   if (!user) return null;
 
+  // Group pending ops so create+submit pairs count as one incident in the UI.
+  const pendingGroups = groupPendingOps(pendingOps);
+
   const sections: { key: Section; count: number; ops: OfflineOpDecrypted[] }[] = [
     { key: 'drafts', count: drafts.length, ops: drafts },
-    { key: 'queued', count: pendingOps.length, ops: pendingOps },
+    { key: 'queued', count: pendingGroups.length, ops: pendingOps },
     { key: 'failed', count: failedOps.length, ops: failedOps },
     { key: 'conflicts', count: conflictOps.length, ops: conflictOps },
   ];
@@ -285,20 +326,26 @@ export default function OfflineWorkPage() {
           </div>
         )}
 
-        {/* ── Retry all for queued section ── */}
-        {activeSection === 'queued' && pendingOps.length > 0 && (
-          <div className="flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
-            <span className="text-sm text-amber-800">
-              {pendingOps.length} operation{pendingOps.length !== 1 ? 's' : ''} waiting to sync.
-            </span>
+        {/* ── Queued section banner ── */}
+        {activeSection === 'queued' && pendingGroups.length > 0 && (
+          <div className="flex flex-col gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 sm:flex-row sm:items-center">
+            <div className="flex-1">
+              <span className="text-sm text-amber-800">
+                {pendingGroups.length} incident{pendingGroups.length !== 1 ? 's' : ''} waiting to sync.
+              </span>
+              <span className="ml-2 text-xs text-amber-600">
+                Syncs automatically when you reconnect.
+              </span>
+            </div>
             <button
               type="button"
               onClick={handleRetryAll}
               disabled={syncing || retrying}
+              title="Force a sync attempt now"
               className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
             >
               <RefreshCw className={`h-3.5 w-3.5 ${retrying ? 'animate-spin' : ''}`} aria-hidden />
-              {retrying ? 'Syncing…' : 'Sync Now'}
+              {retrying ? 'Syncing…' : 'Retry'}
             </button>
           </div>
         )}
@@ -336,101 +383,186 @@ export default function OfflineWorkPage() {
         {/* ── Op list ── */}
         {!loadingOps && activeOps.length > 0 && (
           <div className="space-y-3">
-            {activeOps.map((op) => {
-              const payload = op.payload as Record<string, unknown>;
-              const incidentNonsensitive = (payload.incident_nonsensitive_details ?? {}) as Record<string, unknown>;
-              const incidentSensitive = (payload.incident_sensitive_details ?? {}) as Record<string, unknown>;
-              const category = String(incidentNonsensitive.general_category ?? payload.general_category ?? '—');
-              const city = String(incidentNonsensitive.city_municipality ?? payload.city_municipality ?? '—');
-              const address = String(incidentSensitive.street_address ?? payload.street_address ?? '—');
+            {activeSection === 'queued'
+              ? pendingGroups.map((group) => {
+                  const op = group.parent;
+                  const payload = op.payload as Record<string, unknown>;
+                  const incidentNonsensitive = (payload.incident_nonsensitive_details ?? {}) as Record<string, unknown>;
+                  const incidentSensitive = (payload.incident_sensitive_details ?? {}) as Record<string, unknown>;
+                  const category = String(incidentNonsensitive.general_category ?? payload.general_category ?? '—');
+                  const city = String(incidentNonsensitive.city_municipality ?? payload.city_municipality ?? '—');
+                  const address = String(incidentSensitive.street_address ?? payload.street_address ?? '—');
 
-              const detailPath =
-                op.operation === 'create'
-                  ? `/dashboard/regional/incidents/${op.localId}`
-                  : op.serverId
-                    ? `/dashboard/regional/incidents/${op.serverId}`
-                    : null;
+                  const detailPath =
+                    op.operation === 'create'
+                      ? `/dashboard/regional/incidents/local/${op.localId}`
+                      : op.serverId
+                        ? `/dashboard/regional/incidents/${op.serverId}`
+                        : null;
 
-              const isConflictLink = activeSection === 'conflicts';
+                  return (
+                    <div
+                      key={op.localId}
+                      className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md"
+                    >
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="inline-flex items-center gap-1 rounded-md bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700">
+                              {groupedLabel(group)}
+                            </span>
+                            <span className="text-xs text-gray-500">
+                              {formatCreatedAt(op.createdAt)}
+                            </span>
+                            {op.retryCount > 0 && (
+                              <span className="text-xs text-gray-400">
+                                Retry #{op.retryCount}
+                              </span>
+                            )}
+                          </div>
+                          <div className="mt-1.5 text-sm text-gray-700">
+                            {category !== '—' && <span className="font-medium">{category}</span>}
+                            {city !== '—' && (
+                              <span className="text-gray-500">
+                                {category !== '—' ? ' · ' : ''}{city}
+                              </span>
+                            )}
+                            {address !== '—' && category === '—' && (
+                              <span className="text-gray-500">{address}</span>
+                            )}
+                          </div>
+                          {op.errorMessage && (
+                            <p className="mt-1 text-xs text-red-600">
+                              Error: {op.errorMessage}
+                            </p>
+                          )}
+                        </div>
 
-              return (
-                <div
-                  key={op.localId}
-                  className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md"
-                >
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="inline-flex items-center gap-1 rounded-md bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700">
-                          {operationDisplay(op)}
-                        </span>
-                        <span className="text-xs text-gray-500">
-                          {formatCreatedAt(op.createdAt)}
-                        </span>
-                        {op.retryCount > 0 && (
-                          <span className="text-xs text-gray-400">
-                            Retry #{op.retryCount}
-                          </span>
-                        )}
+                        <div className="flex flex-shrink-0 items-center gap-2">
+                          {detailPath && (
+                            <Link
+                              href={detailPath}
+                              className="inline-flex items-center gap-1 rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 min-h-[44px]"
+                            >
+                              Open Draft
+                            </Link>
+                          )}
+                          <button
+                            type="button"
+                            disabled={syncing || cancellingId === op.localId}
+                            onClick={() => setConfirmCancel(op)}
+                            className="inline-flex items-center gap-1 rounded-md border border-red-300 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
+                            aria-label={`Cancel ${groupedLabel(group)}`}
+                          >
+                            <XCircle className="h-3.5 w-3.5" aria-hidden />
+                            {cancellingId === op.localId ? 'Cancelling…' : 'Cancel'}
+                          </button>
+                        </div>
                       </div>
-                      <div className="mt-1.5 text-sm text-gray-700">
-                        {category !== '—' && <span className="font-medium">{category}</span>}
-                        {city !== '—' && (
-                          <span className="text-gray-500">
-                            {category !== '—' ? ' · ' : ''}{city}
-                          </span>
-                        )}
-                        {address !== '—' && category === '—' && (
-                          <span className="text-gray-500">{address}</span>
-                        )}
-                      </div>
-                      {op.errorMessage && (
-                        <p className="mt-1 text-xs text-red-600">
-                          Error: {op.errorMessage}
-                        </p>
-                      )}
-                      {op.syncStatus === 'conflict' && op.serverVersion && (
-                        <p className="mt-1 text-xs text-orange-600">
-                          Server has different data — choose which version to keep.
-                        </p>
-                      )}
                     </div>
+                  );
+                })
+              : activeOps.map((op) => {
+                  const payload = op.payload as Record<string, unknown>;
+                  const incidentNonsensitive = (payload.incident_nonsensitive_details ?? {}) as Record<string, unknown>;
+                  const incidentSensitive = (payload.incident_sensitive_details ?? {}) as Record<string, unknown>;
+                  const category = String(incidentNonsensitive.general_category ?? payload.general_category ?? '—');
+                  const city = String(incidentNonsensitive.city_municipality ?? payload.city_municipality ?? '—');
+                  const address = String(incidentSensitive.street_address ?? payload.street_address ?? '—');
 
-                    <div className="flex flex-shrink-0 items-center gap-2">
-                      {isConflictLink && (
-                        <Link
-                          href="/dashboard/regional/conflicts"
-                          className="inline-flex items-center gap-1 rounded-md bg-orange-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-orange-700 min-h-[44px]"
-                        >
-                          <AlertTriangle className="h-3.5 w-3.5" aria-hidden />
-                          Resolve
-                        </Link>
-                      )}
-                      {detailPath && !isConflictLink && (
-                        <Link
-                          href={detailPath}
-                          className="inline-flex items-center gap-1 rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 min-h-[44px]"
-                        >
-                          {op.operation === 'create' ? 'Open Draft' : 'View Incident'}
-                        </Link>
-                      )}
-                      {(activeSection === 'queued' || activeSection === 'failed') && !isConflictLink && (
-                        <button
-                          type="button"
-                          disabled={syncing || cancellingId === op.localId}
-                          onClick={() => setConfirmCancel(op)}
-                          className="inline-flex items-center gap-1 rounded-md border border-red-300 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
-                          aria-label={`Cancel ${operationDisplay(op)}`}
-                        >
-                          <XCircle className="h-3.5 w-3.5" aria-hidden />
-                          {cancellingId === op.localId ? 'Cancelling…' : 'Cancel'}
-                        </button>
-                      )}
+                  const detailPath =
+                    op.operation === 'create'
+                      ? `/dashboard/regional/incidents/local/${op.localId}`
+                      : op.serverId
+                        ? `/dashboard/regional/incidents/${op.serverId}`
+                        : null;
+
+                  const isConflictLink = activeSection === 'conflicts';
+                  const isDuplicate = op.errorCode === '409_duplicate';
+
+                  return (
+                    <div
+                      key={op.localId}
+                      className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md"
+                    >
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="inline-flex items-center gap-1 rounded-md bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700">
+                              {operationDisplay(op)}
+                            </span>
+                            <span className="text-xs text-gray-500">
+                              {formatCreatedAt(op.createdAt)}
+                            </span>
+                            {op.retryCount > 0 && (
+                              <span className="text-xs text-gray-400">
+                                Retry #{op.retryCount}
+                              </span>
+                            )}
+                          </div>
+                          <div className="mt-1.5 text-sm text-gray-700">
+                            {category !== '—' && <span className="font-medium">{category}</span>}
+                            {city !== '—' && (
+                              <span className="text-gray-500">
+                                {category !== '—' ? ' · ' : ''}{city}
+                              </span>
+                            )}
+                            {address !== '—' && category === '—' && (
+                              <span className="text-gray-500">{address}</span>
+                            )}
+                          </div>
+                          {op.errorMessage && (
+                            <p className="mt-1 text-xs text-red-600">
+                              Error: {op.errorMessage}
+                            </p>
+                          )}
+                          {isConflictLink && isDuplicate && (
+                            <p className="mt-1 text-xs text-orange-600">
+                              Duplicate detected — a similar incident already exists in the system. Review before submitting.
+                            </p>
+                          )}
+                          {isConflictLink && !isDuplicate && op.serverVersion && (
+                            <p className="mt-1 text-xs text-orange-600">
+                              Server has different data — choose which version to keep.
+                            </p>
+                          )}
+                        </div>
+
+                        <div className="flex flex-shrink-0 items-center gap-2">
+                          {isConflictLink && (
+                            <Link
+                              href="/dashboard/regional/conflicts"
+                              className="inline-flex items-center gap-1 rounded-md bg-orange-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-orange-700 min-h-[44px]"
+                            >
+                              <AlertTriangle className="h-3.5 w-3.5" aria-hidden />
+                              Resolve
+                            </Link>
+                          )}
+                          {detailPath && !isConflictLink && (
+                            <Link
+                              href={detailPath}
+                              className="inline-flex items-center gap-1 rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 min-h-[44px]"
+                            >
+                              {op.operation === 'create' ? 'Open Draft' : 'View Incident'}
+                            </Link>
+                          )}
+                          {activeSection === 'failed' && !isConflictLink && (
+                            <button
+                              type="button"
+                              disabled={syncing || cancellingId === op.localId}
+                              onClick={() => setConfirmCancel(op)}
+                              className="inline-flex items-center gap-1 rounded-md border border-red-300 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
+                              aria-label={`Cancel ${operationDisplay(op)}`}
+                            >
+                              <XCircle className="h-3.5 w-3.5" aria-hidden />
+                              {cancellingId === op.localId ? 'Cancelling…' : 'Cancel'}
+                            </button>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                </div>
-              );
-            })}
+                  );
+                })}
           </div>
         )}
       </div>
