@@ -350,39 +350,6 @@ jobs:
         run: docker compose -f docker-compose.yml -f docker-compose.ci.yml down -v
 
   # ===========================================================================
-  # GITHUB INTEGRATION (PoC 3) — demonstrate gh CLI in CI
-  # ===========================================================================
-  github-integration:
-    name: GitHub Integration (PoC 3)
-    runs-on: ubuntu-latest
-    needs: [migrations, frontend, backend, docker-build]
-    if: |
-      always()
-      && github.event_name == 'pull_request'
-      && !cancelled()
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Post PR comment with test summary
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh pr comment "${{ github.event.pull_request.number }}" \
-            --body "## 🤖 CI Summary (gh CLI PoC 3)
-
-            | Job | Status |
-            |-----|--------|
-            | Migrations | ${{ needs.migrations.result }} |
-            | Frontend | ${{ needs.frontend.result }} |
-            | Backend | ${{ needs.backend.result }} |
-            | Docker Build | ${{ needs.docker-build.result }} |
-
-            This comment was posted by the \`gh\` CLI as a proof-of-concept for automated CI interactions.
-            "
-
-  # ===========================================================================
   # MERGE GATE — all critical jobs must pass
   # ===========================================================================
   merge-gate:
