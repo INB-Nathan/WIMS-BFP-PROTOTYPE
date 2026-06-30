@@ -350,6 +350,8 @@ export interface SecurityLogsSummary {
   by_severity: { LOW: number; MEDIUM: number; HIGH: number; CRITICAL: number };
   unreviewed_count: number;
   total: number;
+  active_count: number;
+  dismissed_count: number;
   recent_narratives: Array<{
     log_id: number;
     severity_level: string;

@@ -112,8 +112,16 @@ def _make_list_db(rows, total):
     return mock_db, _get_db
 
 
-def _make_summary_db(sev_rows, unreviewed, total, narrative_rows):
-    """Mock DB for the 4-execute pattern used by GET /security-logs/summary."""
+def _make_summary_db(sev_rows, unreviewed, total, narrative_rows, active_count=None):
+    """Mock DB for the 5-execute pattern used by GET /security-logs/summary.
+
+    Execute order:
+      1. severity distribution
+      2. unreviewed count
+      3. total count
+      4. active count (added in security-threat-deletion plan P1.1)
+      5. recent narratives
+    """
     mock_sev = MagicMock()
     mock_sev.fetchall.return_value = sev_rows
 
@@ -123,11 +131,20 @@ def _make_summary_db(sev_rows, unreviewed, total, narrative_rows):
     mock_total = MagicMock()
     mock_total.scalar.return_value = total
 
+    mock_active = MagicMock()
+    mock_active.scalar.return_value = active_count if active_count is not None else total
+
     mock_narratives = MagicMock()
     mock_narratives.fetchall.return_value = narrative_rows
 
     mock_db = MagicMock()
-    mock_db.execute.side_effect = [mock_sev, mock_unreviewed, mock_total, mock_narratives]
+    mock_db.execute.side_effect = [
+        mock_sev,
+        mock_unreviewed,
+        mock_total,
+        mock_active,
+        mock_narratives,
+    ]
 
     def _get_db():
         yield mock_db
@@ -382,7 +399,14 @@ class TestSecurityLogsSummary:
 
         assert resp.status_code == 200
         data = resp.json()
-        assert set(data.keys()) == {"by_severity", "unreviewed_count", "total", "recent_narratives"}
+        assert set(data.keys()) == {
+            "by_severity",
+            "unreviewed_count",
+            "total",
+            "active_count",
+            "dismissed_count",
+            "recent_narratives",
+        }
 
     def test_summary_by_severity_counts(self, client: TestClient):
         app.dependency_overrides[auth.get_current_wims_user] = lambda: _ADMIN
@@ -417,6 +441,27 @@ class TestSecurityLogsSummary:
         data = resp.json()
         assert data["unreviewed_count"] == 7
         assert data["total"] == 15
+        assert data["active_count"] == 15
+        assert data["dismissed_count"] == 0
+
+    def test_summary_active_and_dismissed_counts(self, client: TestClient):
+        """active_count excludes dismissed rows; dismissed_count = total - active."""
+        app.dependency_overrides[auth.get_current_wims_user] = lambda: _ADMIN
+        _, _get_db = _make_summary_db(
+            sev_rows=[("HIGH", 3), ("LOW", 5)],
+            unreviewed=2,
+            total=8,
+            active_count=5,
+            narrative_rows=[],
+        )
+        app.dependency_overrides[get_db_with_rls] = _get_db
+
+        resp = client.get("/api/admin/security-logs/summary")
+
+        data = resp.json()
+        assert data["active_count"] == 5
+        assert data["dismissed_count"] == 3
+        assert data["total"] == 8
 
     def test_summary_recent_narratives_shape(self, client: TestClient):
         import datetime

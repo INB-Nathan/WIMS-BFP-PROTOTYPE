@@ -333,9 +333,9 @@ export default function SecurityMonitoringPage() {
     }
   }, []);
 
-  // T11: Delete Alert handler
-  const handleDeleteAlert = useCallback(async (log: ThreatLogItem) => {
-    if (!window.confirm('Dismiss this alert? It will be marked dismissed and kept for audit.')) return;
+  // T11: Dismiss Alert handler
+  const handleDismissAlert = useCallback(async (log: ThreatLogItem) => {
+    if (!window.confirm('Dismiss this alert? It will be excluded from active threat counts but kept for audit.')) return;
     try {
       await deleteSecurityLog(log.log_id);
       setToast({ type: 'success', text: 'Alert dismissed' });
@@ -491,11 +491,16 @@ export default function SecurityMonitoringPage() {
         <div className="card">
           <div className="card-body">
             <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-muted)' }}>
-              Total Threats
+              Active Threats
             </div>
             <div className="text-3xl font-bold mt-2" style={{ color: 'var(--text-primary)' }}>
-              {total}
+              {summary?.active_count ?? total}
             </div>
+            {(summary?.dismissed_count ?? 0) > 0 && (
+              <div className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+                {summary!.dismissed_count} dismissed
+              </div>
+            )}
           </div>
         </div>
         <div className="card">
@@ -872,14 +877,14 @@ export default function SecurityMonitoringPage() {
                           Create Incident
                         </button>
 
-                        {/* Delete Alert — ghost/destructive */}
+                        {/* Dismiss Alert — ghost */}
                         <button
-                          onClick={() => handleDeleteAlert(log)}
+                          onClick={() => handleDismissAlert(log)}
                           className="px-2 py-1 text-[11px] font-semibold rounded transition-colors"
                           style={{ color: '#dc2626', backgroundColor: 'transparent' }}
-                          title="Dismiss this alert (soft-delete)"
+                          title="Dismiss this alert (soft-delete, excludes from active counts)"
                         >
-                          Delete Alert
+                          Dismiss Alert
                         </button>
                       </div>
                     </td>
