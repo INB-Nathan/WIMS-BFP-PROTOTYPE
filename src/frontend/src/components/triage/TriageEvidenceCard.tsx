@@ -4,6 +4,7 @@ import { AlertTriangle, CheckCircle2, MapPin, RadioTower } from 'lucide-react';
 import type { TriageReportEntry } from '@/lib/api';
 import { isValidPhilippinesCoordinate } from './triageGeometry';
 import { isTerminalStatus, stripHtml } from './useTriageModalState';
+import { trustLevel, TRUST_COLORS } from '@/lib/trustColors';
 
 export interface TriageEvidenceCardProps {
   report: TriageReportEntry;
@@ -79,8 +80,11 @@ export function TriageEvidenceCard({
             <MapPin className="h-3 w-3" /> No usable location
           </span>
         )}
-        <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1 font-medium text-slate-700">
-          <CheckCircle2 className="h-3 w-3" /> Trust {report.trust_breakdown.score}
+        <span
+          className={`inline-flex items-center gap-1 rounded-md px-2 py-1 font-bold ${TRUST_COLORS[trustLevel(report.trust_breakdown.score)].bg} ${TRUST_COLORS[trustLevel(report.trust_breakdown.score)].text}`}
+          title="Trust score: higher = more reliable. Calculated from device history, proximity, and report consistency."
+        >
+          <CheckCircle2 className="h-3 w-3" /> Trust {report.trust_breakdown.score}/100
         </span>
         <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1 font-medium text-slate-700">
           <RadioTower className="h-3 w-3" /> {report.station.name ?? 'No station'}

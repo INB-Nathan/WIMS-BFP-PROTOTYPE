@@ -698,7 +698,16 @@ def merge_clusters_command(
     user: dict,
     db: Session,
 ) -> WorkflowResult:
-    """Merge a nearby source cluster into a claimed target cluster."""
+    """Merge a nearby source cluster into a claimed target cluster.
+
+    Validates:
+    - Target cluster is claimed by the current user.
+    - Source cluster exists, is not closed, and is not actively claimed by another user.
+    - Source and target anchors are within 250m / 1 hour proximity.
+
+    After merge, source cluster is set to CLUSTER_CLOSED with merged_into_cluster_id set.
+    All source members are moved to the target cluster.
+    """
     note = body.internal_note.strip()
     if not note or body.source_cluster_id == target_cluster_id:
         raise HTTPException(
@@ -712,6 +721,36 @@ def merge_clusters_command(
             raise HTTPException(status_code=404, detail="Source cluster not found")
         if source[1] == "CLUSTER_CLOSED":
             raise HTTPException(status_code=409, detail="Source cluster is already closed")
+        if source[1] == "CLUSTER_UNDER_REVIEW" and str(source[2]) != str(user["user_id"]):
+            raise HTTPException(
+                status_code=409,
+                detail="Source cluster is actively claimed by another user. Reassign or wait.",
+            )
+
+        # Re-validate geospatial/time proximity (250m / 1hr) between anchors
+        proximity_check = db.execute(
+            text("""
+                SELECT
+                    ST_Distance(sa.location::geography, ta.location::geography) < 250
+                    AND ABS(EXTRACT(EPOCH FROM (sa.created_at - ta.created_at))) <= 3600
+                    AS within_range
+                FROM wims.citizen_reports sa
+                CROSS JOIN wims.citizen_reports ta
+                WHERE sa.report_id = (
+                    SELECT anchor_report_id FROM wims.citizen_report_clusters WHERE cluster_id = :source_cid
+                )
+                AND ta.report_id = (
+                    SELECT anchor_report_id FROM wims.citizen_report_clusters WHERE cluster_id = :target_cid
+                )
+            """),
+            {"source_cid": body.source_cluster_id, "target_cid": target_cluster_id},
+        ).scalar()
+        if not proximity_check:
+            raise HTTPException(
+                status_code=422,
+                detail="Source cluster is outside 250m / 1 hour proximity from target cluster. "
+                "Only nearby clusters within the same time window can be merged.",
+            )
 
         moved = db.execute(
             text("""

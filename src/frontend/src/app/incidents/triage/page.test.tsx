@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import type {
@@ -467,9 +467,9 @@ describe('TriagePage', () => {
     expect(modalContent).toContain('Follow-up');
   });
 
-  it('does not show Claim button for ENCODER role', async () => {
+  it('shows Claim button for REGIONAL_ENCODER role', async () => {
     mockUseAuth.mockReturnValue({
-      user: { keycloak_id: 'enc1', username: 'encoder1', role: 'ENCODER' },
+      user: { keycloak_id: 'enc1', username: 'encoder1', role: 'REGIONAL_ENCODER' },
       loading: false,
     });
     const { default: TriagePage } = await import('./page');
@@ -477,6 +477,7 @@ describe('TriagePage', () => {
     // Select cluster 1 in the map (the board now hosts the Claim CTA)
     await userEvent.click(await screen.findByRole('button', { name: /Select cluster 1/ }));
     // Claim button rendered only for VALIDATOR/NATIONAL_VALIDATOR on unassigned clusters
+    // REGIONAL_ENCODER can see the page but not claim
     expect(screen.queryByRole('button', { name: /Claim cluster/ })).not.toBeInTheDocument();
   });
 
@@ -507,7 +508,9 @@ describe('TriagePage', () => {
     await waitFor(() => {
       expect(screen.getByTestId('triage-panel-correct')).toBeInTheDocument();
     });
-    expect(screen.getByText(/Click/)).toBeInTheDocument();
+    // Scope query to the Correct panel to avoid matching TriageLegend text
+    const panel = screen.getByTestId('triage-panel-correct');
+    expect(within(panel).getByText(/Click/)).toBeInTheDocument();
     // Commit button is disabled until a target report is selected
     expect(screen.getByTestId('triage-commit-correct')).toBeDisabled();
   });

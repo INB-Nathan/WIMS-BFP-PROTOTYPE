@@ -106,6 +106,7 @@ def get_queue(
     someone_else_needs_help: bool = Query(False),
     aging: bool = Query(False),
     timeout_risk: bool = Query(False),
+    danger: bool = Query(False),
     confidence: str | None = Query(None),  # HIGH | MEDIUM | LOW
     unreviewed: bool = Query(False),
     claimed_by_me: bool = Query(False),
@@ -121,8 +122,8 @@ def get_queue(
     - Each cluster entry also carries a `related_count` of reports within 100m/1hr
       (ST_DWithin computed at read time) to support severity and outlier detection.
 
-    Ordering: life-safety → aging → timeout_risk → severity → cluster_size →
-              avg_trust → oldest_report_time
+    Ordering: life-safety → danger → aging → timeout_risk → severity →
+              cluster_size → avg_trust → oldest_report_time
 
     Privacy: device_id, ip_hash, notification tokens are never exposed.
              Duplicate-device signals are shown as counts, not raw IDs.
@@ -534,6 +535,8 @@ def get_queue(
             continue
         if timeout_risk and not is_timeout_risk:
             continue
+        if danger and not is_danger:
+            continue
         if confidence and sev != confidence:
             continue
         if claimed_by_me and str(assigned_to_uuid) != str(user_id):
@@ -662,6 +665,7 @@ def get_queue(
         cluster_map.values(),
         key=lambda c: (
             not c.has_life_safety,
+            not c.is_danger,
             not c.is_aging,
             not c.is_timeout_risk,
             c.severity == "LOW",
