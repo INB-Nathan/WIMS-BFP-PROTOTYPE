@@ -7,7 +7,9 @@
 
 ## Overview
 
-Enrich the validator operational map (`/dashboard/validator/map`) with richer cluster data, time-range filtering, performance caching, navigation links, and map layers — decomposed into minimum-sized slices for reliable agent execution.
+Enrich the validator operational map (`/dashboard/validator/map`) with richer cluster data from **AFOR** (After Fire Operation Report) records, time-range filtering, performance caching, navigation links, and map layers — decomposed into minimum-sized slices for reliable agent execution.
+
+The operational map clusters AFOR-imported fire incidents (`wims.fire_incidents`) joined with their AFOR detail data (`wims.incident_nonsensitive_details` for structural AFORs, `wims.incident_wildland_afor` for wildland AFORs). These are encoder-submitted reports, not civilian submissions.
 
 ## Guiding Principle
 
@@ -23,9 +25,9 @@ Each slice must be:
 
 **Files touched:** `map.py`, `map.ts` (types)
 
-**What:** Extend the `get_operational_map()` SQL query with a subquery join (not a direct LEFT JOIN — see SQL correctness note below) to `incident_nonsensitive_details` and return per-cluster aggregate data. Add optional fields to `ClusterItem` Pydantic model and `MapClusterItem` TypeScript interface.
+**What:** Extend the `get_operational_map()` SQL query with a subquery join to `incident_nonsensitive_details` (structural AFOR details) and return per-cluster aggregate data from AFOR records. Add optional fields to `ClusterItem` Pydantic model and `MapClusterItem` TypeScript interface.
 
-**⚠ SQL correctness:** Use a subquery to pre-aggregate detail data before the clustering GROUP BY, even though `incident_nonsensitive_details` has a UNIQUE constraint on `incident_id` (`uq_nsd_incident_id`, migration 45). A subquery is cleaner: it separates the detail aggregation concern from the spatial clustering concern, avoids any future row-multiplication risk if the constraint is removed, and makes the query easier to read and maintain.
+**⚠ SQL correctness:** Use a subquery to pre-aggregate AFOR detail data before the clustering GROUP BY, even though `incident_nonsensitive_details` has a UNIQUE constraint on `incident_id` (`uq_nsd_incident_id`, migration 45). A subquery is cleaner: it separates the detail aggregation concern from the spatial clustering concern, avoids any future row-multiplication risk if the constraint is removed, and makes the query easier to read and maintain.
 
 ```sql
 WITH detail_agg AS (
@@ -97,11 +99,11 @@ region_id?: number;                          // representative region for drill-
 
 **Files touched:** `ValidatorMapInner.tsx`, `map.ts`
 
-**What:** Redesign the `<Popup>` content to display the new aggregate data: status breakdown as a mini-table, category badges, damage amount, casualty count, date range.
+**What:** Redesign the `<Popup>` content to display the new aggregate data from AFOR records: verification status breakdown as a mini-table, AFOR category badges (structural/wildland/vehicular), damage amount (`estimated_damage_php`), casualty count, and date range of AFOR submissions.
 
 **Popup layout:**
 ```
-Incident Cluster — 12 incidents
+AFOR Cluster — 12 AFORs
 ─────────────────────────────
 Status:  5 Pending | 4 Verified | 3 Rejected
 Categories: Structural, Wildland, Vehicular
@@ -134,7 +136,7 @@ Range:   Jan 15 – Mar 20, 2026
 
 **Files touched:** `map.py`, `legacy.ts`
 
-**What:** Add `date_from` and `date_to` optional query params to `GET /api/validator/operational-map`. Both are ISO-8601 date strings. When set, add `AND fi.created_at >= :date_from` / `AND fi.created_at <= :date_to` to the SQL WHERE clause.
+**What:** Add `date_from` and `date_to` optional query params to `GET /api/validator/operational-map`. Both are ISO-8601 date strings. When set, add `AND fi.created_at >= :date_from` / `AND fi.created_at < :date_to::date + interval '1 day'` to the SQL WHERE clause, filtering by AFOR submission/system timestamp.
 
 **Query params:**
 ```
