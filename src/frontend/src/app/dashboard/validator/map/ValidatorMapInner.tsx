@@ -84,6 +84,9 @@ export default function ValidatorMapInner({
   const [showStations, setShowStations] = useState(false);
   const [stations, setStations] = useState<StationItem[]>([]);
   const [stationsError, setStationsError] = useState(false);
+  const [showOperations, setShowOperations] = useState(false);
+  const [operations, setOperations] = useState<Operation[]>([]);
+  const [operationsError, setOperationsError] = useState(false);
 
   // Fetch stations once on mount
   useEffect(() => {
@@ -111,6 +114,18 @@ export default function ValidatorMapInner({
         aria-label={showStations ? 'Hide fire stations' : 'Show fire stations'}
       >
         🔥 Stations{stationsError ? ' (unavailable)' : ` (${stations.length})`}
+      </button>
+      {/* Floating operations toggle */}
+      <button
+        onClick={() => setShowOperations((prev) => !prev)}
+        className={`absolute top-3 left-28 z-[1000] text-xs font-medium px-3 py-1.5 rounded-md border shadow-sm transition-colors ${
+          showOperations
+            ? 'bg-amber-700 text-white border-amber-800 hover:bg-amber-800'
+            : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+        }`}
+        aria-label={showOperations ? 'Hide operations' : 'Show operations'}
+      >
+        🚒 Operations{operationsError ? ' (unavailable)' : ` (${operations.length})`}
       </button>
 
     <MapContainer
