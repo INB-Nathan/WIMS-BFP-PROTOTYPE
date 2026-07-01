@@ -143,6 +143,35 @@ export default function ValidatorMapInner({
         </Marker>
       ))}
 
+      {/* Active operations overlay */}
+      {showOperations && operations.map((op) => (
+        <Circle
+          key={`op-${op.operation_id}`}
+          center={[op.latitude!, op.longitude!]}
+          radius={op.radius_meters || 500}
+          pathOptions={{
+            color: OPERATION_COLORS[op.fire_status] || '#dc2626',
+            fillColor: OPERATION_COLORS[op.fire_status] || '#dc2626',
+            fillOpacity: 0.28,
+            weight: 1,
+          }}
+        >
+          <Popup>
+            <div className="text-xs min-w-[140px]">
+              <p className="font-semibold text-sm">{op.location}</p>
+              <span
+                className="inline-block rounded-full px-2 py-0.5 text-xs font-medium mt-1"
+                style={{ backgroundColor: OPERATION_COLORS[op.fire_status] || '#dc2626', color: '#fff' }}
+              >
+                {op.fire_status.replace('_', ' ')}
+              </span>
+              {op.size_hectares != null && <p className="text-slate-500 mt-1">Size: {op.size_hectares} ha</p>}
+              <p className="text-slate-400 mt-0.5">{new Date(op.start_time).toLocaleString()}</p>
+            </div>
+          </Popup>
+        </Circle>
+      ))}
+
       {clusters.map((c, i) => (
         <CircleMarker
           key={`${c.lat}-${c.lng}-${i}`}
