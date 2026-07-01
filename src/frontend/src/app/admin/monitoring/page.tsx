@@ -501,7 +501,7 @@ export default function SecurityMonitoringPage() {
             </div>
             {(summary?.dismissed_count ?? 0) > 0 && (
               <button
-                onClick={() => setShowDismissed(true)}
+                onClick={() => { setShowDismissed(true); setPage(0); }}
                 className="text-xs mt-1 underline hover:no-underline cursor-pointer"
                 style={{ color: 'var(--text-muted)' }}
               >
@@ -660,7 +660,7 @@ export default function SecurityMonitoringPage() {
             </div>
             {/* T15: Show dismissed toggle */}
             <div className="flex flex-col gap-1">
-              <label className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>&nbsp;</label>
+              <label className="text-xs font-medium" style={{ color: 'var(--text-muted)' }} aria-hidden="true">&nbsp;</label>
               <button
                 onClick={() => { setShowDismissed((v) => !v); setPage(0); }}
                 className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
@@ -806,13 +806,17 @@ export default function SecurityMonitoringPage() {
                 </tr>
               </thead>
               <tbody>
-                {threatLogs.map((log) => (
+                {threatLogs.map((log) => {
+                  const dismissedVals = ['Dismissed', 'False Positive (Dismissed)'];
+                  const isDismissedRow = log.admin_action_taken != null && dismissedVals.includes(log.admin_action_taken);
+                  return (
                   <tr
                     key={log.log_id}
                     style={{
                       borderBottom: '1px solid var(--border-color)',
-                      borderLeft: selectedLogIds.has(log.log_id) ? '3px solid var(--bfp-maroon)' : '3px solid transparent',
+                      borderLeft: selectedLogIds.has(log.log_id) ? '3px solid var(--bfp-maroon)' : isDismissedRow ? '3px solid #d1d5db' : '3px solid transparent',
                       backgroundColor: selectedLogIds.has(log.log_id) ? 'var(--table-header-bg)' : undefined,
+                      opacity: isDismissedRow ? 0.6 : undefined,
                     }}
                   >
                     {/* T12: Row checkbox */}
@@ -842,11 +846,18 @@ export default function SecurityMonitoringPage() {
                       {log.suricata_sid}
                     </td>
                     <td className="px-4 py-3 text-xs" style={{ color: 'var(--text-primary)' }}>
-                      {log.admin_action_taken ? (
-                        <span className="text-green-600 font-medium">Reviewed</span>
-                      ) : (
-                        <span className="text-gray-500">Pending</span>
-                      )}
+                      {(() => {
+                        const dismissedVals = ['Dismissed', 'False Positive (Dismissed)'];
+                        const isDismissed = log.admin_action_taken != null && dismissedVals.includes(log.admin_action_taken);
+                        if (isDismissed) {
+                          return <span className="text-gray-400 font-medium">{log.admin_action_taken}</span>;
+                        }
+                        return log.admin_action_taken ? (
+                          <span className="text-green-600 font-medium">Reviewed</span>
+                        ) : (
+                          <span className="text-gray-500">Pending</span>
+                        );
+                      })()}
                     </td>
                     <td className="px-4 py-3 text-xs" style={{ color: 'var(--text-primary)' }}>
                       {log.xai_confidence != null ? `${(log.xai_confidence * 100).toFixed(0)}%` : '—'}
@@ -911,7 +922,8 @@ export default function SecurityMonitoringPage() {
                       </div>
                     </td>
                   </tr>
-                ))}
+                );
+              })}
               </tbody>
             </table>
           </div>

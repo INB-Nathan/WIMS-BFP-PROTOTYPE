@@ -337,6 +337,7 @@ export async function fetchAdminSecurityLogs(params?: { q?: string; severity?: s
   if (params?.source_ip) search.set('source_ip', params.source_ip);
   if (params?.date_from) search.set('date_from', params.date_from);
   if (params?.date_to) search.set('date_to', params.date_to);
+  if (params?.show_dismissed != null) search.set('show_dismissed', String(params.show_dismissed));
   const qs = search.toString();
   const data = await apiFetch<
     Record<string, unknown>[] | { items?: Record<string, unknown>[]; data?: Record<string, unknown>[]; total?: number }

@@ -531,7 +531,7 @@ class TestGetSecurityLogsFiltered:
         mock_db, mock_get_db = _mock_audit_log_db()
         app.dependency_overrides[get_db_with_rls] = mock_get_db
 
-        response = client.get("/api/admin/security-logs?limit=20&offset=0")
+        response = client.get("/api/admin/security-logs?limit=20&offset=0&show_dismissed=true")
         assert response.status_code == 200
         calls = [str(c[0][0]) for c in mock_db.execute.call_args_list]
         for call_sql in calls:
@@ -625,6 +625,52 @@ class TestGetSecurityLogsFiltered:
         count_sql = str(count_call[0][0])
         assert "COUNT(*)" in count_sql
         assert "severity_level = :sev0" in count_sql
+
+    def test_default_excludes_dismissed(self, client: TestClient):
+        """Default show_dismissed=false adds WHERE clause excluding Dismissed/FalsePositive."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        mock_db, mock_get_db = _mock_audit_log_db()
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        response = client.get("/api/admin/security-logs?limit=20&offset=0")
+        assert response.status_code == 200
+        call_args = mock_db.execute.call_args_list[0]
+        sql = str(call_args[0][0])
+        params = call_args[0][1]
+        assert "admin_action_taken IS NULL" in sql
+        assert "NOT IN" in sql
+        assert params["dismissed_val"] == "Dismissed"
+        assert params["fp_val"] == "False Positive (Dismissed)"
+
+    def test_show_dismissed_includes_all(self, client: TestClient):
+        """show_dismissed=true removes the dismissed filter from WHERE clause."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        mock_db, mock_get_db = _mock_audit_log_db()
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        response = client.get("/api/admin/security-logs?show_dismissed=true&limit=20&offset=0")
+        assert response.status_code == 200
+        call_args = mock_db.execute.call_args_list[0]
+        sql = str(call_args[0][0])
+        # Verify there is no WHERE clause at all (no dismissed filter, no other filters)
+        stripped = sql.replace("\n", " ")
+        assert " WHERE " not in stripped
+
+    def test_dismissed_filter_composes_with_severity(self, client: TestClient):
+        """show_dismissed=false composes with severity filter via AND."""
+        app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
+        mock_db, mock_get_db = _mock_audit_log_db()
+        app.dependency_overrides[get_db_with_rls] = mock_get_db
+
+        response = client.get("/api/admin/security-logs?severity=HIGH&limit=20&offset=0")
+        assert response.status_code == 200
+        call_args = mock_db.execute.call_args_list[0]
+        sql = str(call_args[0][0])
+        params = call_args[0][1]
+        assert "severity_level = :sev0" in sql
+        assert "admin_action_taken IS NULL" in sql
+        assert params["sev0"] == "HIGH"
+        assert params["dismissed_val"] == "Dismissed"
 
 
 # =============================================================================
