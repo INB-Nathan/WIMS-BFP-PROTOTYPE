@@ -198,8 +198,10 @@ export function TriageInspectionModal({
   }
 
   const isCluster = inspectionMode === 'cluster' && openCluster.cluster_id !== null;
+  // Backend role_can_work_cluster allows REGIONAL_ENCODER, NATIONAL_VALIDATOR, SYSTEM_ADMIN
+  // to claim and work clusters. The Claim button must be visible for all three.
   const canClaim =
-    role === 'NATIONAL_VALIDATOR' &&
+    (role === 'NATIONAL_VALIDATOR' || role === 'SYSTEM_ADMIN' || role === 'REGIONAL_ENCODER') &&
     isCluster &&
     (openCluster as TriageClusterEntry).assigned_to === null;
 
