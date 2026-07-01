@@ -36,6 +36,7 @@ type InspectionMode = 'cluster' | 'singleton';
 export default function TriagePage() {
   const { user, loading: authLoading } = useAuth();
   const role = (user as { role?: string })?.role ?? null;
+  const currentUsername = (user as { preferred_username?: string })?.preferred_username ?? null;
   const router = useRouter();
   const searchParams = useSearchParams();
   const [queue, setQueue] = useState<TriageQueueResponse | null>(null);
@@ -326,6 +327,7 @@ export default function TriagePage() {
         onMessage={setMessage}
         onError={setError}
         role={role}
+        currentUsername={currentUsername}
       />
     </div>
   );

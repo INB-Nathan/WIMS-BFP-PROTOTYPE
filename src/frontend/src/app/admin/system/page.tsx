@@ -2518,18 +2518,20 @@ export default function AdminSystemPage() {
                                     {GOVERNANCE_ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
                                 </select>
                             </div>
-                            <div>
-                                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Assigned Region</label>
-                                <select
-                                    value={editRegionId}
-                                    onChange={(e) => setEditRegionId(e.target.value)}
-                                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2"
-                                    style={{ '--tw-ring-color': 'var(--sidebar-bg)' } as React.CSSProperties}
-                                >
-                                    <option value="">— No region —</option>
-                                    {regions.map((r) => <option key={r.region_id} value={r.region_id}>{r.region_name}</option>)}
-                                </select>
-                            </div>
+                            {editRole === 'REGIONAL_ENCODER' && (
+                                <div>
+                                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Assigned Region</label>
+                                    <select
+                                        value={editRegionId}
+                                        onChange={(e) => setEditRegionId(e.target.value)}
+                                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2"
+                                        style={{ '--tw-ring-color': 'var(--sidebar-bg)' } as React.CSSProperties}
+                                    >
+                                        <option value="">— No region —</option>
+                                        {regions.map((r) => <option key={r.region_id} value={r.region_id}>{r.region_name}</option>)}
+                                    </select>
+                                </div>
+                            )}
                             <div className="flex items-center gap-3">
                                 <input
                                     type="checkbox"
@@ -2543,11 +2545,16 @@ export default function AdminSystemPage() {
                             <div className="flex gap-3 pt-2">
                                 <button
                                     onClick={async () => {
-                                        const regionId = editRegionId ? parseInt(editRegionId, 10) : undefined;
-                                        const hasRegionChanged = regionId !== editUserModal.assigned_region_id;
+                                        const isRegionalRole = editRole === 'REGIONAL_ENCODER';
+                                        const regionId = isRegionalRole && editRegionId ? parseInt(editRegionId, 10) : undefined;
                                         const hasRoleChanged = editRole !== editUserModal.role;
                                         const hasActiveChanged = editActive !== editUserModal.is_active;
-                                        if (!hasRoleChanged && !hasRegionChanged && !hasActiveChanged) {
+                                        // Region field is only shown for REGIONAL_ENCODER;
+                                        // for national roles (SYSTEM_ADMIN, etc.) region is never set
+                                        const regionUpdate = isRegionalRole
+                                            ? (regionId !== editUserModal.assigned_region_id ? regionId : undefined)
+                                            : undefined;
+                                        if (!hasRoleChanged && regionUpdate === undefined && !hasActiveChanged) {
                                             setEditUserModal(null);
                                             return;
                                         }
@@ -2555,7 +2562,7 @@ export default function AdminSystemPage() {
                                         try {
                                             await handleUpdateUser(editUserModal.user_id, {
                                                 role: hasRoleChanged ? editRole : undefined,
-                                                assigned_region_id: hasRegionChanged ? regionId : undefined,
+                                                assigned_region_id: regionUpdate,
                                                 is_active: hasActiveChanged ? editActive : undefined,
                                             });
                                             setEditUserModal(null);
