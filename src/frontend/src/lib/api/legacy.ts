@@ -1224,6 +1224,8 @@ export interface OperationalMapParams {
   ne: [number, number];
   zoom: number;
   status?: string;
+  date_from?: string;
+  date_to?: string;
 }
 
 export interface AuditLogParams {
@@ -1249,6 +1251,8 @@ export async function fetchOperationalMap(
     zoom: String(params.zoom),
   });
   if (params.status) search.set('status_filter', params.status);
+  if (params.date_from) search.set('date_from', params.date_from);
+  if (params.date_to) search.set('date_to', params.date_to);
   const data = await apiFetch<{ clusters?: MapClusterItem[] }>(
     `/api/validator/operational-map?${search}`,
   );

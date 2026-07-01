@@ -381,17 +381,23 @@ async def get_operational_map(
             pattern=r"^(DRAFT|PENDING|PENDING_VALIDATION|VERIFIED|REJECTED)$",
         ),
     ] = None,
+    date_from: Annotated[
+        str | None, Query(description="Filter AFORs from this date (ISO 8601)")
+    ] = None,
+    date_to: Annotated[
+        str | None, Query(description="Filter AFORs up to this date (ISO 8601, inclusive)")
+    ] = None,
     db: Annotated[Session, Depends(auth.get_db_with_rls)] = None,
 ):
     """Return clustered incidents for the validator operational map.
 
     Shows ALL non-archived incidents visible to the authenticated user
     (RLS-scoped). Optional status_filter allows filtering by verification_status.
+    Optional date_from/date_to filter by AFOR submission timestamp.
     """
     grid_deg = _grid_size_for_zoom(zoom)
 
-    # Build status clause. When status_filter is truthy, filter on that
-    # specific status. Otherwise (None or empty string), exclude DRAFT.
+    # Build WHERE clauses. All optional — when omitted, no filter is applied.
     query_params: dict[str, Any] = {
         "grid_deg": grid_deg,
         "sw_lat": sw_lat,
@@ -404,6 +410,18 @@ async def get_operational_map(
         query_params["status_filter"] = str(status_filter)
     else:
         status_clause = "AND fi.verification_status != 'DRAFT'"
+
+    date_clauses: list[str] = []
+    if date_from:
+        date_clauses.append("fi.created_at >= :date_from")
+        query_params["date_from"] = date_from
+    if date_to:
+        # Inclusive: compare < next day so the entire date_to day is covered
+        date_clauses.append("fi.created_at < :date_to::date + interval '1 day'")
+        query_params["date_to"] = date_to
+    date_clause = ""
+    if date_clauses:
+        date_clause = "AND " + " AND ".join(date_clauses)
 
     rows = db.execute(
         text(f"""
@@ -441,6 +459,7 @@ async def get_operational_map(
                 LEFT JOIN detail_agg da ON da.incident_id = fi.incident_id
                 WHERE fi.is_archived = FALSE
                   {status_clause}
+                  {date_clause}
                   AND ST_Within(
                       fi.location::geometry,
                       ST_MakeEnvelope(:sw_lng, :sw_lat, :ne_lng, :ne_lat, 4326)
