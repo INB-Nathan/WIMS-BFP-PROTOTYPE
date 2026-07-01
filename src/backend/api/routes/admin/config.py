@@ -28,6 +28,22 @@ VALID_CONFIG_KEYS = frozenset(
         "worker_stale_timeout_seconds",
         "worker_offline_timeout_seconds",
         "worker_heartbeat_retention_days",
+        # IP blocklist config (65_ip_blocklist.sql)
+        "ip_blocklist.repeat_offender_threshold",
+        "ip_blocklist.allowlist",
+        # Data retention config (68_data_retention.sql)
+        "retention.fire_incidents_days",
+        "retention.incident_sensitive_details_days",
+        "retention.security_threat_logs_days",
+        "retention.consent_log_days",
+        "retention.kms_key_rotation_runs_days",
+        "retention.ip_blocklist_days",
+        # SIEM retention config (75_security_log_rollups.sql)
+        "retention.security_rollups_hourly_days",
+        "retention.security_rollups_daily_days",
+        "siem.raw_dedup_window_minutes",
+        "siem.store_low_value_raw",
+        "auto_ai_analysis_enabled",
     }
 )
 
@@ -41,6 +57,19 @@ _NUMERIC_CONFIG_KEYS: dict[str, tuple[type, int | float]] = {
     "worker_stale_timeout_seconds": (int, 30),
     "worker_offline_timeout_seconds": (int, 60),
     "worker_heartbeat_retention_days": (int, 1),
+    # IP blocklist
+    "ip_blocklist.repeat_offender_threshold": (int, 1),
+    # Data retention (68_data_retention.sql)
+    "retention.fire_incidents_days": (int, 1),
+    "retention.incident_sensitive_details_days": (int, 1),
+    "retention.security_threat_logs_days": (int, 1),
+    "retention.consent_log_days": (int, 1),
+    "retention.kms_key_rotation_runs_days": (int, 1),
+    "retention.ip_blocklist_days": (int, 1),
+    # SIEM retention (75_security_log_rollups.sql)
+    "retention.security_rollups_hourly_days": (int, 1),
+    "retention.security_rollups_daily_days": (int, 1),
+    "siem.raw_dedup_window_minutes": (int, 1),
 }
 
 

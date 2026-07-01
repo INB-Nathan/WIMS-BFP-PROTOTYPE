@@ -1,7 +1,7 @@
 ---
 title: Security Baseline
 created: 2026-05-14
-updated: 2026-06-22
+updated: 2026-07-01
 type: security
 tags: [wims-bfp, security, auth, rbac, rls, audit-log, ids, xai, privacy, fail-closed]
 sources: [raw/frs/frs-auth.md, raw/frs/frs-complianceanddataprivacy.md, raw/frs/frs-intrusiondetectionandnetworkingmonitoring.md, raw/frs/frs-threatdetectionwithexplainableai.md, raw/codebase/codebase-snapshot-2026-05-14.md, src/keycloak/demo-otp-provider, src/keycloak/bfp-realm.json, src/keycloak/import/bfp-realm.json]
@@ -123,6 +123,11 @@ The `wims-audit-event-listener` Keycloak SPI now forces `HttpClient.Version.HTTP
 
 ### XAI Prompt Completeness (2026-06-23)
 `analyze_threat_log()` in `src/backend/services/ai_service.py` now includes `suricata_signature` and `classification` in the Ollama prompt (added between `SID=` and `payload=`). Custom WIMS SIDs 1000001-1000134 are NOT in any public Suricata feed, so the bare SID is opaque to Ollama — the human-readable signature (e.g. "WIMS OWASP A03 SQLi UNION SELECT") tells the LLM the attack type, and the classification (e.g. "high_signal_threat") tells the threat model. Without these, the LLM could only guess from the raw payload, producing generic narratives that failed the user's goal: XAI must tell humans **what the attack is and what to do for future purposes**. Regression test: `test_analyze_threat_log_prompt_includes_signature_and_classification` in `tests/integration/test_ai_ids_api.py` (captures the Ollama request body via `respx` and asserts both fields are present in the prompt).
+
+### XAI Defense-Demo Narrative Prompt (2026-07-01)
+Manual security-log analysis now targets `qwen2.5:3b` and uses a larger Ollama generation envelope (`num_ctx=2048`, `num_predict=768`) so the defense demo can show multi-paragraph, evidence-correlated XAI narratives instead of one-sentence summaries. The prompt now establishes a BFP/WIMS cybersecurity analyst persona, explicitly supplies severity, SID, signature name, classification, and raw payload, and requires JSON fields for anomaly description, log evidence, CIA risk assessment, recommended action, confidence, confidence breakdown, and sources.
+
+The prompt contract also tells the model to keep top-level values in the expected types and to quote only exact payload substrings/field values in `log_evidence`; if a technique is inferred from the Suricata signature rather than the payload, the narrative must say so instead of inventing payload text. `OLLAMA_NUM_PREDICT` remains an environment override for deployment tuning.
 
 ### Network Topology (M7a)
 

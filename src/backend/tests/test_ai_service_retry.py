@@ -68,7 +68,7 @@ class TestOllamaPayload:
 
         assert payload["stream"] is False
         assert payload["format"] == "json"
-        assert payload["options"]["num_predict"] == 256
+        assert payload["options"]["num_predict"] == 768
 
     def test_num_predict_env_override(self, monkeypatch):
         monkeypatch.setenv("OLLAMA_NUM_PREDICT", "128")

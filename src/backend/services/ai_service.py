@@ -1,4 +1,4 @@
-"""IDS-to-SLM AI Analysis via Ollama (qwen2.5:1.5b)."""
+"""IDS-to-SLM AI Analysis via Ollama (qwen2.5:3b)."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ from utils.external_service import (
 from utils.metrics import AI_INFERENCE_DURATION
 
 logger = logging.getLogger("wims.ai_service")
-OLLAMA_MODEL = "qwen2.5:1.5b"
+OLLAMA_MODEL = "qwen2.5:3b"
 
 # ---------------------------------------------------------------------------
 # Redis analysis lock — prevents concurrent analysis of the same log_id
@@ -43,7 +43,7 @@ _OLLAMA_MAX_RETRIES = 3
 _OLLAMA_RETRY_BASE_DELAY = 2.0
 # Keep CPU-only inference bounded. The VPS runs Qwen on CPU, and uncapped JSON
 # generation has been observed to run for 8-16 minutes per request.
-_OLLAMA_DEFAULT_NUM_PREDICT = 256
+_OLLAMA_DEFAULT_NUM_PREDICT = 768
 
 # Shared resilient wrapper for Ollama — gains circuit breaker, size cap,
 # and concurrency cap. Retry is handled by the wrapper (matches existing behavior
@@ -206,11 +206,10 @@ def _ollama_payload(prompt: str) -> dict:
     """Build a bounded non-streaming JSON-generation payload for Ollama.
 
     Options:
-    - num_ctx:    1024  — far below the model's default 32768, since prompts
-                          are short (~200 tokens) and KV cache dominates CPU
-                          memory bandwidth.
-    - num_predict: env-configured (default 256) — hard cap on output tokens;
-                      the JSON response is typically 200-400 tokens.
+    - num_ctx:    2048  — increased for the richer prompt + multi-paragraph
+                          response. KV cache at 2048 on 6 vCPUs is manageable.
+    - num_predict: env-configured (default 768) — hard cap on output tokens;
+                      the JSON response is typically 400-700 tokens.
     - num_thread:    6  — match the Docker CPU limit (cpus: '6').
                        Using more threads than available CPUs causes
                        oversubscription and context-switching thrash.
@@ -221,7 +220,7 @@ def _ollama_payload(prompt: str) -> dict:
         "stream": False,
         "format": "json",
         "options": {
-            "num_ctx": 1024,
+            "num_ctx": 2048,
             "num_predict": _ollama_num_predict(),
             "num_thread": 6,
         },
@@ -321,17 +320,31 @@ async def analyze_threat_log(log_id: int, db: Session, request: Request | None =
     classification = row[13] or ""
 
     prompt = (
-        f"Analyze this Suricata IDS alert: severity={json.dumps(severity_level)}, "
-        f'SID={suricata_sid}, signature="{suricata_signature}", '
-        f"classification={classification}, payload={json.dumps(raw_payload)}. "
-        "Provide a structured analysis as JSON with these keys: "
-        "'anomaly_description' (string), "
-        "'log_evidence' (string), "
-        "'risk_assessment' (string), "
-        "'recommended_action' (string), "
-        "'confidence' (float 0.0-1.0), "
-        "'confidence_breakdown' (object with keys 'anomaly_detection', 'classification', 'overall', each float 0.0-1.0), "
-        "'sources' (array of strings indicating which data sources were used)."
+        "You are a senior cybersecurity analyst for the Philippine Bureau of Fire Protection (BFP) "
+        "analyzing alerts within the WIMS (Web-based Incident Management System).\n\n"
+        "ALERT DATA:\n"
+        f"- Severity: {json.dumps(severity_level)}\n"
+        f"- Signature ID (SID): {suricata_sid}\n"
+        f"- Signature Name: {json.dumps(suricata_signature)}\n"
+        f"- Classification: {json.dumps(classification)}\n"
+        f"- Raw Payload: {json.dumps(raw_payload)}\n\n"
+        "TASK:\n"
+        "Analyze this Suricata IDS alert. Correlate the specific patterns found in the raw payload "
+        "with known attack techniques and the signature/classification. Explain what the attacker is attempting, "
+        "what vulnerability they are targeting, and what risk this poses to the BFP system.\n\n"
+        "Respond in valid JSON with these exact keys and value types. Do not add nested objects or extra keys:\n"
+        '- "anomaly_description" (string; 2-3 paragraphs explaining the attack, what the raw payload evidence shows, '
+        "and how the evidence maps to the signature and classification)\n"
+        '- "log_evidence" (string; quote only exact substrings or field values present in Raw Payload. '
+        "Do not invent payload text; if a technique is inferred from the signature rather than payload, say so explicitly.)\n"
+        '- "risk_assessment" (string; impact assessment for confidentiality, integrity, and availability)\n'
+        '- "recommended_action" (string; specific steps for the WIMS system administrator: immediate containment, '
+        "investigation guidance, and long-term remediation)\n"
+        '- "confidence" (float 0.0-1.0)\n'
+        '- "confidence_breakdown" (object with keys "anomaly_detection", "classification", "overall", '
+        "each float 0.0-1.0)\n"
+        '- "sources" (array of strings listing only data sources used, such as "Suricata EVE log", '
+        '"Payload content", and "Signature taxonomy")'
     )
 
     payload = _ollama_payload(prompt)

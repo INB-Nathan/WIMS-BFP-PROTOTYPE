@@ -1,3 +1,11 @@
+## [2026-07-01] feat(ai): richer XAI narratives for defense demo
+
+- **Scope:** Manual IDS/XAI narrative generation now targets comprehensive, evidence-correlated defense-demo output.
+- **Files modified:** `src/backend/services/ai_service.py`, `src/backend/tests/test_ai_service_retry.py`, `src/backend/api/routes/admin/config.py`, `system-wiki/security/security-baseline.md`.
+- **Behavior:** `analyze_threat_log()` uses `qwen2.5:3b`, `num_ctx=2048`, and default `num_predict=768`. The threat-log prompt now uses a BFP/WIMS senior cybersecurity analyst persona, supplies severity/SID/signature/classification/raw payload, and asks for multi-paragraph JSON output with anomaly description, evidence, CIA risk, action, confidence, confidence breakdown, and sources. The prompt now explicitly constrains top-level value types and tells the model not to invent payload evidence.
+- **Admin config:** Added missing admin allowlist entries for IP blocklist, retention, SIEM retention, and related numeric config keys so those settings can be managed through the system-config API.
+- **Validation:** `cd src/backend && pytest -q tests/test_ai_service_retry.py` — 16 passed. VPS hot-swap confirmed `qwen2.5:3b` is installed and backend loaded the updated service file; a cold manual analysis completed in ~6m20s but exposed that prompt wording still needed stricter type/evidence constraints, which are included in this branch.
+
 ## [2026-06-30] fix(ai,deploy): graceful JSON degradation, keycloak proxy-headers, deploy model check
 
 - **Scope:** 8-edit clean hot-fix on top of `801ad9f` (replacing contaminated PR #492).
