@@ -658,6 +658,77 @@ describe('M8: Security Monitoring page', () => {
       expect(nextBtn).not.toBeDisabled();
     });
   });
+
+  // ── T15: Hide dismissed by default ───────────────────────────────────────
+
+  it('shows toggle pill as "Dismissed Hidden" by default and does not send show_dismissed param', async () => {
+    vi.useRealTimers();
+    render(<SecurityMonitoringPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('show-dismissed-toggle')).toBeInTheDocument();
+    });
+    expect(screen.getByTestId('show-dismissed-toggle')).toHaveTextContent('Dismissed Hidden');
+
+    // API should have been called without show_dismissed
+    const calls = mockFetchAdminSecurityLogs.mock.calls;
+    const lastCall = calls[calls.length - 1]?.[0];
+    expect(lastCall?.show_dismissed).toBeUndefined();
+  });
+
+  it('clicking toggle pill switches to "Include Dismissed" and re-fetches with show_dismissed=true', async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.useRealTimers();
+    render(<SecurityMonitoringPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('show-dismissed-toggle')).toBeInTheDocument();
+    });
+
+    // Click the toggle
+    await user.click(screen.getByTestId('show-dismissed-toggle'));
+
+    // Text should flip
+    await waitFor(() => {
+      expect(screen.getByTestId('show-dismissed-toggle')).toHaveTextContent('Include Dismissed');
+    });
+
+    // API should have been called with show_dismissed=true
+    const calls = mockFetchAdminSecurityLogs.mock.calls;
+    const lastCall = calls[calls.length - 1]?.[0];
+    expect(lastCall?.show_dismissed).toBe(true);
+  });
+
+  it('clicking "X dismissed" link in summary card toggles showDismissed on', async () => {
+    // Override summary with non-zero dismissed_count so the link appears
+    mockFetchSecurityLogsSummary.mockResolvedValue({
+      ...DEFAULT_SUMMARY,
+      total: 10,
+      active_count: 7,
+      dismissed_count: 3,
+    });
+
+    const user = userEvent.setup({ delay: null });
+    vi.useRealTimers();
+    render(<SecurityMonitoringPage />);
+
+    // Wait for the dismissed count link to appear
+    await waitFor(() => {
+      expect(screen.getByText(/dismissed.*click to view/i)).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByText(/dismissed.*click to view/i));
+
+    // Toggle pill should now show "Include Dismissed"
+    await waitFor(() => {
+      expect(screen.getByTestId('show-dismissed-toggle')).toHaveTextContent('Include Dismissed');
+    });
+
+    // API should have been called with show_dismissed=true
+    const calls = mockFetchAdminSecurityLogs.mock.calls;
+    const lastCall = calls[calls.length - 1]?.[0];
+    expect(lastCall?.show_dismissed).toBe(true);
+  });
 });
 
 // ── T11: offline-aware read cache (T11 rewire) ──────────────────────────────
