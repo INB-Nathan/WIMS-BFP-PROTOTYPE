@@ -33,8 +33,8 @@ def test_civilian_triage_policy_roles_and_terminal_statuses():
 def test_civilian_triage_policy_thresholds():
     now = datetime.now(timezone.utc)
 
-    assert is_cluster_claim_stale(now - timedelta(minutes=15))
-    assert not is_cluster_claim_stale(now - timedelta(minutes=14, seconds=59))
+    assert is_cluster_claim_stale(now - timedelta(minutes=10))
+    assert not is_cluster_claim_stale(now - timedelta(minutes=9, seconds=59))
 
     assert aging_flags(now - timedelta(minutes=61), now) == (True, False, False)
     assert aging_flags(now - timedelta(minutes=91), now) == (True, True, False)
