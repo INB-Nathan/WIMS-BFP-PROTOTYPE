@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useMapEvents } from 'react-leaflet';
 import { MapContainer, TileLayer, CircleMarker, Popup } from 'react-leaflet';
 import L from 'leaflet';
+import Link from 'next/link';
 import type { MapClusterItem } from '@/lib/api';
 
 // ── Severity helpers ────────────────────────────────────────────────────────
@@ -184,6 +185,15 @@ export default function ValidatorMapInner({
                 <p className="text-slate-400 text-[10px]">
                   {c.lat.toFixed(4)}, {c.lng.toFixed(4)}
                 </p>
+                {/* Drill link */}
+                {c.region_id && (
+                  <Link
+                    href={`/dashboard/validator?status=PENDING&region_id=${c.region_id}`}
+                    className="inline-block mt-1.5 text-[11px] font-medium text-blue-700 hover:text-blue-900 hover:underline"
+                  >
+                    View pending in region →
+                  </Link>
+                )}
               </div>
             ) : (
               /* Simple fallback layout — no enriched data */
@@ -204,6 +214,14 @@ export default function ValidatorMapInner({
                 <p className="text-slate-400 text-[10px] mt-0.5">
                   {c.lat.toFixed(4)}, {c.lng.toFixed(4)}
                 </p>
+                {c.region_id && (
+                  <Link
+                    href={`/dashboard/validator?status=PENDING&region_id=${c.region_id}`}
+                    className="inline-block mt-1.5 text-[11px] font-medium text-blue-700 hover:text-blue-900 hover:underline"
+                  >
+                    View pending in region →
+                  </Link>
+                )}
               </div>
             )}
           </Popup>
