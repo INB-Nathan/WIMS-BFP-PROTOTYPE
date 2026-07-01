@@ -3,6 +3,7 @@
 import { AlertTriangle, ClipboardList, Clock, ShieldCheck } from 'lucide-react';
 import type { TriageClusterEntry } from '@/lib/api';
 import { TriageEvidenceCard } from './TriageEvidenceCard';
+import { trustLevel, TRUST_COLORS } from '@/lib/trustColors';
 import { deriveClusterGeometry, getTriageItemIdentity, sortTriageItemsByPriority } from './triageGeometry';
 
 interface TriageInvestigationBoardProps {
@@ -57,23 +58,11 @@ export function TriageInvestigationBoard({
                 {selectedItem.member_count} report(s) · {selectedItem.station.name ?? 'No station'}
               </p>
               <span
-                className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-bold ${
-                  selectedItem.avg_trust >= 70
-                    ? 'bg-emerald-100 text-emerald-800'
-                    : selectedItem.avg_trust >= 40
-                      ? 'bg-amber-100 text-amber-800'
-                      : 'bg-red-100 text-red-800'
-                }`}
+                className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-bold ${TRUST_COLORS[trustLevel(selectedItem.avg_trust)].bg} ${TRUST_COLORS[trustLevel(selectedItem.avg_trust)].text}`}
                 title="Trust score: higher = more reliable. Calculated from device history, proximity, and report consistency."
               >
                 <span
-                  className={`inline-block h-1.5 w-1.5 rounded-full ${
-                    selectedItem.avg_trust >= 70
-                      ? 'bg-emerald-500'
-                      : selectedItem.avg_trust >= 40
-                        ? 'bg-amber-500'
-                        : 'bg-red-500'
-                  }`}
+                  className={`inline-block h-1.5 w-1.5 rounded-full ${TRUST_COLORS[trustLevel(selectedItem.avg_trust)].dot}`}
                 />
                 Trust {Math.round(selectedItem.avg_trust)}/100
               </span>
@@ -150,9 +139,7 @@ export function TriageInvestigationBoard({
                 <span className="font-bold text-slate-950">{identity.type === 'cluster' ? `Cluster #${identity.id}` : `Report #${identity.id}`}</span>
                 <span className="ml-2 text-slate-500">{item.severity} · {item.member_count} report(s)</span>
                 <span
-                  className={`ml-auto text-[10px] font-bold ${
-                    item.avg_trust >= 70 ? 'text-emerald-600' : item.avg_trust >= 40 ? 'text-amber-600' : 'text-red-600'
-                  }`}
+                  className={`ml-auto text-[10px] font-bold ${TRUST_COLORS[trustLevel(item.avg_trust)].inline}`}
                 >
                   Trust {Math.round(item.avg_trust)}
                 </span>

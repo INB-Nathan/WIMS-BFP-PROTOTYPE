@@ -3,6 +3,7 @@
 import { useEffect, useMemo } from 'react';
 import { Circle, CircleMarker, MapContainer, Popup, TileLayer, useMap } from 'react-leaflet';
 import type { TriageClusterEntry, TriageReportEntry } from '@/lib/api';
+import { trustLevel, TRUST_COLORS } from '@/lib/trustColors';
 import {
   deriveClusterGeometry,
   getTriageItemIdentity,
@@ -121,7 +122,7 @@ export default function TriageCanvasMapInner({
                   <p className="mt-1">{item.member_count} report(s) · {item.severity}</p>
                   <p className="mt-0.5">
                     Trust:{' '}
-                    <span className={`font-bold ${item.avg_trust >= 70 ? 'text-emerald-700' : item.avg_trust >= 40 ? 'text-amber-700' : 'text-red-700'}`}>
+                    <span className={`font-bold ${TRUST_COLORS[trustLevel(item.avg_trust)].inline}`}>
                       {Math.round(item.avg_trust)}
                     </span>
                     /100 · {item.station.name ?? 'No station'}
@@ -165,7 +166,7 @@ export default function TriageCanvasMapInner({
                 <p className="mt-1">{report.category ?? 'Unclassified'}{report.sub_category ? ` / ${report.sub_category}` : ''}</p>
                 <p className="mt-0.5">
                   Trust:{' '}
-                  <span className={`font-bold ${report.trust_breakdown.score >= 70 ? 'text-emerald-700' : report.trust_breakdown.score >= 40 ? 'text-amber-700' : 'text-red-700'}`}>
+                  <span className={`font-bold ${TRUST_COLORS[trustLevel(report.trust_breakdown.score)].inline}`}>
                     {report.trust_breakdown.score}
                   </span>
                   /100 · {report.status}

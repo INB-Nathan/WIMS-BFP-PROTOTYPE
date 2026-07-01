@@ -8,6 +8,7 @@ import {
   TriageCanvasMap,
   TriageInspectionModal,
   TriageInvestigationBoard,
+  TriageLegend,
   getTriageItemIdentity,
   sortTriageItemsByPriority,
   type TriageItemIdentity,
@@ -27,6 +28,7 @@ const FILTERS = [
   { key: 'aging', label: 'Aging' },
   { key: 'timeout_risk', label: 'Timeout Risk' },
   { key: 'unreviewed', label: 'Unreviewed' },
+  { key: 'danger', label: 'Danger (2hr+)' },
 ] as const;
 
 type InspectionMode = 'cluster' | 'singleton';
@@ -312,6 +314,9 @@ export default function TriagePage() {
           </div>
         )}
       </div>
+
+      {/* ── HCI Legend: explains clusters, trust scores, severity colors ── */}
+      <TriageLegend />
 
       <TriageInspectionModal
         openCluster={openCluster}
