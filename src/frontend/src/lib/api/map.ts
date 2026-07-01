@@ -14,6 +14,12 @@ export interface MapClusterItem {
   count: number;
   severity: 'low' | 'medium' | 'high';
   latest_at: string | null;
+  status_breakdown?: Record<string, number>;
+  category_mix?: string[];
+  total_damage_php?: number;
+  total_casualties?: number;
+  earliest_at?: string | null;
+  region_id?: number;
 }
 
 export interface ClusterResponse {
@@ -34,6 +40,15 @@ export interface NearbyStation {
   lat: number;
   lng: number;
   distance_m: number;
+}
+
+export interface StationItem {
+  station_id: number;
+  station_name: string;
+  address: string | null;
+  region_name: string | null;
+  latitude: number;
+  longitude: number;
 }
 
 export interface EmergencyServicesResponse {

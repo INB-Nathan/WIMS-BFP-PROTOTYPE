@@ -9,6 +9,7 @@ export {
   type AuditLogParams,
   type AuditResponse,
   fetchOperationalMap,
+  fetchValidatorFireStations,
   fetchValidatorAuditLogs,
   type OperationalMapParams,
 } from './legacy';
