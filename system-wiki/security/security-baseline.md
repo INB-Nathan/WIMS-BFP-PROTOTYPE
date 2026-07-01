@@ -127,7 +127,7 @@ The `wims-audit-event-listener` Keycloak SPI now forces `HttpClient.Version.HTTP
 ### XAI Defense-Demo Narrative Prompt (2026-07-01)
 Manual security-log analysis now targets `qwen2.5:3b` and uses a larger Ollama generation envelope (`num_ctx=2048`, `num_predict=768`) so the defense demo can show multi-paragraph, evidence-correlated XAI narratives instead of one-sentence summaries. The prompt now establishes a BFP/WIMS cybersecurity analyst persona, explicitly supplies severity, SID, signature name, classification, and raw payload, and requires JSON fields for anomaly description, log evidence, CIA risk assessment, recommended action, confidence, confidence breakdown, and sources.
 
-The prompt contract also tells the model to keep top-level values in the expected types and to quote only exact payload substrings/field values in `log_evidence`; if a technique is inferred from the Suricata signature rather than the payload, the narrative must say so instead of inventing payload text. `OLLAMA_NUM_PREDICT` remains an environment override for deployment tuning.
+The prompt contract also tells the model to keep top-level values in the expected types and to quote only exact payload substrings/field values in `log_evidence`; if a technique is inferred from the Suricata signature rather than the payload, the narrative must say so instead of inventing payload text. If Ollama still returns malformed or token-truncated JSON, the backend repairs known string fields into a normalized `xai_narrative` JSON object and fills missing risk/action/sources with deterministic fallbacks so the admin UI remains readable. `OLLAMA_NUM_PREDICT` remains an environment override for deployment tuning.
 
 ### Network Topology (M7a)
 

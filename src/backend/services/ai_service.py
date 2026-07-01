@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import time
 
 import httpx
@@ -200,6 +201,118 @@ def _ollama_num_predict() -> int:
             _OLLAMA_DEFAULT_NUM_PREDICT,
         )
     return _OLLAMA_DEFAULT_NUM_PREDICT
+
+
+def _truncate_for_narrative(value: str, max_len: int = 700) -> str:
+    """Keep repaired XAI fields readable and bounded."""
+    value = value.strip()
+    if len(value) <= max_len:
+        return value
+    return value[: max_len - 1].rstrip() + "…"
+
+
+def _extract_jsonish_string_field(text_value: str, key: str) -> str | None:
+    """Extract a JSON string field from complete or token-truncated LLM JSON.
+
+    Ollama can hit num_predict mid-field, leaving otherwise useful output like
+    `{ "anomaly_description": "...", "log_evidence": "partial`. This helper
+    scans from the requested field's opening quote and accepts a partial terminal
+    string so the backend can store readable structured sections instead of raw
+    broken JSON.
+    """
+    match = re.search(rf'"{re.escape(key)}"\s*:\s*"', text_value)
+    if not match:
+        return None
+
+    chars: list[str] = []
+    escaped = False
+    complete = False
+    for char in text_value[match.end() :]:
+        if escaped:
+            chars.append("\\" + char)
+            escaped = False
+            continue
+        if char == "\\":
+            escaped = True
+            continue
+        if char == '"':
+            complete = True
+            break
+        chars.append(char)
+
+    raw_value = "".join(chars).strip()
+    if not raw_value:
+        return None
+    if escaped:
+        raw_value = raw_value.rstrip("\\")
+
+    try:
+        decoded = json.loads(f'"{raw_value}"')
+    except json.JSONDecodeError:
+        decoded = raw_value.replace('\\"', '"').replace("\\n", "\n")
+
+    if not complete:
+        decoded = decoded.rstrip(' ,}\n\t"')
+    return _truncate_for_narrative(decoded)
+
+
+def _extract_jsonish_sources(text_value: str) -> list[str] | None:
+    """Best-effort extraction for a complete sources array."""
+    match = re.search(r'"sources"\s*:\s*(\[[^\]]*\])', text_value, re.DOTALL)
+    if not match:
+        return None
+    try:
+        sources = json.loads(match.group(1))
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(sources, list) or not all(isinstance(item, str) for item in sources):
+        return None
+    return sources
+
+
+def _repair_threat_narrative_json(
+    response_text: str,
+    raw_payload: str,
+    suricata_signature: str,
+    classification: str,
+) -> dict | None:
+    """Return structured narrative data from malformed/truncated model JSON."""
+    extracted = {
+        key: _extract_jsonish_string_field(response_text, key)
+        for key in (
+            "anomaly_description",
+            "log_evidence",
+            "risk_assessment",
+            "recommended_action",
+        )
+    }
+    if not any(extracted.values()):
+        return None
+
+    evidence_fallback = _truncate_for_narrative(raw_payload, 700) if raw_payload else ""
+    if not evidence_fallback:
+        evidence_fallback = (
+            f'No raw payload excerpt was available; inference used signature "{suricata_signature}" '
+            f'and classification "{classification}".'
+        )
+
+    return {
+        "anomaly_description": extracted["anomaly_description"]
+        or _truncate_for_narrative(response_text, 700),
+        "log_evidence": extracted["log_evidence"] or evidence_fallback,
+        "risk_assessment": extracted["risk_assessment"]
+        or (
+            "Potential confidentiality, integrity, and availability impact should be reviewed "
+            f'based on signature "{suricata_signature}" and classification "{classification}".'
+        ),
+        "recommended_action": extracted["recommended_action"]
+        or (
+            "Review the source request and related logs, block or rate-limit the source if malicious, "
+            "and remediate the exposed endpoint or rule condition identified by the Suricata signature."
+        ),
+        "sources": _extract_jsonish_sources(response_text)
+        or ["Suricata EVE log", "Payload content", "Signature taxonomy"],
+    }
 
 
 def _ollama_payload(prompt: str) -> dict:
@@ -402,9 +515,22 @@ async def analyze_threat_log(log_id: int, db: Session, request: Request | None =
                     except (TypeError, ValueError):
                         confidence_breakdown[key] = confidence
     except json.JSONDecodeError:
-        logger.warning(
-            "Ollama response for log %d was not valid JSON, storing as raw narrative", log_id
+        repaired = _repair_threat_narrative_json(
+            response_text,
+            raw_payload,
+            suricata_signature,
+            classification,
         )
+        if repaired:
+            narrative = json.dumps(repaired)
+            logger.warning(
+                "Ollama response for log %d was not valid JSON; stored repaired structured narrative",
+                log_id,
+            )
+        else:
+            logger.warning(
+                "Ollama response for log %d was not valid JSON, storing as raw narrative", log_id
+            )
 
     db.execute(
         text("""

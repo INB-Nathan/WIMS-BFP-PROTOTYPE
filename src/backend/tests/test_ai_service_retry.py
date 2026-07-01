@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from unittest.mock import AsyncMock, patch
 
@@ -77,6 +78,52 @@ class TestOllamaPayload:
         payload = _ollama_payload("test prompt")
 
         assert payload["options"]["num_predict"] == 128
+
+
+class TestThreatNarrativeRepair:
+    """Tests for repairing malformed/truncated Ollama JSON into readable sections."""
+
+    def test_repairs_truncated_json_string_fields(self):
+        from services.ai_service import _repair_threat_narrative_json
+
+        broken = (
+            "{\n"
+            '  "anomaly_description": "This is a complete paragraph about a PHP CGI probe.",\n'
+            '  "log_evidence": "\\"url\\":\\"/cgi-bin/php-cgi?allow_url_include=1\\", '
+        )
+
+        repaired = _repair_threat_narrative_json(
+            broken,
+            raw_payload='{"url":"/cgi-bin/php-cgi?allow_url_include=1"}',
+            suricata_signature="WIMS PHP code in upload body",
+            classification="high_signal_threat",
+        )
+
+        assert repaired is not None
+        assert (
+            repaired["anomaly_description"] == "This is a complete paragraph about a PHP CGI probe."
+        )
+        assert "/cgi-bin/php-cgi" in repaired["log_evidence"]
+        assert "confidentiality" in repaired["risk_assessment"].lower()
+        assert repaired["sources"] == [
+            "Suricata EVE log",
+            "Payload content",
+            "Signature taxonomy",
+        ]
+        json.dumps(repaired)  # repaired output must be serializable for xai_narrative
+
+    def test_returns_none_when_no_known_fields(self):
+        from services.ai_service import _repair_threat_narrative_json
+
+        assert (
+            _repair_threat_narrative_json(
+                "not useful",
+                raw_payload="{}",
+                suricata_signature="sig",
+                classification="class",
+            )
+            is None
+        )
 
 
 class TestRetryLogic:
