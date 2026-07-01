@@ -116,7 +116,11 @@ describe('409 DUPLICATE_DETECTED — conflict handling', () => {
     const result = await syncPendingIncidents(ENCODER_ID);
 
     // Must mark as conflict, NOT as error (error implies retry)
-    expect(markOpConflict).toHaveBeenCalledWith('dup-create', '409_duplicate', undefined);
+    expect(markOpConflict).toHaveBeenCalledWith('dup-create', '409_duplicate', {
+      confidence: null,
+      matched_incident_id: null,
+      matched_status: null,
+    });
     expect(markOpError).not.toHaveBeenCalled();
     expect(markOpSynced).not.toHaveBeenCalled();
     expect(result.conflicts).toBe(1);
@@ -133,7 +137,12 @@ describe('409 DUPLICATE_DETECTED — conflict handling', () => {
     });
 
     const result = await syncPendingIncidents(ENCODER_ID);
-    expect(markOpConflict).toHaveBeenCalledWith('dup-submit', '409_duplicate', undefined);
+    expect(markOpConflict).toHaveBeenCalledWith('dup-submit', '409_duplicate', {
+      confidence: null,
+      incident_id: 99,
+      matched_incident_id: null,
+      matched_status: null,
+    });
     expect(result.conflicts).toBe(1);
   });
 

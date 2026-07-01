@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { CloudDownload, Check, Trash2, Loader2, WifiOff } from 'lucide-react';
+import { CloudDownload, Trash2, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/context/AuthContext';
 import { useNetworkStatus } from '@/lib/useNetworkStatus';
@@ -10,20 +10,19 @@ import {
   enableOfflineMode,
   type OfflineEnableProgress,
 } from '@/lib/offlineEnable';
-import { isOfflineModeEnabled, clearOfflineModeEnabled } from '@/lib/offlineModeFlags';
+import { clearOfflineModeEnabled } from '@/lib/offlineModeFlags';
 import { clearAllOfflineData, setActiveOfflineUser } from '@/lib/offlineStore';
 
 /**
- * Encoder offline controls (items E10 / F11).
+ * Encoder offline data controls.
  *
- *  - variant="banner" (regional dashboard): persistent prompt shown until offline
- *    mode is enabled. No dismiss button — it stays visible so the encoder always
- *    knows where to set it up (Profile tab).
- *  - variant="panel"  (My Profile page): the persistent Enable/Update + Clear
- *    controls with live progress.
+ *  - variant="banner": shown on the regional dashboard when the encoder has
+ *    not yet pre-downloaded incidents. Prompts them to update offline data.
+ *  - variant="panel": full controls on the My Profile page — update + clear.
  *
- * Offline mode is an encoder-only feature, so the component renders nothing for
- * other roles.
+ * Note: encoders can always queue new incidents offline even without downloading
+ * offline data first. The download improves the experience by pre-caching
+ * existing incidents so they are viewable while disconnected.
  */
 export function OfflineModeManager({ variant = 'panel' }: { variant?: 'banner' | 'panel' }) {
   const router = useRouter();
@@ -33,17 +32,21 @@ export function OfflineModeManager({ variant = 'panel' }: { variant?: 'banner' |
   const encoderId = (user as { id?: string })?.id ?? '';
   const isEncoder = role === 'REGIONAL_ENCODER' || role === 'ENCODER';
 
-  const [enabled, setEnabled] = useState(false);
+  const [cachedCount, setCachedCount] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<OfflineEnableProgress | null>(null);
   const [clearing, setClearing] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
+  // Load how many incidents are currently cached so the panel can show status.
   useEffect(() => {
-    setEnabled(isOfflineModeEnabled());
-  }, []);
+    if (!encoderId) return;
+    import('@/lib/offlineStore')
+      .then(({ getCachedIncidents }) => getCachedIncidents(encoderId))
+      .then((items) => setCachedCount(items.length))
+      .catch(() => {});
+  }, [encoderId]);
 
-  // Cleanup on unmount: avoid calling setState on an unmounted component
   useEffect(() => {
     return () => {
       abortRef.current?.abort();
@@ -73,15 +76,15 @@ export function OfflineModeManager({ variant = 'panel' }: { variant?: 'banner' |
     setProgress(null);
     abortRef.current = null;
     if (result.ok) {
-      setEnabled(true);
+      setCachedCount(result.cachedDetails);
       toast.success(
-        `Offline mode ready — ${result.cachedDetails} incident${result.cachedDetails === 1 ? '' : 's'} saved for offline use.`,
+        `Offline data updated — ${result.cachedDetails} incident${result.cachedDetails === 1 ? '' : 's'} available for offline viewing.`,
       );
       if (result.warning) toast.warning(result.warning);
     } else if (result.error === 'Offline setup cancelled.') {
-      toast.info('Offline setup cancelled.');
+      toast.info('Offline data update cancelled.');
     } else {
-      toast.error(result.error ?? 'Could not enable offline mode.');
+      toast.error(result.error ?? 'Could not download offline data.');
     }
   }, [encoderId, busy, router]);
 
@@ -92,7 +95,7 @@ export function OfflineModeManager({ variant = 'panel' }: { variant?: 'banner' |
       await clearAllOfflineData();
       clearOfflineModeEnabled();
       if (encoderId) await setActiveOfflineUser(encoderId);
-      setEnabled(false);
+      setCachedCount(0);
       toast.success('Offline data cleared from this device.');
     } catch {
       toast.error('Failed to clear offline data.');
@@ -104,19 +107,19 @@ export function OfflineModeManager({ variant = 'panel' }: { variant?: 'banner' |
   if (!isEncoder) return null;
 
   // ── Banner variant (dashboard) ──────────────────────────────────────────
-  // Stays visible until offline mode is enabled — no dismiss button so the
-  // encoder always has a prompt to set it up. Full controls are in Profile.
+  // Shown when the encoder has no cached incidents yet. Once they have data,
+  // the banner disappears — they can manage it from Profile if needed.
   if (variant === 'banner') {
-    if (enabled) return null;
+    if (cachedCount === null || cachedCount > 0) return null; // loading or already cached
     return (
       <div className="flex flex-col gap-3 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-start gap-3">
           <CloudDownload className="mt-0.5 h-5 w-5 flex-shrink-0 text-sky-600" aria-hidden />
           <div>
-            <p className="text-sm font-semibold text-sky-900">This device is not set up for offline use</p>
+            <p className="text-sm font-semibold text-sky-900">Download incidents for offline viewing</p>
             <p className="mt-0.5 text-xs text-sky-700">
-              Download the encoding forms and your incidents so you can view, create, and edit
-              reports without an internet connection.
+              You can always create new incidents offline. Download your existing incidents so you can
+              also view and edit them without an internet connection.
             </p>
           </div>
         </div>
@@ -149,19 +152,16 @@ export function OfflineModeManager({ variant = 'panel' }: { variant?: 'banner' |
         <ProgressBar busy={busy} progress={progress} />
 
         <div className="flex flex-wrap items-center gap-2">
-          <span className="inline-flex items-center gap-1.5 text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
-            {enabled ? (
-              <>
-                <Check className="h-4 w-4 text-green-600" aria-hidden />
-                Offline mode is enabled on this device
-              </>
-            ) : (
-              <>
-                <WifiOff className="h-4 w-4 text-gray-400" aria-hidden />
-                Offline mode is not enabled
-              </>
-            )}
-          </span>
+          {cachedCount !== null && cachedCount > 0 && (
+            <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+              {cachedCount} incident{cachedCount !== 1 ? 's' : ''} available offline
+            </span>
+          )}
+          {cachedCount === 0 && !busy && (
+            <span className="text-sm" style={{ color: 'var(--text-muted)' }}>
+              No incidents downloaded yet
+            </span>
+          )}
           <div className="ml-auto flex items-center gap-2">
             <button
               type="button"
@@ -169,17 +169,17 @@ export function OfflineModeManager({ variant = 'panel' }: { variant?: 'banner' |
               disabled={!isOnline || busy}
               className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold text-white transition-colors disabled:opacity-50 min-h-[44px]"
               style={{ backgroundColor: '#0369a1' }}
-              title={isOnline ? 'Download / refresh offline data' : 'Connect to the internet to enable offline mode'}
+              title={isOnline ? 'Download / refresh offline data' : 'Connect to the internet to download offline data'}
             >
               {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <CloudDownload className="h-3.5 w-3.5" aria-hidden />}
-              {busy ? 'Setting up offline…' : (enabled ? 'Update offline data' : 'Enable offline mode')}
+              {busy ? 'Updating offline data…' : 'Update offline data'}
             </button>
             {busy && (
               <button
                 type="button"
                 onClick={cancelEnable}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-700 transition-colors hover:bg-red-50 min-h-[44px]"
-                aria-label="Cancel offline setup"
+                aria-label="Cancel offline data update"
               >
                 Cancel
               </button>

@@ -294,10 +294,10 @@ describe('OfflineWorkPage', () => {
 
     await userEvent.click(screen.getByRole('tab', { name: /Queued/i }));
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /Sync Now/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Retry/i })).toBeInTheDocument();
     });
 
-    await userEvent.click(screen.getByRole('button', { name: /Sync Now/i }));
+    await userEvent.click(screen.getByRole('button', { name: /Retry/i }));
     await waitFor(() => {
       expect(syncEngine.syncPendingIncidents).toHaveBeenCalledWith(ENCODER_ID, { bypassBackoff: true });
     });
