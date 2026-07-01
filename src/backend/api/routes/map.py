@@ -361,10 +361,61 @@ async def get_emergency_services(
 
 
 # ---------------------------------------------------------------------------
-# Authenticated operational map endpoint (for validators/analysts)
+# Pydantic model for validator fire station response
+# ---------------------------------------------------------------------------
+
+
+class StationItem(BaseModel):
+    station_id: int
+    station_name: str
+    address: str | None = None
+    region_name: str | None = None
+    latitude: float
+    longitude: float
+
+
+# ---------------------------------------------------------------------------
+# Authenticated operational map endpoints (for validators/analysts)
 # ---------------------------------------------------------------------------
 
 operational_router = APIRouter(prefix="/api/validator", tags=["validator-map"])
+
+
+@operational_router.get("/fire-stations", response_model=list[StationItem])
+async def get_validator_fire_stations(
+    db: Annotated[Session, Depends(auth.get_db_with_rls)] = None,
+):
+    """Return all BFP fire stations with region names for the validator map.
+
+    JOINs ref_fire_stations with ref_regions to include region_name.
+    Used by the validator operational map's fire station layer.
+    """
+    rows = db.execute(
+        text("""
+            SELECT
+                fs.station_id,
+                fs.station_name,
+                fs.address,
+                rr.region_name,
+                ST_Y(fs.location::geometry) AS latitude,
+                ST_X(fs.location::geometry) AS longitude
+            FROM wims.ref_fire_stations fs
+            LEFT JOIN wims.ref_regions rr ON rr.region_id = fs.region_id
+            ORDER BY fs.station_name ASC
+        """),
+    ).fetchall()
+
+    return [
+        StationItem(
+            station_id=r.station_id,
+            station_name=r.station_name,
+            address=r.address,
+            region_name=r.region_name,
+            latitude=round(float(r.latitude), 6),
+            longitude=round(float(r.longitude), 6),
+        )
+        for r in rows
+    ]
 
 
 @operational_router.get("/operational-map", response_model=ClusterResponse)

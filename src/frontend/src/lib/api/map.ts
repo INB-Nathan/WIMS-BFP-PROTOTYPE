@@ -42,6 +42,15 @@ export interface NearbyStation {
   distance_m: number;
 }
 
+export interface StationItem {
+  station_id: number;
+  station_name: string;
+  address: string | null;
+  region_name: string | null;
+  latitude: number;
+  longitude: number;
+}
+
 export interface EmergencyServicesResponse {
   national: EmergencyContact[];
   stations: NearbyStation[];

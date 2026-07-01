@@ -21,7 +21,7 @@ import {
 
 import { API_BASE, ApiRequestError, apiFetch, errorMessageFromJson } from './transport';
 import { publicApiFetch } from './public-transport';
-import type { MapClusterItem } from './map';
+import type { MapClusterItem, StationItem } from './map';
 
 /** Fetch incidents list - returns [] on error or 404 */
 export async function fetchIncidents(params?: { region_id?: number; category?: string; from?: string; to?: string; type?: string }): Promise<IncidentListItem[]> {
@@ -1257,6 +1257,14 @@ export async function fetchOperationalMap(
     `/api/validator/operational-map?${search}`,
   );
   return data.clusters ?? [];
+}
+
+/** Fetch fire stations for validator operational map — GET /api/validator/fire-stations */
+export async function fetchValidatorFireStations(): Promise<StationItem[]> {
+  const data = await apiFetch<StationItem[]>(
+    `/api/validator/fire-stations`,
+  );
+  return data ?? [];
 }
 
 /** Fetch validator audit logs — GET /regional/validator/audit-logs */
