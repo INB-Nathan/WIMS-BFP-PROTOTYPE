@@ -118,7 +118,7 @@ export interface TriageModalState {
   applyCorrection: () => Promise<void>;
   applySplit: () => Promise<void>;
   applyMerge: () => Promise<void>;
-  claimCluster: (clusterId: number | null) => Promise<void>;
+  claimCluster: (clusterId: number | null, reason?: string) => Promise<void>;
 
   // Busy
   busy: boolean;
@@ -305,12 +305,15 @@ export function useTriageModalState({ openCluster, inspectionMode, callbacks }: 
   }, [openCluster, mergeSourceClusterId, mergeNote, callbacks]);
 
   const claimCluster = useCallback(
-    async (clusterId: number | null) => {
+    async (clusterId: number | null, reason?: string) => {
       if (!clusterId) return;
       setBusy(true);
       try {
-        await claimTriageCluster(clusterId);
-        callbacks.onMessage(`Cluster ${clusterId} claimed.`);
+        await claimTriageCluster(clusterId, reason);
+        const msg = reason
+          ? `Snatched cluster ${clusterId} from ${openCluster?.assigned_to ?? 'previous owner'}.`
+          : `Cluster ${clusterId} claimed.`;
+        callbacks.onMessage(msg);
         await callbacks.onReloadQueue();
       } catch (err) {
         callbacks.onError(err instanceof Error ? err.message : 'Failed to claim cluster.');
@@ -318,7 +321,7 @@ export function useTriageModalState({ openCluster, inspectionMode, callbacks }: 
         setBusy(false);
       }
     },
-    [callbacks],
+    [callbacks, openCluster],
   );
 
   return {

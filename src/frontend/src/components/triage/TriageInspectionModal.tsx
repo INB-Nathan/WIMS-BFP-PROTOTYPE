@@ -25,12 +25,14 @@ export interface TriageInspectionModalProps {
   onReloadQueue: () => Promise<void> | void;
   onMessage: (msg: string) => void;
   onError: (err: string) => void;
-  /** Role of the current user; only NATIONAL_VALIDATOR may claim from the modal. */
+  /** Role of the current user. */
   role: string | null;
+  /** Current user's username (from auth). Used to detect self-claim vs takeover. */
+  currentUsername: string | null;
 }
 
 interface PendingConfirm {
-  kind: 'terminal' | 'split' | 'merge' | 'correct';
+  kind: 'terminal' | 'split' | 'merge' | 'correct' | 'snatch';
   title: string;
   body: string;
   confirmLabel: string;
@@ -47,6 +49,7 @@ export function TriageInspectionModal({
   onMessage,
   onError,
   role,
+  currentUsername,
 }: TriageInspectionModalProps) {
   const state = useTriageModalState({
     openCluster,
@@ -54,6 +57,7 @@ export function TriageInspectionModal({
     callbacks: { onClose, onReloadQueue, onMessage, onError },
   });
   const [pending, setPending] = useState<PendingConfirm | null>(null);
+  const [snatchReason, setSnatchReason] = useState('');
 
   // Backdrop click + Escape to close
   useEffect(() => {
@@ -205,6 +209,17 @@ export function TriageInspectionModal({
     isCluster &&
     (openCluster as TriageClusterEntry).assigned_to === null;
 
+  // Snatch: takeover a cluster claimed by another user.
+  // Backend role_can_take_over_claim restricts to NATIONAL_VALIDATOR and SYSTEM_ADMIN.
+  // The backend enforces the 10-minute staleness threshold — we show the button
+  // and let the backend reject if the claim is still active.
+  const assignedTo = (openCluster as TriageClusterEntry).assigned_to;
+  const canSnatch =
+    (role === 'NATIONAL_VALIDATOR' || role === 'SYSTEM_ADMIN') &&
+    isCluster &&
+    assignedTo !== null &&
+    assignedTo !== currentUsername;
+
   return (
     <div
       className="triage-modal"
@@ -236,6 +251,64 @@ export function TriageInspectionModal({
               className="triage-claim-bar__button"
             >
               Claim cluster #{openCluster.cluster_id}
+            </button>
+          </div>
+        )}
+
+        {canSnatch && (
+          <div className="triage-claim-bar" style={{ borderLeft: '3px solid #B45309', background: 'rgba(180, 83, 9, 0.06)' }}>
+            <span>
+              Claimed by <strong>{assignedTo}</strong>. After 10 minutes of inactivity you can
+              snatch this cluster with an audit reason.
+            </span>
+            <button
+              type="button"
+              disabled={state.busy}
+              onClick={() => {
+                setSnatchReason('');
+                setPending({
+                  kind: 'snatch',
+                  title: `Snatch cluster #${openCluster.cluster_id} from ${assignedTo}?`,
+                  body: 'You will take over ownership of this cluster. The previous claim will be released and recorded in the audit log with your reason.',
+                  confirmLabel: 'Snatch cluster',
+                  confirmTone: 'caution',
+                  preview: (
+                    <div className="triage-confirm__mini">
+                      <div className="triage-confirm__mini-row">
+                        <span className="triage-confirm__mini-label">Current owner</span>
+                        <span className="triage-confirm__mini-value">{assignedTo}</span>
+                      </div>
+                      <div className="triage-field" style={{ marginTop: '0.5rem' }}>
+                        <label className="triage-field__label" htmlFor="snatch-reason">
+                          Takeover reason <span className="triage-field__required">required</span>
+                        </label>
+                        <textarea
+                          id="snatch-reason"
+                          value={snatchReason}
+                          onChange={(e) => setSnatchReason(e.target.value)}
+                          rows={2}
+                          placeholder="Why are you taking over this cluster?"
+                          className="triage-textarea triage-textarea--audit"
+                        />
+                      </div>
+                    </div>
+                  ),
+                  run: async () => {
+                    if (!snatchReason.trim()) {
+                      onError('Takeover reason is required.');
+                      return;
+                    }
+                    await state.claimCluster(openCluster.cluster_id, snatchReason.trim());
+                  },
+                });
+              }}
+              className="triage-claim-bar__button"
+              style={{
+                background: '#B45309',
+                borderColor: '#92400E',
+              }}
+            >
+              Snatch cluster #{openCluster.cluster_id}
             </button>
           </div>
         )}
