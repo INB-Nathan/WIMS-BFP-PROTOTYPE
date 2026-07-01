@@ -86,10 +86,10 @@ export function TriageLegend() {
         <Layers className="h-4 w-4 text-red-700" aria-hidden />
         <span>About this triage board</span>
         <span className="ml-auto text-[10px] font-normal text-slate-400 group-open:hidden">
-          Click to expand
+          Show guide
         </span>
         <span className="ml-auto text-[10px] font-normal text-slate-400 hidden group-open:inline">
-          Click to collapse
+          Hide guide
         </span>
       </summary>
 

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import type {
@@ -508,7 +508,9 @@ describe('TriagePage', () => {
     await waitFor(() => {
       expect(screen.getByTestId('triage-panel-correct')).toBeInTheDocument();
     });
-    expect(screen.getByText(/Click/)).toBeInTheDocument();
+    // Scope query to the Correct panel to avoid matching TriageLegend text
+    const panel = screen.getByTestId('triage-panel-correct');
+    expect(within(panel).getByText(/Click/)).toBeInTheDocument();
     // Commit button is disabled until a target report is selected
     expect(screen.getByTestId('triage-commit-correct')).toBeDisabled();
   });
