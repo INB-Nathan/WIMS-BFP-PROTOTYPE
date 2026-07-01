@@ -25,6 +25,18 @@
   - Keeps `wims-openbao-bootstrap` protected while running; only terminal `exited`/`dead` instances are cleaned.
 - **Validation:** Parsed `.github/workflows/deploy.yml` as YAML, extracted the deploy script and ran `bash -n` successfully. Live VPS dry-run removed the exited stale `wims-ollama-model-pull` container and confirmed the stack remained up. `actionlint` was not installed locally.
 
+## [2026-07-01] feat(analytics): AFOR PDF export mode for analyst incident detail
+
+- **Scope:** Wire the analyst incident detail PDF export button to the existing AFOR section-based PDF writer without adding a new endpoint.
+- **Files modified:** `src/backend/api/routes/analytics.py`, `src/frontend/src/lib/api/legacy.ts`, `src/frontend/src/app/dashboard/analyst/incidents/[id]/page.tsx`
+- **Changes:**
+  - Added strict `export_mode: Literal["bulk", "afor"] = "bulk"` to analytics export requests.
+  - `POST /api/analytics/export/pdf` now dispatches existing `export_analyst_incidents_task` with `format="pdf"` and `export_mode="afor"` when explicitly requested with `filters.incident_id`.
+  - Explicit AFOR PDF requests without `filters.incident_id` return HTTP 400 instead of silently falling back to bulk PDF.
+  - Frontend analytics export client passes optional `export_mode` only when provided.
+  - Analyst incident detail page sends `export_mode: "afor"` only for PDF; CSV remains the existing tabular export.
+- **Validation:** `cd src/backend && ruff check api/routes/analytics.py` passed. `cd src/frontend && npm run lint` passed with 0 errors and 40 pre-existing warnings.
+
 ## [2026-06-30] fix(ai,deploy): graceful JSON degradation, keycloak proxy-headers, deploy model check
 
 - **Scope:** 8-edit clean hot-fix on top of `801ad9f` (replacing contaminated PR #492).
