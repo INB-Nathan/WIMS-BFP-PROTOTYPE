@@ -21,9 +21,30 @@ Each slice must be:
 
 ### Slice 1: Backend — enrich cluster response model with aggregates
 
-**Files touched:** `map.py`, `map.ts` (types), `legacy.ts`
+**Files touched:** `map.py`, `map.ts` (types)
 
-**What:** Extend the `get_operational_map()` SQL query to JOIN `incident_nonsensitive_details` and return per-cluster aggregate data. Add optional fields to `ClusterItem` Pydantic model.
+**What:** Extend the `get_operational_map()` SQL query with a subquery join (not a direct LEFT JOIN — see SQL correctness note below) to `incident_nonsensitive_details` and return per-cluster aggregate data. Add optional fields to `ClusterItem` Pydantic model and `MapClusterItem` TypeScript interface.
+
+**⚠ SQL correctness:** Do NOT use a direct `LEFT JOIN incident_nonsensitive_details` in the clustered CTE — the table has no UNIQUE constraint on `incident_id`, so a detail multiply-joined against its parent incident inflates `COUNT(*)`. Instead, aggregate detail data in a subquery BEFORE the clustering step:
+
+```sql
+WITH detail_agg AS (
+    SELECT
+        incident_id,
+        jsonb_agg(DISTINCT general_category) FILTER (WHERE general_category IS NOT NULL) AS categories,
+        SUM(estimated_damage_php) AS total_damage,
+        SUM(COALESCE(civilian_injured, 0) + COALESCE(civilian_deaths, 0)) AS total_casualties
+    FROM wims.incident_nonsensitive_details
+    GROUP BY incident_id
+),
+clustered AS (
+    SELECT
+        ST_SnapToGrid(fi.location::geometry, :grid_deg) AS grid_cell,
+        COUNT(*)                                                        AS cnt,
+        AVG(ST_Y(fi.location::geometry))                                AS center_lat,
+        AVG(ST_X(fi.location::geometry))                                AS center_lng,
+        ...
+```
 
 **New response fields (all optional):**
 | Field | Type | Source |
@@ -34,29 +55,34 @@ Each slice must be:
 | `total_casualties` | `int \| null` | `SUM(ind.civilian_injured + ind.civilian_deaths)` |
 | `earliest_at` | `str \| null` | `MIN(fi.created_at)` |
 | `latest_at` | `str \| null` | already exists (was `MAX(fi.created_at)`) |
+| `region_id` | `int \| null` | representative region for drill-down (mode of `fi.region_id` in cluster) |
 
 **SQL change:**
 ```sql
-LEFT JOIN wims.incident_nonsensitive_details ind
-    ON ind.incident_id = fi.incident_id
--- Add to SELECT:
+-- detail_agg CTE added before clustered CTE (see above)
+-- In clustered SELECT, add:
 COUNT(*) FILTER (WHERE fi.verification_status = 'PENDING') AS pending_count,
 COUNT(*) FILTER (WHERE fi.verification_status = 'PENDING_VALIDATION') AS pending_validation_count,
 COUNT(*) FILTER (WHERE fi.verification_status = 'VERIFIED') AS verified_count,
 COUNT(*) FILTER (WHERE fi.verification_status = 'REJECTED') AS rejected_count,
-jsonb_agg(DISTINCT ind.general_category) FILTER (WHERE ind.general_category IS NOT NULL) AS categories,
-SUM(ind.estimated_damage_php) AS total_damage,
-SUM(COALESCE(ind.civilian_injured, 0) + COALESCE(ind.civilian_deaths, 0)) AS total_casualties,
-MIN(fi.created_at) AS earliest_at
+da.categories,
+MIN(fi.created_at) AS earliest_at,
+da.total_damage,
+da.total_casualties,
+-- representative region for drill-down anchor (most frequent region in cluster):
+mode() WITHIN GROUP (ORDER BY fi.region_id) AS region_id
+-- FROM clause adds:
+-- LEFT JOIN detail_agg da ON da.incident_id = fi.incident_id
 ```
 
 **`MapClusterItem` (TS)** — add optional fields:
 ```ts
-status_breakdown?: Record<string, number>;
-category_mix?: string[];
+status_breakdown?: Record<string, number>;  // e.g. { PENDING: 5, VERIFIED: 4, REJECTED: 3 }
+category_mix?: string[];                     // e.g. ['Structural', 'Wildland']
 total_damage_php?: number;
 total_casualties?: number;
 earliest_at?: string | null;
+region_id?: number;                          // representative region for drill-down
 ```
 
 **LoC:** ~55 backend (query + model) + ~15 types = **~70 total**
@@ -81,6 +107,8 @@ Damage:   PHP 2,500,000
 Injuries/Deaths: 3 / 1
 Range:   Jan 15 – Mar 20, 2026
 ```
+
+**Empty-state:** When enriched fields are all null (cluster has no joined detail data), gracefully degrade to the current simple layout (count + severity + latest_at only). Check each field with `cluster.status_breakdown != null` before rendering the enriched sections.
 
 **Pattern:** Use the same severity-color system for status badges (blue=PENDING_VALIDATION, green=VERIFIED, red=REJECTED, yellow=PENDING).
 
@@ -149,7 +177,7 @@ cache_key = f"map:operational:{zoom}:{sw_lat:.4f}:{sw_lng:.4f}:{ne_lat:.4f}:{ne_
 # Try cache → miss → query → write cache
 ```
 
-**Stale-if-error:** On DB query failure, read from cache (even if expired) and return with a warning header.
+**Stale-if-error:** On DB query failure, read from cache (even if expired) and return with response header `X-Cache: stale`. The frontend can surface this (optional — no frontend change required in this slice).
 
 **LoC:** ~35 backend (cache key gen + read/write + stale fallback)
 **Risk:** Low — exact same pattern as public clusters, already proven in production
@@ -162,9 +190,16 @@ cache_key = f"map:operational:{zoom}:{sw_lat:.4f}:{sw_lng:.4f}:{ne_lat:.4f}:{ne_
 
 **Files touched:** `ValidatorMapInner.tsx`
 
-**What:** Add a `<Link>` at the bottom of each cluster popup: "View X pending incidents →" navigating to `/dashboard/validator?status=PENDING` (or filtered by the cluster's region — requires region_id in cluster data, which can be added by extending the SQL in Slice 1 to include a representative `region_id` from the cluster).
+**What:** Add a `<Link>` at the bottom of each cluster popup: "View X pending incidents →" navigating to `/dashboard/validator?status=PENDING` filtered by the cluster's representative region, using the `region_id` field added in Slice 1.
 
-**Alternative (no region):** Navigate to `/dashboard/validator?status=PENDING` which shows all pending incidents. The validator can then use the existing region filter on the queue page.
+**URL construction:**
+```tsx
+const drillUrl = cluster.region_id
+  ? `/dashboard/validator?status=PENDING&region_id=${cluster.region_id}`
+  : `/dashboard/validator?status=PENDING`;
+```
+
+**Fallback:** If `region_id` is not available (null), navigate to generic `/dashboard/validator?status=PENDING`.
 
 **Link styling:** BFP-blue text, subtle hover underline, opens in same tab.
 
@@ -176,9 +211,11 @@ cache_key = f"map:operational:{zoom}:{sw_lat:.4f}:{sw_lng:.4f}:{ne_lat:.4f}:{ne_
 
 ### Slice 7: Frontend — fire station layer
 
-**Files touched:** `ValidatorMapInner.tsx`, `map.ts`
+**Files touched:** `ValidatorMapInner.tsx`, `page.tsx`, `map.ts`
 
-**What:** Fetch fire stations from `GET /api/ref/fire-stations` (already exists, returns all stations with lat/lng). Render them as distinct Leaflet markers (custom fire-station icon) on the validator map with a toggle switch in the filter bar.
+**What:** Fetch fire stations from `GET /api/ref/fire-stations` (returns stations with `station_name`, `address`, `region_name`, `latitude`, `longitude` — verify exact field names in `ref.py` before coding). Render them as distinct Leaflet markers (custom fire-station icon) on the validator map with a toggle switch in the filter bar.
+
+**⚠ Verify before coding:** Read `src/backend/api/routes/ref.py` to confirm the `get_fire_stations` response model field names. The validator will need those fields for the popup.
 
 **Icon:** Use `firePinIcon` from `src/components/map/leafletIcons.ts` (already exists, BFP maroon SVG divIcon).
 
@@ -247,8 +284,12 @@ cache_key = f"map:operational:{zoom}:{sw_lat:.4f}:{sw_lng:.4f}:{ne_lat:.4f}:{ne_
 
 **Leaflet mocking:** Mock `react-leaflet` exports — `MapContainer`, `TileLayer`, `CircleMarker`, `Popup`, `useMapEvents`. Verify props passed to mocked components.
 
+**Established mock patterns to follow (read before coding):**
+- `src/frontend/src/components/__tests__/ClusterMapInner.test.tsx` — mocks `react-leaflet` with `vi.mock('react-leaflet')`, provides stub components
+- `src/frontend/src/components/__tests__/MapPickerInner.test.tsx` — similar pattern with click handler testing
+
 **LoC:** ~100-130 frontend tests (including Leaflet mocks)
-**Risk:** Medium — Leaflet DOM mocking is fragile; review existing `ClusterMapInner.test.tsx` and `MapPickerInner.test.tsx` for established patterns
+**Risk:** Medium — Leaflet DOM mocking is fragile; follow the exact mock patterns from the two test files above
 **Files:** 1
 
 ---
