@@ -414,11 +414,15 @@ services:
       # subsequent git operations (pull, reset) by the wims user.
       - PUID=1000
       - PGID=1000
+      # Docker bridge for decrypted HTTP capture (G-4). Auto-detected by
+      # entrypoint.sh; override via SURICATA_INTERFACE if a single interface
+      # is needed (e.g. SURICATA_INTERFACE=eth0).
+      - SURICATA_INTERFACE=
     cap_add:
       - NET_ADMIN
       - NET_RAW
       - SYS_NICE       # needed for CPU affinity on multi-interface AF_PACKET capture (G-4)
-    command: --af-packet=${SURICATA_INTERFACE:-eth0} --runmode workers
+    command: /entrypoint.sh
     # Pen-test follow-up 2026-06-29: wims-suricata uses network_mode: "host"
     # for AF_PACKET raw-socket capture, so it does NOT participate in the
     # wims_internal bridge network and Docker DNS cannot resolve `redis` for
@@ -431,6 +435,7 @@ services:
       - ./suricata/logs:/var/log/suricata
       - ./suricata/rules:/var/lib/suricata/rules
       - ./suricata/suricata.yaml:/etc/suricata/suricata.yaml
+      - ./suricata/entrypoint.sh:/entrypoint.sh
     healthcheck:
       test: ["CMD", "pgrep", "Suricata-Main"]
       interval: 30s
