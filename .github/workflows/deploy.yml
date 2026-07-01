@@ -212,30 +212,52 @@ jobs:
               # interrupted, a stale renamed container can block future recreates
               # with "container name ... is already in use".
               # The project name is derived from the working directory (src/).
+              remove_containers() {
+                ids="$1"
+                label="$2"
+                if [ -n "$ids" ]; then
+                  echo "$label"
+                  echo "$ids" | xargs -r docker rm -f || true
+                fi
+              }
+
+              wait_for_container_name_absent() {
+                name="$1"
+                for _ in $(seq 1 30); do
+                  if ! docker ps -a --format '{{.Names}}' | grep -Fxq "$name"; then
+                    return 0
+                  fi
+                  sleep 1
+                done
+                echo "Timed out waiting for stale container $name to be removed"
+                docker ps -a --filter "name=^/${name}$"
+                return 1
+              }
 
               # 1. Remove stale renamed containers (<hash>_wims-<service>)
-              stale_ids=$(docker ps -aq --filter 'label=com.docker.compose.project=src' --format '{{.ID}} {{.Names}}' | awk '$2 ~ /^[0-9a-f]+_wims-/ {print $1}')
-              if [ -n "$stale_ids" ]; then
-                echo "Removing stale Compose-renamed WIMS containers..."
-                echo "$stale_ids" | xargs -r docker rm -f
-              fi
+              stale_ids=$(docker ps -a --filter 'label=com.docker.compose.project=src' --format '{{.ID}} {{.Names}}' | awk '$2 ~ /^[0-9a-f]+_wims-/ {print $1}')
+              remove_containers "$stale_ids" "Removing stale Compose-renamed WIMS containers..."
 
               # 2. Remove fixed-name WIMS containers stuck in "created" state
               #    (never started — always from an interrupted deploy)
               stuck_ids=$(docker ps -a --filter 'status=created' --format '{{.ID}} {{.Names}}' | awk '$2 ~ /^wims-/ {print $1}')
-              if [ -n "$stuck_ids" ]; then
-                echo "Removing stale WIMS containers stuck in created state..."
-                echo "$stuck_ids" | xargs -r docker rm -f
+              remove_containers "$stuck_ids" "Removing stale WIMS containers stuck in created state..."
+
+              # 3. Remove stale one-shot dependency containers. The Ollama pull
+              #    service is safe to recreate and its fixed container_name can
+              #    otherwise block compose up with "name is already in use". If
+              #    Docker is already removing it, tolerate that race and wait for
+              #    the exact name to disappear before retrying Compose.
+              ollama_pull_id=$(docker ps -aq --filter 'name=^/wims-ollama-model-pull$')
+              remove_containers "$ollama_pull_id" "Removing stale WIMS Ollama model-pull container..."
+              if [ -n "$ollama_pull_id" ]; then
+                wait_for_container_name_absent "wims-ollama-model-pull"
               fi
 
-              # 3. Remove failed one-shot dependency containers. These services
-              #    are safe to recreate and can otherwise keep compose --wait
-              #    pinned to a previous failed DNS/startup attempt.
-              oneshot_ids=$(docker ps -a --filter 'status=exited' --filter 'status=dead' --format '{{.ID}} {{.Names}}' | awk '$2 ~ /^wims-(ollama-model-pull|openbao-bootstrap)$/ {print $1}')
-              if [ -n "$oneshot_ids" ]; then
-                echo "Removing stale failed WIMS one-shot containers..."
-                echo "$oneshot_ids" | xargs -r docker rm -f
-              fi
+              # openbao-bootstrap can be long-running; only remove it after a
+              # terminal failed/exited state, not while it is up.
+              openbao_bootstrap_ids=$(docker ps -a --filter 'name=^/wims-openbao-bootstrap$' --format '{{.ID}} {{.State}}' | awk '$2 == "exited" || $2 == "dead" {print $1}')
+              remove_containers "$openbao_bootstrap_ids" "Removing stale failed WIMS OpenBao bootstrap container..."
             }
 
             echo "Validating production compose configuration..."

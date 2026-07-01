@@ -14,6 +14,17 @@
 - **Behavior:** Opens a modal for a mock log with structured JSON narrative (anomaly_description, log_evidence, risk_assessment, confidence, sources — no recommended_action). Verifies "Stage 2: Recommended Action" banner appears, clicks "Generate Recommended Action", asserts the API is called, and verifies the recommended action text appears and the Stage 2 section disappears on completion.
 - **Validation:** `npx vitest run src/app/admin/system/admin-system-analyze-ai.test.tsx` — 5 passed (4 existing + 1 new). Frontend lint clean. Backend `ruff check`, `ruff format`, and `pytest tests/test_ai_service_retry.py` — all pass.
 
+## [2026-07-01] fix(deploy): tolerate stale Ollama model-pull container cleanup races
+
+- **Scope:** Harden GitHub Actions production deploy cleanup after `docker compose up --wait` failed on a fixed-name one-shot container conflict for `wims-ollama-model-pull`.
+- **Files modified:** `.github/workflows/deploy.yml`
+- **Changes:**
+  - Removed invalid `docker ps -aq --format ...` usage from stale Compose rename cleanup.
+  - Added idempotent container removal helper that tolerates Docker's `removal already in progress` race without aborting the retry path.
+  - Explicitly removes stale `wims-ollama-model-pull` before Compose recreate and waits until the exact fixed container name disappears.
+  - Keeps `wims-openbao-bootstrap` protected while running; only terminal `exited`/`dead` instances are cleaned.
+- **Validation:** Parsed `.github/workflows/deploy.yml` as YAML, extracted the deploy script and ran `bash -n` successfully. Live VPS dry-run removed the exited stale `wims-ollama-model-pull` container and confirmed the stack remained up. `actionlint` was not installed locally.
+
 ## [2026-06-30] fix(ai,deploy): graceful JSON degradation, keycloak proxy-headers, deploy model check
 
 - **Scope:** 8-edit clean hot-fix on top of `801ad9f` (replacing contaminated PR #492).
