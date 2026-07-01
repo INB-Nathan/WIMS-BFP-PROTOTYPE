@@ -49,8 +49,6 @@ export default function TriagePage() {
   const [selectionNotice, setSelectionNotice] = useState<string | null>(null);
 
   const canAccess =
-    role === 'ENCODER' ||
-    role === 'NATIONAL_VALIDATOR' ||
     role === 'REGIONAL_ENCODER' ||
     role === 'NATIONAL_VALIDATOR' ||
     role === 'SYSTEM_ADMIN';

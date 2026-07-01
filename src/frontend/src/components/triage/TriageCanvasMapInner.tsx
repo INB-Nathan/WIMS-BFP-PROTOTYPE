@@ -116,10 +116,18 @@ export default function TriageCanvasMapInner({
               }}
             >
               <Popup>
-                <div className="text-xs min-w-[160px]">
+                <div className="text-xs min-w-[180px]">
                   <p className="font-semibold text-sm">Cluster #{identity.id}</p>
-                  <p>{item.member_count} report(s) · {item.severity}</p>
-                  <button type="button" className="mt-2 text-red-700 font-semibold" onClick={() => onSelectItem(item)}>
+                  <p className="mt-1">{item.member_count} report(s) · {item.severity}</p>
+                  <p className="mt-0.5">
+                    Trust:{' '}
+                    <span className={`font-bold ${item.avg_trust >= 70 ? 'text-emerald-700' : item.avg_trust >= 40 ? 'text-amber-700' : 'text-red-700'}`}>
+                      {Math.round(item.avg_trust)}
+                    </span>
+                    /100 · {item.station.name ?? 'No station'}
+                  </p>
+                  {item.has_life_safety && <p className="mt-0.5 text-red-700 font-semibold">⚠ Life safety signal</p>}
+                  <button type="button" className="mt-2 w-full rounded bg-red-700 px-3 py-1.5 text-xs font-bold text-white hover:bg-red-800" onClick={() => onSelectItem(item)}>
                     Select cluster
                   </button>
                 </div>
@@ -152,10 +160,20 @@ export default function TriageCanvasMapInner({
             }}
           >
             <Popup>
-              <div className="text-xs min-w-[150px]">
+              <div className="text-xs min-w-[170px]">
                 <p className="font-semibold text-sm">Report #{report.report_id}</p>
-                <p>{report.category ?? 'Unclassified'}{report.sub_category ? ` / ${report.sub_category}` : ''}</p>
-                <button type="button" className="mt-2 text-red-700 font-semibold" onClick={() => onSelectReport(report.report_id)}>
+                <p className="mt-1">{report.category ?? 'Unclassified'}{report.sub_category ? ` / ${report.sub_category}` : ''}</p>
+                <p className="mt-0.5">
+                  Trust:{' '}
+                  <span className={`font-bold ${report.trust_breakdown.score >= 70 ? 'text-emerald-700' : report.trust_breakdown.score >= 40 ? 'text-amber-700' : 'text-red-700'}`}>
+                    {report.trust_breakdown.score}
+                  </span>
+                  /100 · {report.status}
+                </p>
+                {report.safety_status && (report.safety_status === 'I_NEED_HELP' || report.safety_status === 'SOMEONE_ELSE_NEEDS_HELP') && (
+                  <p className="mt-0.5 text-red-700 font-semibold">⚠ {report.safety_status.replace('_', ' ')}</p>
+                )}
+                <button type="button" className="mt-2 w-full rounded bg-red-700 px-3 py-1.5 text-xs font-bold text-white hover:bg-red-800" onClick={() => onSelectReport(report.report_id)}>
                   Select report
                 </button>
               </div>

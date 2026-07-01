@@ -4,6 +4,7 @@ export type { TriageEvidenceCardProps } from './TriageEvidenceCard';
 export { TriageCanvasMap } from './TriageCanvasMap';
 export type { TriageCanvasMapProps } from './TriageCanvasMap';
 export { TriageInvestigationBoard } from './TriageInvestigationBoard';
+export { TriageLegend } from './TriageLegend';
 export {
   deriveClusterGeometry,
   getTriageItemIdentity,

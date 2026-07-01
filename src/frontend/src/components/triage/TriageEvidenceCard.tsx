@@ -79,8 +79,17 @@ export function TriageEvidenceCard({
             <MapPin className="h-3 w-3" /> No usable location
           </span>
         )}
-        <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1 font-medium text-slate-700">
-          <CheckCircle2 className="h-3 w-3" /> Trust {report.trust_breakdown.score}
+        <span
+          className={`inline-flex items-center gap-1 rounded-md px-2 py-1 font-bold ${
+            report.trust_breakdown.score >= 70
+              ? 'bg-emerald-100 text-emerald-800'
+              : report.trust_breakdown.score >= 40
+                ? 'bg-amber-100 text-amber-800'
+                : 'bg-red-100 text-red-800'
+          }`}
+          title="Trust score: higher = more reliable. Calculated from device history, proximity, and report consistency."
+        >
+          <CheckCircle2 className="h-3 w-3" /> Trust {report.trust_breakdown.score}/100
         </span>
         <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1 font-medium text-slate-700">
           <RadioTower className="h-3 w-3" /> {report.station.name ?? 'No station'}
