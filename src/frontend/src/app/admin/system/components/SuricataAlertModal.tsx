@@ -309,6 +309,14 @@ export function SuricataAlertModal({ log, onClose, onDecisionComplete }: Suricat
   const isFalsePositive = log.admin_action_taken === 'False Positive';
   const isMoreInfoRequested = log.admin_action_taken === 'More Info Requested';
 
+  // Whether AI threat analysis is currently running — disables all action buttons
+  // to minimize CPU contention on the Ollama model.
+  const isAnalysisRunning =
+    analysisState === 'fetching' ||
+    analysisState === 'analyzing' ||
+    analysisState === 'normalizing' ||
+    isBackgroundRunning;
+
   // ── Effects ──────────────────────────────────────────────────────────
 
   // Tab reset on log change
@@ -455,6 +463,7 @@ export function SuricataAlertModal({ log, onClose, onDecisionComplete }: Suricat
 
   const handleAnalyze = async () => {
     if (log.xai_narrative) return;
+    if (isSubmitting || isAnalysisRunning) return; // don't start analysis while decision in progress
     setAnalysisState('fetching');
     setAnalysisError(null);
 
@@ -509,6 +518,7 @@ export function SuricataAlertModal({ log, onClose, onDecisionComplete }: Suricat
   };
 
   const handleHitlDecision = async (action: string, note?: string) => {
+    if (isAnalysisRunning) return; // don't submit decision while AI analysis is running
     setIsSubmitting(true);
     setHitlMessage(null);
     try {
@@ -535,6 +545,7 @@ export function SuricataAlertModal({ log, onClose, onDecisionComplete }: Suricat
   };
 
   const handleCreateIncident = async () => {
+    if (isAnalysisRunning) return; // don't create incident while AI analysis is running
     setIsSubmitting(true);
     setCreateIncidentResult(null);
     setHitlMessage(null);
@@ -556,6 +567,7 @@ export function SuricataAlertModal({ log, onClose, onDecisionComplete }: Suricat
   };
 
   const handleViewRelatedEvidence = async () => {
+    if (isAnalysisRunning && relatedEvidence === null) return; // don't fetch while AI analysis is running
     if (relatedEvidence !== null) {
       setActiveTab('evidence');
       return;
@@ -1182,24 +1194,28 @@ export function SuricataAlertModal({ log, onClose, onDecisionComplete }: Suricat
 
   // ── Threat Decision Row ──────────────────────────────────────────────
 
-  const renderRelatedEvidenceButton = () => (
-    <button
-      onClick={handleViewRelatedEvidence}
-      disabled={isSubmitting}
-      className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold border transition-opacity ${
-        isSubmitting
-          ? 'border-gray-300 text-gray-400 opacity-70 cursor-not-allowed'
-          : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-      }`}
-    >
-      {isLoadingEvidence ? (
-        <IconSpinner className="w-4 h-4" />
-      ) : (
-        <IconSearch />
-      )}
-      {isLoadingEvidence ? 'Loading\u2026' : 'View Related Evidence'}
-    </button>
-  );
+  const renderRelatedEvidenceButton = () => {
+    const disabled = isSubmitting || isAnalysisRunning;
+    return (
+      <button
+        onClick={handleViewRelatedEvidence}
+        disabled={disabled}
+        className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold border transition-opacity ${
+          disabled
+            ? 'border-gray-300 text-gray-400 opacity-70 cursor-not-allowed'
+            : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+        }`}
+        title={isAnalysisRunning ? 'AI analysis in progress — actions disabled' : undefined}
+      >
+        {isLoadingEvidence ? (
+          <IconSpinner className="w-4 h-4" />
+        ) : (
+          <IconSearch />
+        )}
+        {isLoadingEvidence ? 'Loading\u2026' : 'View Related Evidence'}
+      </button>
+    );
+  };
 
   const renderDecisionRow = () => {
     if (isReviewed) {
@@ -1222,17 +1238,18 @@ export function SuricataAlertModal({ log, onClose, onDecisionComplete }: Suricat
           </h4>
         </div>
         <div
-          className={`flex flex-wrap gap-2 ${isSubmitting ? 'pointer-events-none' : ''}`}
+          className={`flex flex-wrap gap-2 ${(isSubmitting || isAnalysisRunning) ? 'pointer-events-none' : ''}`}
         >
           {/* Confirm Threat */}
           <button
             onClick={() => handleHitlDecision('CONFIRM_THREAT')}
-            disabled={isSubmitting}
+            disabled={isSubmitting || isAnalysisRunning}
             className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-opacity ${
-              isSubmitting
+              isSubmitting || isAnalysisRunning
                 ? 'bg-red-600 text-white opacity-70 cursor-not-allowed'
                 : 'bg-red-600 text-white hover:bg-red-700'
             }`}
+            title={isAnalysisRunning ? 'AI analysis in progress — actions disabled' : undefined}
           >
             {isSubmitting ? (
               <IconSpinner className="w-4 h-4" />
@@ -1245,12 +1262,13 @@ export function SuricataAlertModal({ log, onClose, onDecisionComplete }: Suricat
           {/* False Positive */}
           <button
             onClick={() => handleHitlDecision('FALSE_POSITIVE')}
-            disabled={isSubmitting}
+            disabled={isSubmitting || isAnalysisRunning}
             className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-opacity ${
-              isSubmitting
+              isSubmitting || isAnalysisRunning
                 ? 'bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-gray-100 opacity-70 cursor-not-allowed'
                 : 'bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-gray-100 hover:bg-gray-300 dark:hover:bg-gray-500'
             }`}
+            title={isAnalysisRunning ? 'AI analysis in progress — actions disabled' : undefined}
           >
             {isSubmitting ? (
               <IconSpinner className="w-4 h-4" />
@@ -1263,12 +1281,13 @@ export function SuricataAlertModal({ log, onClose, onDecisionComplete }: Suricat
           {/* Request More Info */}
           <button
             onClick={() => handleHitlDecision('REQUEST_MORE_INFO')}
-            disabled={isSubmitting}
+            disabled={isSubmitting || isAnalysisRunning}
             className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold border transition-opacity ${
-              isSubmitting
+              isSubmitting || isAnalysisRunning
                 ? 'border-gray-300 text-gray-400 opacity-70 cursor-not-allowed'
                 : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
             }`}
+            title={isAnalysisRunning ? 'AI analysis in progress — actions disabled' : undefined}
           >
             {isSubmitting ? (
               <IconSpinner className="w-4 h-4" />
@@ -1283,12 +1302,13 @@ export function SuricataAlertModal({ log, onClose, onDecisionComplete }: Suricat
           {/* Create Incident */}
           <button
             onClick={handleCreateIncident}
-            disabled={isSubmitting}
+            disabled={isSubmitting || isAnalysisRunning}
             className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-opacity ${
-              isSubmitting
+              isSubmitting || isAnalysisRunning
                 ? 'bg-orange-600 text-white opacity-70 cursor-not-allowed'
                 : 'bg-orange-600 text-white hover:bg-orange-700'
             }`}
+            title={isAnalysisRunning ? 'AI analysis in progress — actions disabled' : undefined}
           >
             {isSubmitting ? (
               <IconSpinner className="w-4 h-4" />
