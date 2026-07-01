@@ -106,6 +106,12 @@ class ClusterItem(BaseModel):
     count: int
     severity: str
     latest_at: str | None = None
+    status_breakdown: dict[str, int] | None = None
+    category_mix: list[str] | None = None
+    total_damage_php: float | None = None
+    total_casualties: int | None = None
+    earliest_at: str | None = None
+    region_id: int | None = None
 
 
 class ClusterResponse(BaseModel):
@@ -401,7 +407,16 @@ async def get_operational_map(
 
     rows = db.execute(
         text(f"""
-            WITH clustered AS (
+            WITH detail_agg AS (
+                SELECT
+                    incident_id,
+                    jsonb_agg(DISTINCT general_category) FILTER (WHERE general_category IS NOT NULL) AS categories,
+                    SUM(estimated_damage_php) AS total_damage,
+                    SUM(COALESCE(civilian_injured, 0) + COALESCE(civilian_deaths, 0)) AS total_casualties
+                FROM wims.incident_nonsensitive_details
+                GROUP BY incident_id
+            ),
+            clustered AS (
                 SELECT
                     ST_SnapToGrid(fi.location::geometry, :grid_deg) AS grid_cell,
                     COUNT(*)                                                        AS cnt,
@@ -412,8 +427,18 @@ async def get_operational_map(
                         WHEN COUNT(*) >= 5  THEN 'medium'
                         ELSE 'low'
                     END                                                             AS severity,
-                    MAX(fi.created_at)                                              AS latest_at
+                    MAX(fi.created_at)                                              AS latest_at,
+                    COUNT(*) FILTER (WHERE fi.verification_status = 'PENDING') AS pending_count,
+                    COUNT(*) FILTER (WHERE fi.verification_status = 'PENDING_VALIDATION') AS pending_validation_count,
+                    COUNT(*) FILTER (WHERE fi.verification_status = 'VERIFIED') AS verified_count,
+                    COUNT(*) FILTER (WHERE fi.verification_status = 'REJECTED') AS rejected_count,
+                    MIN(fi.created_at) AS earliest_at,
+                    da.categories,
+                    da.total_damage,
+                    da.total_casualties,
+                    mode() WITHIN GROUP (ORDER BY fi.region_id) AS region_id
                 FROM wims.fire_incidents fi
+                LEFT JOIN detail_agg da ON da.incident_id = fi.incident_id
                 WHERE fi.is_archived = FALSE
                   {status_clause}
                   AND ST_Within(
@@ -422,7 +447,9 @@ async def get_operational_map(
                   )
                 GROUP BY ST_SnapToGrid(fi.location::geometry, :grid_deg)
             )
-            SELECT center_lat, center_lng, cnt, severity, latest_at
+            SELECT center_lat, center_lng, cnt, severity, latest_at,
+                   pending_count, pending_validation_count, verified_count, rejected_count,
+                   earliest_at, categories, total_damage, total_casualties, region_id
             FROM clustered
             WHERE center_lat IS NOT NULL AND center_lng IS NOT NULL
             ORDER BY cnt DESC
@@ -437,6 +464,19 @@ async def get_operational_map(
             count=r.cnt,
             severity=r.severity,
             latest_at=r.latest_at.isoformat() if r.latest_at else None,
+            status_breakdown={
+                "PENDING": r.pending_count,
+                "PENDING_VALIDATION": r.pending_validation_count,
+                "VERIFIED": r.verified_count,
+                "REJECTED": r.rejected_count,
+            }
+            if r.pending_count is not None
+            else None,
+            category_mix=list(r.categories) if r.categories else None,
+            total_damage_php=float(r.total_damage) if r.total_damage is not None else None,
+            total_casualties=int(r.total_casualties) if r.total_casualties is not None else None,
+            earliest_at=r.earliest_at.isoformat() if r.earliest_at else None,
+            region_id=int(r.region_id) if r.region_id is not None else None,
         )
         for r in rows
     ]
