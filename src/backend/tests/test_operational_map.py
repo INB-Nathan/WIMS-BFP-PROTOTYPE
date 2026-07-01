@@ -42,9 +42,7 @@ class TestOperationalMapValidation:
         assert resp.status_code == 422
 
     def test_partial_bbox_returns_422(self, mock_db):
-        resp = client.get(
-            "/api/validator/operational-map?sw_lat=14.0&sw_lng=120.0"
-        )
+        resp = client.get("/api/validator/operational-map?sw_lat=14.0&sw_lng=120.0")
         assert resp.status_code == 422
 
     def test_invalid_latitudes_returns_422(self, mock_db):

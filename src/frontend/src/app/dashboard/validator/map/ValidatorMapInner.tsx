@@ -1,11 +1,11 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useMapEvents } from 'react-leaflet';
-import { MapContainer, TileLayer, CircleMarker, Marker, Popup } from 'react-leaflet';
+import { useMapEvents, MapContainer, TileLayer, CircleMarker, Marker, Popup, Circle } from 'react-leaflet';
 import L from 'leaflet';
 import Link from 'next/link';
-import { fetchValidatorFireStations, type MapClusterItem, type StationItem } from '@/lib/api';
+import { fetchValidatorFireStations, fetchOperations, type MapClusterItem, type StationItem, type Operation } from '@/lib/api';
+import { firePinIcon } from '@/components/map/leafletIcons';
 
 // ── Severity helpers ────────────────────────────────────────────────────────
 
@@ -29,17 +29,13 @@ function severityFillOpacity(count: number): number {
   return 0.25;
 }
 
-// ── Props ───────────────────────────────────────────────────────────────────
+// ── Operation status colours (mirrors OperationsMap.tsx) ─────────────────────
 
-// ── Fire station marker icon (BFP maroon pin) ──────────────────────────────
-
-const stationIcon = L.divIcon({
-  className: '',
-  html: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#8B0000" width="24" height="24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/><rect x="9" y="4" width="6" height="2" fill="#fff"/></svg>',
-  iconSize: [24, 24],
-  iconAnchor: [12, 24],
-  popupAnchor: [0, -24],
-});
+const OPERATION_COLORS: Record<string, string> = {
+  ACTIVE: '#dc2626',
+  CONTAINED: '#ea580c',
+  FIRE_OUT: '#16a34a',
+};
 
 // ── Props ───────────────────────────────────────────────────────────────────
 
@@ -101,6 +97,19 @@ export default function ValidatorMapInner({
     return () => { cancelled = true; };
   }, []);
 
+  // Fetch operations once on mount
+  useEffect(() => {
+    let cancelled = false;
+    fetchOperations()
+      .then((data) => {
+        if (!cancelled) setOperations(data);
+      })
+      .catch(() => {
+        if (!cancelled) setOperationsError(true);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
   return (
     <div className="relative h-full w-full">
       {/* Floating station toggle */}
@@ -146,7 +155,7 @@ export default function ValidatorMapInner({
         <Marker
           key={`station-${s.station_id}`}
           position={[s.latitude, s.longitude]}
-          icon={stationIcon}
+          icon={firePinIcon}
         >
           <Popup>
             <div className="text-xs min-w-[120px]">
@@ -289,14 +298,12 @@ export default function ValidatorMapInner({
                   {c.lat.toFixed(4)}, {c.lng.toFixed(4)}
                 </p>
                 {/* Drill link */}
-                {c.region_id && (
-                  <Link
-                    href={`/dashboard/validator?status=PENDING&region_id=${c.region_id}`}
-                    className="inline-block mt-1.5 text-[11px] font-medium text-blue-700 hover:text-blue-900 hover:underline"
-                  >
-                    View pending in region →
-                  </Link>
-                )}
+                <Link
+                  href={c.region_id ? `/dashboard/validator?status=PENDING&region_id=${c.region_id}` : '/dashboard/validator?status=PENDING'}
+                  className="inline-block mt-1.5 text-[11px] font-medium text-blue-700 hover:text-blue-900 hover:underline"
+                >
+                  View {c.status_breakdown?.PENDING ?? 0} pending incidents →
+                </Link>
               </div>
             ) : (
               /* Simple fallback layout — no enriched data */
@@ -317,14 +324,12 @@ export default function ValidatorMapInner({
                 <p className="text-slate-400 text-[10px] mt-0.5">
                   {c.lat.toFixed(4)}, {c.lng.toFixed(4)}
                 </p>
-                {c.region_id && (
-                  <Link
-                    href={`/dashboard/validator?status=PENDING&region_id=${c.region_id}`}
-                    className="inline-block mt-1.5 text-[11px] font-medium text-blue-700 hover:text-blue-900 hover:underline"
-                  >
-                    View pending in region →
-                  </Link>
-                )}
+                <Link
+                  href={c.region_id ? `/dashboard/validator?status=PENDING&region_id=${c.region_id}` : '/dashboard/validator?status=PENDING'}
+                  className="inline-block mt-1.5 text-[11px] font-medium text-blue-700 hover:text-blue-900 hover:underline"
+                >
+                  View pending incidents →
+                </Link>
               </div>
             )}
           </Popup>

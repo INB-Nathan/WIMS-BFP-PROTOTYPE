@@ -82,15 +82,15 @@ export default function ValidatorOperationalMapPage() {
   const getDateParams = useCallback(() => {
     if (datePreset === '24h') {
       const from = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-      return { date_from: from, date_to: '' };
+      return { date_from: from, date_to: undefined };
     }
     if (datePreset === '7d') {
       const from = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-      return { date_from: from, date_to: '' };
+      return { date_from: from, date_to: undefined };
     }
     if (datePreset === '30d') {
       const from = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-      return { date_from: from, date_to: '' };
+      return { date_from: from, date_to: undefined };
     }
     if (datePreset === 'custom') {
       return { date_from: customDateFrom || undefined, date_to: customDateTo || undefined };

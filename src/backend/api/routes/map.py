@@ -433,10 +433,15 @@ async def get_operational_map(
         ),
     ] = None,
     date_from: Annotated[
-        str | None, Query(description="Filter AFORs from this date (ISO 8601)")
+        str | None,
+        Query(description="Filter AFORs from this date (ISO 8601)", pattern=r"^\d{4}-\d{2}-\d{2}$"),
     ] = None,
     date_to: Annotated[
-        str | None, Query(description="Filter AFORs up to this date (ISO 8601, inclusive)")
+        str | None,
+        Query(
+            description="Filter AFORs up to this date (ISO 8601, inclusive)",
+            pattern=r"^\d{4}-\d{2}-\d{2}$",
+        ),
     ] = None,
     db: Annotated[Session, Depends(auth.get_db_with_rls)] = None,
 ):
@@ -495,82 +500,102 @@ async def get_operational_map(
     if date_clauses:
         date_clause = "AND " + " AND ".join(date_clauses)
 
-    rows = db.execute(
-        text(f"""
-            WITH detail_agg AS (
-                SELECT
-                    incident_id,
-                    jsonb_agg(DISTINCT general_category) FILTER (WHERE general_category IS NOT NULL) AS categories,
-                    SUM(estimated_damage_php) AS total_damage,
-                    SUM(COALESCE(civilian_injured, 0) + COALESCE(civilian_deaths, 0)) AS total_casualties
-                FROM wims.incident_nonsensitive_details
-                GROUP BY incident_id
-            ),
-            clustered AS (
-                SELECT
-                    ST_SnapToGrid(fi.location::geometry, :grid_deg) AS grid_cell,
-                    COUNT(*)                                                        AS cnt,
-                    AVG(ST_Y(fi.location::geometry))                                AS center_lat,
-                    AVG(ST_X(fi.location::geometry))                                AS center_lng,
-                    CASE
-                        WHEN COUNT(*) >= 10 THEN 'high'
-                        WHEN COUNT(*) >= 5  THEN 'medium'
-                        ELSE 'low'
-                    END                                                             AS severity,
-                    MAX(fi.created_at)                                              AS latest_at,
-                    COUNT(*) FILTER (WHERE fi.verification_status = 'PENDING') AS pending_count,
-                    COUNT(*) FILTER (WHERE fi.verification_status = 'PENDING_VALIDATION') AS pending_validation_count,
-                    COUNT(*) FILTER (WHERE fi.verification_status = 'VERIFIED') AS verified_count,
-                    COUNT(*) FILTER (WHERE fi.verification_status = 'REJECTED') AS rejected_count,
-                    MIN(fi.created_at) AS earliest_at,
-                    da.categories,
-                    da.total_damage,
-                    da.total_casualties,
-                    mode() WITHIN GROUP (ORDER BY fi.region_id) AS region_id
-                FROM wims.fire_incidents fi
-                LEFT JOIN detail_agg da ON da.incident_id = fi.incident_id
-                WHERE fi.is_archived = FALSE
-                  {status_clause}
-                  {date_clause}
-                  AND ST_Within(
-                      fi.location::geometry,
-                      ST_MakeEnvelope(:sw_lng, :sw_lat, :ne_lng, :ne_lat, 4326)
-                  )
-                GROUP BY ST_SnapToGrid(fi.location::geometry, :grid_deg)
-            )
-            SELECT center_lat, center_lng, cnt, severity, latest_at,
-                   pending_count, pending_validation_count, verified_count, rejected_count,
-                   earliest_at, categories, total_damage, total_casualties, region_id
-            FROM clustered
-            WHERE center_lat IS NOT NULL AND center_lng IS NOT NULL
-            ORDER BY cnt DESC
-        """),
-        query_params,
-    ).fetchall()
+    try:
+        rows = db.execute(
+            text(f"""
+                WITH detail_agg AS (
+                    SELECT
+                        ind.incident_id,
+                        jsonb_agg(DISTINCT ind.general_category) FILTER (WHERE ind.general_category IS NOT NULL) AS categories,
+                        SUM(ind.estimated_damage_php) AS total_damage,
+                        SUM(COALESCE(ind.civilian_injured, 0) + COALESCE(ind.civilian_deaths, 0)) AS total_casualties
+                    FROM wims.incident_nonsensitive_details ind
+                    JOIN wims.fire_incidents fi ON fi.incident_id = ind.incident_id
+                    WHERE fi.is_archived = FALSE
+                      AND ST_Within(fi.location::geometry, ST_MakeEnvelope(:sw_lng, :sw_lat, :ne_lng, :ne_lat, 4326))
+                    GROUP BY ind.incident_id
+                ),
+                clustered AS (
+                    SELECT
+                        ST_SnapToGrid(fi.location::geometry, :grid_deg) AS grid_cell,
+                        COUNT(*)                                                        AS cnt,
+                        AVG(ST_Y(fi.location::geometry))                                AS center_lat,
+                        AVG(ST_X(fi.location::geometry))                                AS center_lng,
+                        CASE
+                            WHEN COUNT(*) >= 10 THEN 'high'
+                            WHEN COUNT(*) >= 5  THEN 'medium'
+                            ELSE 'low'
+                        END                                                             AS severity,
+                        MAX(fi.created_at)                                              AS latest_at,
+                        COUNT(*) FILTER (WHERE fi.verification_status = 'PENDING') AS pending_count,
+                        COUNT(*) FILTER (WHERE fi.verification_status = 'PENDING_VALIDATION') AS pending_validation_count,
+                        COUNT(*) FILTER (WHERE fi.verification_status = 'VERIFIED') AS verified_count,
+                        COUNT(*) FILTER (WHERE fi.verification_status = 'REJECTED') AS rejected_count,
+                        MIN(fi.created_at) AS earliest_at,
+                        da.categories,
+                        da.total_damage,
+                        da.total_casualties,
+                        mode() WITHIN GROUP (ORDER BY fi.region_id) AS region_id
+                    FROM wims.fire_incidents fi
+                    LEFT JOIN detail_agg da ON da.incident_id = fi.incident_id
+                    WHERE fi.is_archived = FALSE
+                      {status_clause}
+                      {date_clause}
+                      AND ST_Within(
+                          fi.location::geometry,
+                          ST_MakeEnvelope(:sw_lng, :sw_lat, :ne_lng, :ne_lat, 4326)
+                      )
+                    GROUP BY ST_SnapToGrid(fi.location::geometry, :grid_deg)
+                )
+                SELECT center_lat, center_lng, cnt, severity, latest_at,
+                       pending_count, pending_validation_count, verified_count, rejected_count,
+                       earliest_at, categories, total_damage, total_casualties, region_id
+                FROM clustered
+                WHERE center_lat IS NOT NULL AND center_lng IS NOT NULL
+                ORDER BY cnt DESC
+            """),
+            query_params,
+        ).fetchall()
 
-    clusters = [
-        ClusterItem(
-            lat=round(float(r.center_lat), 6),
-            lng=round(float(r.center_lng), 6),
-            count=r.cnt,
-            severity=r.severity,
-            latest_at=r.latest_at.isoformat() if r.latest_at else None,
-            status_breakdown={
-                "PENDING": r.pending_count,
-                "PENDING_VALIDATION": r.pending_validation_count,
-                "VERIFIED": r.verified_count,
-                "REJECTED": r.rejected_count,
-            }
-            if r.pending_count is not None
-            else None,
-            category_mix=list(r.categories) if r.categories else None,
-            total_damage_php=float(r.total_damage) if r.total_damage is not None else None,
-            total_casualties=int(r.total_casualties) if r.total_casualties is not None else None,
-            earliest_at=r.earliest_at.isoformat() if r.earliest_at else None,
-            region_id=int(r.region_id) if r.region_id is not None else None,
-        )
-        for r in rows
-    ]
+        clusters = [
+            ClusterItem(
+                lat=round(float(r.center_lat), 6),
+                lng=round(float(r.center_lng), 6),
+                count=r.cnt,
+                severity=r.severity,
+                latest_at=r.latest_at.isoformat() if r.latest_at else None,
+                status_breakdown={
+                    "PENDING": r.pending_count,
+                    "PENDING_VALIDATION": r.pending_validation_count,
+                    "VERIFIED": r.verified_count,
+                    "REJECTED": r.rejected_count,
+                }
+                if r.pending_count is not None
+                else None,
+                category_mix=list(r.categories) if r.categories else None,
+                total_damage_php=float(r.total_damage) if r.total_damage is not None else None,
+                total_casualties=int(r.total_casualties)
+                if r.total_casualties is not None
+                else None,
+                earliest_at=r.earliest_at.isoformat() if r.earliest_at else None,
+                region_id=int(r.region_id) if r.region_id is not None else None,
+            )
+            for r in rows
+        ]
+    except Exception:
+        logger.warning("Operational map DB query failed — attempting stale cache")
+        if r is not None:
+            try:
+                stale = await r.get(cache_key)
+                if stale is not None:
+                    stale_data = json.loads(stale)
+                    return ClusterResponse(
+                        clusters=[ClusterItem(**c) for c in stale_data["clusters"]],
+                        cached_at=stale_data.get("cached_at"),
+                    )
+            except Exception:
+                logger.warning("Stale cache read also failed")
+        raise
 
     cached_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
