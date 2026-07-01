@@ -69,7 +69,7 @@ class TestOllamaPayload:
 
         assert payload["stream"] is False
         assert payload["format"] == "json"
-        assert payload["options"]["num_predict"] == 768
+        assert payload["options"]["num_predict"] == 256
 
     def test_num_predict_env_override(self, monkeypatch):
         monkeypatch.setenv("OLLAMA_NUM_PREDICT", "128")
@@ -105,6 +105,7 @@ class TestThreatNarrativeRepair:
         )
         assert "/cgi-bin/php-cgi" in repaired["log_evidence"]
         assert "confidentiality" in repaired["risk_assessment"].lower()
+        assert "recommended_action" not in repaired
         assert repaired["sources"] == [
             "Suricata EVE log",
             "Payload content",
@@ -124,6 +125,23 @@ class TestThreatNarrativeRepair:
             )
             is None
         )
+
+
+class TestRecommendedActionNarrativeState:
+    """Tests for stage-2 recommended action narrative helpers."""
+
+    def test_detects_missing_and_present_recommended_action(self):
+        from services.ai_service import _narrative_has_recommended_action
+
+        assert not _narrative_has_recommended_action(json.dumps({"anomaly_description": "SQLi"}))
+        assert _narrative_has_recommended_action(
+            json.dumps({"anomaly_description": "SQLi", "recommended_action": "Block source IP"})
+        )
+
+    def test_raw_narrative_becomes_anomaly_description_dict(self):
+        from services.ai_service import _narrative_to_dict
+
+        assert _narrative_to_dict("plain text") == {"anomaly_description": "plain text"}
 
 
 class TestRetryLogic:
@@ -147,7 +165,7 @@ class TestRetryLogic:
             import asyncio
 
             result = asyncio.run(
-                _ollama_post_with_retry({"model": "qwen2.5:3b"}, call_label="test")
+                _ollama_post_with_retry({"model": "qwen2.5:1.5b"}, call_label="test")
             )
 
         assert result is mock_resp
@@ -170,7 +188,7 @@ class TestRetryLogic:
             import asyncio
 
             with pytest.raises(HTTPException) as exc_info:
-                asyncio.run(_ollama_post_with_retry({"model": "qwen2.5:3b"}, call_label="test"))
+                asyncio.run(_ollama_post_with_retry({"model": "qwen2.5:1.5b"}, call_label="test"))
 
         assert exc_info.value.status_code == 502
         assert "unavailable" in exc_info.value.detail.lower()
@@ -194,7 +212,7 @@ class TestRetryLogic:
             import asyncio
 
             with pytest.raises(HTTPException) as exc_info:
-                asyncio.run(_ollama_post_with_retry({"model": "qwen2.5:3b"}, call_label="test"))
+                asyncio.run(_ollama_post_with_retry({"model": "qwen2.5:1.5b"}, call_label="test"))
 
         assert exc_info.value.status_code == 502
         assert "timed out" in exc_info.value.detail.lower()
@@ -226,7 +244,7 @@ class TestRetryLogic:
             import asyncio
 
             result = asyncio.run(
-                _ollama_post_with_retry({"model": "qwen2.5:3b"}, call_label="test")
+                _ollama_post_with_retry({"model": "qwen2.5:1.5b"}, call_label="test")
             )
 
         assert result is mock_success
@@ -252,7 +270,7 @@ class TestRetryLogic:
             import asyncio
 
             with pytest.raises(HTTPException) as exc_info:
-                asyncio.run(_ollama_post_with_retry({"model": "qwen2.5:3b"}, call_label="test"))
+                asyncio.run(_ollama_post_with_retry({"model": "qwen2.5:1.5b"}, call_label="test"))
 
         assert exc_info.value.status_code == 502
         assert call_count[0] == 3
@@ -277,7 +295,7 @@ class TestRetryLogic:
             import asyncio
 
             with pytest.raises(HTTPException) as exc_info:
-                asyncio.run(_ollama_post_with_retry({"model": "qwen2.5:3b"}, call_label="test"))
+                asyncio.run(_ollama_post_with_retry({"model": "qwen2.5:1.5b"}, call_label="test"))
 
         assert exc_info.value.status_code == 502
         assert call_count[0] == 1  # 4xx is not retried

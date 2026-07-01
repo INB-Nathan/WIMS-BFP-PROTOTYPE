@@ -5,6 +5,8 @@ import { normalizeNarrative } from '@/lib/xaiNarrativeNormalizer';
 import {
   analyzeSecurityLog,
   checkAnalysisStatus,
+  checkRecommendedActionStatus,
+  generateRecommendedAction,
   updateAdminSecurityLog,
   createIncidentFromAlert,
   fetchRelatedAuditLogs,
@@ -256,6 +258,10 @@ export function SuricataAlertModal({ log, onClose, onDecisionComplete }: Suricat
   const [analysisElapsed, setAnalysisElapsed] = useState(0);
   const analysisStartRef = useRef<number | null>(null);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [actionState, setActionState] = useState<'idle' | 'generating' | 'complete' | 'error'>('idle');
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [isActionBackgroundRunning, setIsActionBackgroundRunning] = useState(false);
+  const actionPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Whether analysis was started in a previous session (e.g. user navigated
   // away and came back).  We detect this via the GET /analyze-status endpoint.
@@ -317,6 +323,9 @@ export function SuricataAlertModal({ log, onClose, onDecisionComplete }: Suricat
     setAnalysisState('idle');
     setAnalysisElapsed(0);
     setAnalysisError(null);
+    setActionState('idle');
+    setActionError(null);
+    setIsActionBackgroundRunning(false);
     setRelatedEvidence(null);
     setRelatedAlerts(null);
     setRelatedEvidenceError(null);
@@ -326,6 +335,10 @@ export function SuricataAlertModal({ log, onClose, onDecisionComplete }: Suricat
     if (pollRef.current) {
       clearInterval(pollRef.current);
       pollRef.current = null;
+    }
+    if (actionPollRef.current) {
+      clearInterval(actionPollRef.current);
+      actionPollRef.current = null;
     }
   }, [log.log_id]);
 
@@ -395,6 +408,70 @@ export function SuricataAlertModal({ log, onClose, onDecisionComplete }: Suricat
       }
     };
   }, [isBackgroundRunning, log.log_id, onDecisionComplete]);
+
+  // Check/poll stage-2 recommended action if it was started before a refresh/reopen.
+  useEffect(() => {
+    if (!log.xai_narrative || parsedNarrative.recommendedAction) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const { status } = await checkRecommendedActionStatus(log.log_id);
+        if (cancelled) return;
+        if (status === 'running') {
+          setIsActionBackgroundRunning(true);
+          setActionState('generating');
+        }
+      } catch {
+        // best-effort only
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [log.log_id, log.xai_narrative, parsedNarrative.recommendedAction]);
+
+  useEffect(() => {
+    if (!isActionBackgroundRunning) {
+      if (actionPollRef.current) {
+        clearInterval(actionPollRef.current);
+        actionPollRef.current = null;
+      }
+      return;
+    }
+    actionPollRef.current = setInterval(async () => {
+      try {
+        const { status } = await checkRecommendedActionStatus(log.log_id);
+        if (status !== 'running') {
+          setIsActionBackgroundRunning(false);
+          if (actionPollRef.current) {
+            clearInterval(actionPollRef.current);
+            actionPollRef.current = null;
+          }
+          if (status === 'completed') {
+            try {
+              const updated = await generateRecommendedAction(log.log_id);
+              setActionState('complete');
+              onDecisionComplete(log.log_id, {
+                xai_narrative: updated.xai_narrative ?? undefined,
+                xai_confidence: updated.xai_confidence ?? undefined,
+              });
+            } catch {
+              // best-effort; parent will refresh on next open
+            }
+          }
+        }
+      } catch {
+        // Polling is best-effort
+      }
+    }, 5000);
+    return () => {
+      if (actionPollRef.current) {
+        clearInterval(actionPollRef.current);
+        actionPollRef.current = null;
+      }
+    };
+  }, [isActionBackgroundRunning, log.log_id, onDecisionComplete]);
 
   // Stepper timer — tracks total elapsed since analysis first started, not per-stage
   useEffect(() => {
@@ -506,6 +583,26 @@ export function SuricataAlertModal({ log, onClose, onDecisionComplete }: Suricat
   const handleCancelAnalysis = () => {
     abortRef.current?.abort();
     cleanupAnalysis();
+  };
+
+  const handleGenerateRecommendedAction = async () => {
+    if (!log.xai_narrative || parsedNarrative.recommendedAction) return;
+    setActionState('generating');
+    setActionError(null);
+    setIsActionBackgroundRunning(true);
+    try {
+      const updated = await generateRecommendedAction(log.log_id);
+      setActionState('complete');
+      setIsActionBackgroundRunning(false);
+      onDecisionComplete(log.log_id, {
+        xai_narrative: updated.xai_narrative ?? undefined,
+        xai_confidence: updated.xai_confidence ?? undefined,
+      });
+    } catch (e: unknown) {
+      setActionState('error');
+      setIsActionBackgroundRunning(false);
+      setActionError((e as { message?: string })?.message ?? 'Failed to generate recommended action');
+    }
   };
 
   const handleHitlDecision = async (action: string, note?: string) => {
@@ -786,6 +883,46 @@ export function SuricataAlertModal({ log, onClose, onDecisionComplete }: Suricat
     </div>
   );
 
+  const renderRecommendedActionStage = () => {
+    if (!log.xai_narrative || parsedNarrative.recommendedAction) return null;
+
+    const isRunning = actionState === 'generating' || isActionBackgroundRunning;
+    return (
+      <div className="col-span-2 bg-amber-50 dark:bg-amber-950/30 rounded-lg border border-amber-200 dark:border-amber-800 p-3">
+        <div className="flex items-start gap-3">
+          <div className="mt-0.5 text-amber-700 dark:text-amber-300">
+            {isRunning ? <IconSpinner /> : <IconInfo />}
+          </div>
+          <div className="flex-1 space-y-2">
+            <div>
+              <p className="text-[10px] font-bold text-amber-800 dark:text-amber-300 uppercase tracking-wider">
+                Stage 2: Recommended Action
+              </p>
+              <p className="text-xs text-amber-800/80 dark:text-amber-200/80 mt-1">
+                To keep the first AI narrative fast, response guidance is generated in a separate focused pass.
+                This may take around 1–2 minutes and will stay available after refresh once complete.
+              </p>
+            </div>
+            {actionError && (
+              <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1">
+                {actionError}
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={handleGenerateRecommendedAction}
+              disabled={isRunning}
+              className="px-3 py-1.5 bg-amber-600 text-white rounded text-sm font-medium hover:bg-amber-700 disabled:opacity-50 flex items-center gap-2"
+            >
+              {isRunning ? <IconSpinner /> : <IconSparkles />}
+              {isRunning ? 'Generating Recommended Action…' : 'Generate Recommended Action'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   // ── AI Analysis Card ─────────────────────────────────────────────────
 
   const renderAiAnalysisCard = () => {
@@ -884,7 +1021,7 @@ export function SuricataAlertModal({ log, onClose, onDecisionComplete }: Suricat
             AI Threat Analysis Complete
           </h4>
           <span className="text-[10px] text-gray-400 ml-auto">
-            {analysisState === 'complete' && `Completed in ${analysisElapsed.toFixed(1)}s \u00b7 Ollama qwen2.5:3b`}
+            {analysisState === 'complete' && `Completed in ${analysisElapsed.toFixed(1)}s \u00b7 Ollama qwen2.5:1.5b`}
           </span>
         </div>
 
@@ -947,6 +1084,7 @@ export function SuricataAlertModal({ log, onClose, onDecisionComplete }: Suricat
                   </p>
                 </div>
               )}
+              {renderRecommendedActionStage()}
             </div>
 
             {/* Source Annotation */}
@@ -1600,6 +1738,7 @@ export function SuricataAlertModal({ log, onClose, onDecisionComplete }: Suricat
                     </p>
                   </div>
                 )}
+                {renderRecommendedActionStage()}
 
                 {/* Source annotation */}
                 {parsedNarrative.sources && parsedNarrative.sources.length > 0 && (

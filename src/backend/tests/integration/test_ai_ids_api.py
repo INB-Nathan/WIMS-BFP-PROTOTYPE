@@ -172,7 +172,7 @@ def test_analyze_threat_log_success(mock_system_admin, threat_log_row, db_sessio
     assert parsed["anomaly_description"] == "Simulated attack detected."
     assert parsed["log_evidence"] == "Source IP 192.168.1.100 sent malicious payload."
     assert parsed["risk_assessment"] == "Potential SQL injection attempt."
-    assert parsed["recommended_action"] == "Block source IP and investigate."
+    assert "recommended_action" not in parsed, "Stage-1 analysis must not store action guidance"
     assert parsed["sources"] == ["Suricata EVE log", "Ollama"], (
         f"Expected sources in narrative, got {parsed.get('sources')}"
     )

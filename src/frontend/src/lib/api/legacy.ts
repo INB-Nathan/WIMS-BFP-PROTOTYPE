@@ -383,6 +383,23 @@ export async function checkAnalysisStatus(
   return apiFetch(`/admin/security-logs/${logId}/analyze-status`);
 }
 
+/** Generate recommended action for analyzed security log - POST /admin/security-logs/{logId}/recommended-action */
+export async function generateRecommendedAction(logId: number): Promise<{
+  log_id: number;
+  xai_narrative: string | null;
+  xai_confidence: number | null;
+  [key: string]: unknown;
+}> {
+  return apiFetch(`/admin/security-logs/${logId}/recommended-action`, { method: 'POST' });
+}
+
+/** Check recommended-action generation status - GET /admin/security-logs/{logId}/recommended-action-status */
+export async function checkRecommendedActionStatus(
+  logId: number,
+): Promise<{ log_id: number; status: 'running' | 'completed' | 'idle' | 'needs_analysis' }> {
+  return apiFetch(`/admin/security-logs/${logId}/recommended-action-status`);
+}
+
 /** Update security log (admin) - structured HITL action or legacy free-text admin_action_taken */
 export async function updateAdminSecurityLog(
   logId: number,

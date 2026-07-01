@@ -1,7 +1,7 @@
 ---
 title: Backend API Route Map
 created: 2026-05-14
-updated: 2026-06-16
+updated: 2026-07-01
 type: backend
 tags: [wims-bfp, backend, api, implementation-map]
 sources: [raw/codebase/codebase-snapshot-2026-05-14.md, src/backend/api/routes]
@@ -104,7 +104,9 @@ FastAPI route ownership snapshot from `src/backend/api/routes`.
 | `admin/monitoring.py` | `GET` | `/monitoring/system` | `get_system_metrics` |
 | `admin/security.py` | `GET` | `/security-logs` | `get_security_logs` | Supports `source_ip`, `severity`, `date_from`, `date_to` filter params |
 | `admin/security.py` | `GET` | `/security-logs/rollups` | `get_security_log_rollups` | Hourly/daily SIEM rollups for weekly/time-range telemetry without scanning raw logs |
-| `admin/security.py` | `POST` | `/security-logs/{log_id}/analyze` | `analyze_security_log` | XAI analysis via Ollama (#161) |
+| `admin/security.py` | `POST` | `/security-logs/{log_id}/analyze` | `analyze_security_log` | Stage-1 XAI anomaly/evidence/risk analysis via Ollama (#161) |
+| `admin/security.py` | `GET` | `/security-logs/{log_id}/recommended-action-status` | `get_recommended_action_generation_status` | Stage-2 recommended-action status (`running`, `completed`, `idle`, `needs_analysis`) |
+| `admin/security.py` | `POST` | `/security-logs/{log_id}/recommended-action` | `generate_security_log_recommended_action` | Stage-2 focused recommended-action generation; merges `recommended_action` into `xai_narrative` |
 | `admin/security.py` | `PATCH` | `/security-logs/{log_id}` | `update_security_log` | HITL decision (CONFIRM_THREAT, FALSE_POSITIVE, REQUEST_MORE_INFO); writes audit trail with endpoint metadata (#162, #357). HIGH/CRITICAL CONFIRM_THREAT creates breach notification and nulls `reported_by` when the Keycloak admin lacks a matching local `wims.users` row, avoiding FK-triggered 500s. |
 | `admin/security.py` | `POST` | `/security-logs/{log_id}/create-incident` | `create_incident_from_alert` | Manual DRAFT incident from reviewed alert; writes audit trail with endpoint metadata (#165, #357) |
 | `admin/security.py` | `GET` | `/security-logs/{log_id}/related-audit` | `get_related_audit` | Related audit trail rows (±1h window) for a security log (#357) |
