@@ -38,6 +38,7 @@ import {
   queueAnalyticsExport,
   type AnalystIncidentDetailResponse,
   type AnalystIncidentSensitiveResponse,
+  type QueueAnalyticsExportRequest,
 } from "@/lib/api";
 import { useAutoSync } from "@/lib/useAutoSync";
 import { useNetworkStatus } from "@/lib/useNetworkStatus";
@@ -628,7 +629,9 @@ export default function AnalystIncidentDetailPage() {
     }
     setExportError(null); setExportLoading(format);
     try {
-      const response = await queueAnalyticsExport({ format, filters: { incident_id: incidentId }, columns: DETAIL_EXPORT_COLUMNS });
+      const params: QueueAnalyticsExportRequest = { format, filters: { incident_id: incidentId }, columns: DETAIL_EXPORT_COLUMNS };
+      if (format === "pdf") params.export_mode = "afor";
+      const response = await queueAnalyticsExport(params);
       setExportTask({ taskId: response.task_id, format });
     } catch (e) {
       setExportError(e instanceof Error ? e.message : "Failed to queue export.");

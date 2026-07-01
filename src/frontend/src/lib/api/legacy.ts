@@ -1848,13 +1848,16 @@ export interface QueueAnalyticsExportRequest {
   format: 'csv' | 'pdf' | 'excel';
   filters: Record<string, unknown>;
   columns: string[];
+  export_mode?: 'bulk' | 'afor';
 }
 
 export async function queueAnalyticsExport(request: QueueAnalyticsExportRequest): Promise<{ task_id: string }> {
-  const { format, filters, columns } = request;
+  const { format, filters, columns, export_mode } = request;
+  const body: Record<string, unknown> = { filters, columns };
+  if (export_mode) body.export_mode = export_mode;
   return apiFetch<{ task_id: string }>(`/analytics/export/${format}`, {
     method: 'POST',
-    body: JSON.stringify({ filters, columns }),
+    body: JSON.stringify(body),
   });
 }
 

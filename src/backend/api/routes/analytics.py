@@ -8,7 +8,7 @@ Queries wims.analytics_incident_facts (read model) instead of raw operational ta
 from __future__ import annotations
 
 import os
-from typing import Annotated, Any, Optional
+from typing import Annotated, Any, Literal, Optional
 
 from celery.result import AsyncResult
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -36,6 +36,7 @@ from utils.analytics_validation import validate_iso_date, validate_date_range
 
 from tasks.exports import (
     ALLOWED_EXPORT_COLUMNS,
+    export_analyst_incidents_task,
     export_incidents_csv_task,
     export_incidents_pdf_task,
     export_incidents_excel_task,
@@ -254,6 +255,7 @@ def get_execution_plans(
 class ExportCsvRequest(BaseModel):
     filters: dict[str, Any] = {}
     columns: list[str] = []
+    export_mode: Literal["bulk", "afor"] = "bulk"
 
     @model_validator(mode="after")
     def validate_columns(self):
@@ -298,6 +300,23 @@ def export_pdf(
     validate_iso_date(start_date, "start_date")
     validate_iso_date(end_date, "end_date")
     validate_date_range(start_date, end_date)
+
+    if body.export_mode == "afor":
+        incident_id = body.filters.get("incident_id")
+        if not incident_id:
+            raise HTTPException(
+                status_code=400,
+                detail="AFOR PDF export requires filters.incident_id",
+            )
+        result = export_analyst_incidents_task.delay(
+            user_id=str(current_user["user_id"]),
+            filters=body.filters,
+            columns=body.columns,
+            format="pdf",
+            export_mode="afor",
+        )
+        return {"task_id": result.id}
+
     result = export_incidents_pdf_task.delay(
         user_id=str(current_user["user_id"]),
         filters=body.filters,
