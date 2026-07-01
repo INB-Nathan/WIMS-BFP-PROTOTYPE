@@ -243,7 +243,7 @@ Returns `{first_name, last_name, full_name, contact_number}` via `adm.get_user()
 
 **File:** `src/backend/services/ai_service.py`
 
-IDS-to-SLM AI analysis via Ollama (qwen2.5:3b).
+IDS-to-SLM AI analysis via Ollama (`qwen2.5:1.5b` for the normal low-latency path).
 
 ### Retry & Timeout (GH #245)
 
@@ -255,14 +255,18 @@ All three Ollama call sites use `_ollama_post_with_retry()`:
 - **Production concurrency guard:** Docker Compose sets `OLLAMA_NUM_PARALLEL=1` and `OLLAMA_MAX_LOADED_MODELS=1` for the Ollama service to avoid multiple CPU generations/model loads competing on the 4-vCPU limit.
 - **Auto-AI default:** `auto_ai_analysis_enabled` is seeded as `false`; background HIGH/CRITICAL alert analysis is opt-in, while manual admin analysis remains available.
 
-### `analyze_threat_log(log_id, db) -> dict
+### `analyze_threat_log(log_id, db) -> dict`
 
 1. Fetches security log row from `wims.security_threat_logs`
-2. Builds prompt with 5-key structured JSON output (anomaly_description, log_evidence, risk_assessment, recommended_action, confidence)
-3. POSTs to `{OLLAMA_URL}/api/generate` with `model="qwen2.5:3b"`, `stream=False`, `format="json"`, `options.num_predict` via `_ollama_post_with_retry()`
-4. Parses response JSON for 5 keys and `confidence`
+2. Builds a compact stage-1 prompt with structured JSON output (anomaly_description, log_evidence, risk_assessment, confidence, confidence_breakdown, sources)
+3. POSTs to `{OLLAMA_URL}/api/generate` with `model="qwen2.5:1.5b"`, `stream=False`, `format="json"`, `options.num_predict` via `_ollama_post_with_retry()`
+4. Parses/repairs response JSON for readable narrative fields and confidence
 5. Updates `wims.security_threat_logs` SET `xai_narrative`, `xai_confidence`
 6. Returns full log row with updated XAI fields
+
+### `generate_recommended_action(log_id, db) -> dict`
+
+Second-stage XAI action generation. Requires `xai_narrative` from stage 1, runs a focused recommended-action prompt, merges `recommended_action` into the stored `xai_narrative`, and returns the updated log row. `get_recommended_action_status()` exposes running/completed/idle/needs_analysis state for frontend reload recovery.
 
 ### `generate_incident_narrative(incident_id, db) -> dict`
 

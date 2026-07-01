@@ -1,3 +1,19 @@
+## [2026-07-01] feat(ai): staged XAI recommended actions
+
+- **Scope:** Keep the stage-1 IDS/XAI narrative on the low-latency `qwen2.5:1.5b` path, then let system admins generate the recommended action as an explicit stage-2 action after the anomaly/evidence narrative is visible.
+- **Files modified:** `src/backend/services/ai_service.py`, `src/backend/api/routes/admin/security.py`, `src/backend/tests/test_ai_service_retry.py`, `src/backend/api/routes/admin/config.py`, `src/frontend/src/lib/api/legacy.ts`, `src/frontend/src/lib/api/admin.ts`, `src/frontend/src/app/admin/system/components/SuricataAlertModal.tsx`, `system-wiki/security/security-baseline.md`.
+- **Behavior:** `analyze_threat_log()` is back to `qwen2.5:1.5b`, `num_ctx=1024`, and default `num_predict=256` for the normal first-pass narrative. Stage 1 produces anomaly description, log evidence, risk assessment, confidence, and sources only. A new `POST /api/admin/security-logs/{log_id}/recommended-action` endpoint runs a separate focused Ollama prompt for `recommended_action`, merges it into `xai_narrative`, and exposes `GET /recommended-action-status` so the UI can show persistent loading if the modal is reopened while action generation is still running.
+- **Admin config:** Added missing admin allowlist entries for IP blocklist, retention, SIEM retention, and related numeric config keys so those settings can be managed through the system-config API.
+- **Validation:** `cd src/backend && pytest -q tests/test_ai_service_retry.py` — 20 passed. VPS A/B testing showed `qwen2.5:1.5b` can generate readable stage-1 narratives with JSON repair, while a separate action-only prompt produced recommended actions in ~25–117s depending on prompt strictness/log content.
+- **Frontend test added:** `admin-system-analyze-ai.test.tsx` — new Stage 2 test verifies that opening a modal for a log with structured narrative (no recommended_action) shows the "Generate Recommended Action" button, clicking it calls `generateRecommendedAction`, and the recommended action text appears in the UI after completion. All 5 tests pass (4 existing + 1 new).
+
+## [2026-07-01] feat(frontend-test): Stage 2 recommended action test
+
+- **Scope:** Added frontend test coverage for the Stage 2 "Generate Recommended Action" flow in the admin system threat telemetry modal.
+- **Files modified:** `admin-system-analyze-ai.test.tsx` — added `mockGenerateRecommendedAction`, `mockCheckRecommendedActionStatus`, and a full Stage 2 integration test.
+- **Behavior:** Opens a modal for a mock log with structured JSON narrative (anomaly_description, log_evidence, risk_assessment, confidence, sources — no recommended_action). Verifies "Stage 2: Recommended Action" banner appears, clicks "Generate Recommended Action", asserts the API is called, and verifies the recommended action text appears and the Stage 2 section disappears on completion.
+- **Validation:** `npx vitest run src/app/admin/system/admin-system-analyze-ai.test.tsx` — 5 passed (4 existing + 1 new). Frontend lint clean. Backend `ruff check`, `ruff format`, and `pytest tests/test_ai_service_retry.py` — all pass.
+
 ## [2026-06-30] fix(ai,deploy): graceful JSON degradation, keycloak proxy-headers, deploy model check
 
 - **Scope:** 8-edit clean hot-fix on top of `801ad9f` (replacing contaminated PR #492).

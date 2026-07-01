@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import time
 
 import httpx
@@ -31,11 +32,12 @@ OLLAMA_MODEL = "qwen2.5:1.5b"
 # TTL matches the max Ollama timeout so locks don't orphan on crash.
 # ---------------------------------------------------------------------------
 _ANALYSIS_LOCK_PREFIX = "wims:ai:lock:"
+_RECOMMENDED_ACTION_LOCK_PREFIX = "wims:ai:recommended_action_lock:"
 _ANALYSIS_LOCK_TTL = int(os.environ.get("OLLAMA_TIMEOUT", "480")) + 60
 
 # ---------------------------------------------------------------------------
 # Ollama HTTP timeout (seconds). Override via OLLAMA_TIMEOUT env var.
-# Default 480s — Qwen2.5-3B on CPU-only takes up to 6+ min per inference.
+# Default 480s — CPU-only Ollama can take several minutes per inference.
 # ---------------------------------------------------------------------------
 _OLLAMA_DEFAULT_TIMEOUT = 480.0
 # Retry: 3 attempts, exponential backoff 2s/4s/8s, only on ConnectError + 5xx.
@@ -44,6 +46,7 @@ _OLLAMA_RETRY_BASE_DELAY = 2.0
 # Keep CPU-only inference bounded. The VPS runs Qwen on CPU, and uncapped JSON
 # generation has been observed to run for 8-16 minutes per request.
 _OLLAMA_DEFAULT_NUM_PREDICT = 256
+_OLLAMA_DEFAULT_RECOMMENDED_ACTION_NUM_PREDICT = 384
 
 # Shared resilient wrapper for Ollama — gains circuit breaker, size cap,
 # and concurrency cap. Retry is handled by the wrapper (matches existing behavior
@@ -136,6 +139,30 @@ async def release_analysis_lock(log_id: int) -> None:
         await redis.aclose()
 
 
+async def acquire_recommended_action_lock(log_id: int) -> bool:
+    """Try to acquire a Redis lock for generating recommended action."""
+    redis = _get_metrics_redis()
+    try:
+        result = await redis.set(
+            f"{_RECOMMENDED_ACTION_LOCK_PREFIX}{log_id}",
+            "1",
+            nx=True,
+            ex=_ANALYSIS_LOCK_TTL,
+        )
+        return result is True
+    finally:
+        await redis.aclose()
+
+
+async def release_recommended_action_lock(log_id: int) -> None:
+    """Release the Redis recommended-action lock for this log."""
+    redis = _get_metrics_redis()
+    try:
+        await redis.delete(f"{_RECOMMENDED_ACTION_LOCK_PREFIX}{log_id}")
+    finally:
+        await redis.aclose()
+
+
 async def get_analysis_status(log_id: int, db: Session) -> str:
     """Return the analysis status for a log: 'running', 'completed', or 'idle'.
 
@@ -202,15 +229,200 @@ def _ollama_num_predict() -> int:
     return _OLLAMA_DEFAULT_NUM_PREDICT
 
 
+def _ollama_recommended_action_num_predict() -> int:
+    """Return generated-token budget for stage-2 recommended actions."""
+    env_val = os.environ.get("OLLAMA_RECOMMENDED_ACTION_NUM_PREDICT")
+    if env_val is not None:
+        try:
+            value = int(env_val)
+            if value > 0:
+                return value
+        except (TypeError, ValueError):
+            pass
+        logger.warning(
+            "Invalid OLLAMA_RECOMMENDED_ACTION_NUM_PREDICT=%r, using default %d",
+            env_val,
+            _OLLAMA_DEFAULT_RECOMMENDED_ACTION_NUM_PREDICT,
+        )
+    return _OLLAMA_DEFAULT_RECOMMENDED_ACTION_NUM_PREDICT
+
+
+def _truncate_for_narrative(value: str, max_len: int = 700) -> str:
+    """Keep repaired XAI fields readable and bounded."""
+    value = value.strip()
+    if len(value) <= max_len:
+        return value
+    return value[: max_len - 1].rstrip() + "…"
+
+
+def _extract_jsonish_string_field(text_value: str, key: str) -> str | None:
+    """Extract a JSON string field from complete or token-truncated LLM JSON.
+
+    Ollama can hit num_predict mid-field, leaving otherwise useful output like
+    `{ "anomaly_description": "...", "log_evidence": "partial`. This helper
+    scans from the requested field's opening quote and accepts a partial terminal
+    string so the backend can store readable structured sections instead of raw
+    broken JSON.
+    """
+    match = re.search(rf'"{re.escape(key)}"\s*:\s*"', text_value)
+    if not match:
+        return None
+
+    chars: list[str] = []
+    escaped = False
+    complete = False
+    for char in text_value[match.end() :]:
+        if escaped:
+            chars.append("\\" + char)
+            escaped = False
+            continue
+        if char == "\\":
+            escaped = True
+            continue
+        if char == '"':
+            complete = True
+            break
+        chars.append(char)
+
+    raw_value = "".join(chars).strip()
+    if not raw_value:
+        return None
+    if escaped:
+        raw_value = raw_value.rstrip("\\")
+
+    try:
+        decoded = json.loads(f'"{raw_value}"')
+    except json.JSONDecodeError:
+        decoded = raw_value.replace('\\"', '"').replace("\\n", "\n")
+
+    if not complete:
+        decoded = decoded.rstrip(' ,}\n\t"')
+    return _truncate_for_narrative(decoded)
+
+
+def _extract_jsonish_sources(text_value: str) -> list[str] | None:
+    """Best-effort extraction for a complete sources array."""
+    match = re.search(r'"sources"\s*:\s*(\[[^\]]*\])', text_value, re.DOTALL)
+    if not match:
+        return None
+    try:
+        sources = json.loads(match.group(1))
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(sources, list) or not all(isinstance(item, str) for item in sources):
+        return None
+    return sources
+
+
+def _coerce_text_field(value: object, max_len: int = 900) -> str:
+    """Normalize model field values to readable strings for frontend cards."""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return _truncate_for_narrative(value, max_len)
+    try:
+        return _truncate_for_narrative(json.dumps(value, ensure_ascii=False), max_len)
+    except TypeError:
+        return _truncate_for_narrative(str(value), max_len)
+
+
+def _narrative_to_dict(narrative: str | None) -> dict:
+    """Parse stored xai_narrative into a mutable dict, preserving raw text."""
+    if not narrative:
+        return {}
+    try:
+        parsed = json.loads(narrative)
+    except json.JSONDecodeError:
+        return {"anomaly_description": narrative}
+    if isinstance(parsed, dict):
+        return parsed
+    return {"anomaly_description": _coerce_text_field(parsed)}
+
+
+def _narrative_has_recommended_action(narrative: str | None) -> bool:
+    data = _narrative_to_dict(narrative)
+    return bool(str(data.get("recommended_action") or "").strip())
+
+
+def _parse_confidence(value: object, default: float = 0.5) -> float:
+    try:
+        confidence = float(value)
+    except (TypeError, ValueError):
+        confidence = default
+    if confidence > 1.0 and confidence <= 100.0:
+        confidence = confidence / 100.0
+    return max(0.0, min(1.0, confidence))
+
+
+async def get_recommended_action_status(log_id: int, db: Session) -> str:
+    """Return recommended-action status: running, completed, needs_analysis, or idle."""
+    redis = _get_metrics_redis()
+    try:
+        lock_exists = await redis.exists(f"{_RECOMMENDED_ACTION_LOCK_PREFIX}{log_id}")
+    finally:
+        await redis.aclose()
+
+    if lock_exists:
+        return "running"
+
+    row = db.execute(
+        text("SELECT xai_narrative FROM wims.security_threat_logs WHERE log_id = :log_id"),
+        {"log_id": log_id},
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Security log not found")
+    if _narrative_has_recommended_action(row[0]):
+        return "completed"
+    if not row[0]:
+        return "needs_analysis"
+    return "idle"
+
+
+def _repair_threat_narrative_json(
+    response_text: str,
+    raw_payload: str,
+    suricata_signature: str,
+    classification: str,
+) -> dict | None:
+    """Return structured narrative data from malformed/truncated model JSON."""
+    extracted = {
+        key: _extract_jsonish_string_field(response_text, key)
+        for key in (
+            "anomaly_description",
+            "log_evidence",
+            "risk_assessment",
+        )
+    }
+    if not any(extracted.values()):
+        return None
+
+    evidence_fallback = _truncate_for_narrative(raw_payload, 700) if raw_payload else ""
+    if not evidence_fallback:
+        evidence_fallback = (
+            f'No raw payload excerpt was available; inference used signature "{suricata_signature}" '
+            f'and classification "{classification}".'
+        )
+
+    return {
+        "anomaly_description": extracted["anomaly_description"]
+        or _truncate_for_narrative(response_text, 700),
+        "log_evidence": extracted["log_evidence"] or evidence_fallback,
+        "risk_assessment": extracted["risk_assessment"]
+        or (
+            "Potential confidentiality, integrity, and availability impact should be reviewed "
+            f'based on signature "{suricata_signature}" and classification "{classification}".'
+        ),
+        "sources": _extract_jsonish_sources(response_text)
+        or ["Suricata EVE log", "Payload content", "Signature taxonomy"],
+    }
+
+
 def _ollama_payload(prompt: str) -> dict:
     """Build a bounded non-streaming JSON-generation payload for Ollama.
 
     Options:
-    - num_ctx:    1024  — far below the model's default 32768, since prompts
-                          are short (~200 tokens) and KV cache dominates CPU
-                          memory bandwidth.
-    - num_predict: env-configured (default 256) — hard cap on output tokens;
-                      the JSON response is typically 200-400 tokens.
+    - num_ctx:    1024  — low-latency default for the compact stage-1 analysis.
+    - num_predict: env-configured (default 256) — hard cap on output tokens.
     - num_thread:    6  — match the Docker CPU limit (cpus: '6').
                        Using more threads than available CPUs causes
                        oversubscription and context-switching thrash.
@@ -322,16 +534,16 @@ async def analyze_threat_log(log_id: int, db: Session, request: Request | None =
 
     prompt = (
         f"Analyze this Suricata IDS alert: severity={json.dumps(severity_level)}, "
-        f'SID={suricata_sid}, signature="{suricata_signature}", '
-        f"classification={classification}, payload={json.dumps(raw_payload)}. "
-        "Provide a structured analysis as JSON with these keys: "
-        "'anomaly_description' (string), "
-        "'log_evidence' (string), "
-        "'risk_assessment' (string), "
-        "'recommended_action' (string), "
+        f"SID={suricata_sid}, signature={json.dumps(suricata_signature)}, "
+        f"classification={json.dumps(classification)}, payload={json.dumps(raw_payload)}. "
+        "Return valid compact JSON with these keys only: "
+        "'anomaly_description' (string; one clear paragraph explaining what the alert means), "
+        "'log_evidence' (string; exact payload substrings or field values that support the anomaly), "
+        "'risk_assessment' (string; concise confidentiality, integrity, availability impact), "
         "'confidence' (float 0.0-1.0), "
-        "'confidence_breakdown' (object with keys 'anomaly_detection', 'classification', 'overall', each float 0.0-1.0), "
-        "'sources' (array of strings indicating which data sources were used)."
+        "'confidence_breakdown' (object with keys 'anomaly_detection', 'classification', 'overall'), "
+        "'sources' (array of strings). "
+        "Do not include recommended_action; the administrator can generate that separately after reviewing this narrative."
     )
 
     payload = _ollama_payload(prompt)
@@ -365,33 +577,38 @@ async def analyze_threat_log(log_id: int, db: Session, request: Request | None =
                 sources = ["Suricata EVE log", "Ollama"]
 
             narrative_data = {
-                "anomaly_description": parsed.get("anomaly_description", ""),
-                "log_evidence": parsed.get("log_evidence", ""),
-                "risk_assessment": parsed.get("risk_assessment", ""),
-                "recommended_action": parsed.get("recommended_action", ""),
+                "anomaly_description": _coerce_text_field(parsed.get("anomaly_description")),
+                "log_evidence": _coerce_text_field(parsed.get("log_evidence")),
+                "risk_assessment": _coerce_text_field(parsed.get("risk_assessment")),
                 "sources": sources,
             }
             narrative = json.dumps(narrative_data)
 
-            try:
-                confidence = float(parsed.get("confidence", 0.5))
-            except (TypeError, ValueError):
-                confidence = 0.5
-            confidence = max(0.0, min(1.0, confidence))
+            confidence = _parse_confidence(parsed.get("confidence"), default=0.5)
 
             raw_breakdown = parsed.get("confidence_breakdown", {})
             if raw_breakdown:
                 confidence_breakdown = {}
                 for key in ("anomaly_detection", "classification", "overall"):
                     val = raw_breakdown.get(key, confidence)
-                    try:
-                        confidence_breakdown[key] = max(0.0, min(1.0, float(val)))
-                    except (TypeError, ValueError):
-                        confidence_breakdown[key] = confidence
+                    confidence_breakdown[key] = _parse_confidence(val, default=confidence)
     except json.JSONDecodeError:
-        logger.warning(
-            "Ollama response for log %d was not valid JSON, storing as raw narrative", log_id
+        repaired = _repair_threat_narrative_json(
+            response_text,
+            raw_payload,
+            suricata_signature,
+            classification,
         )
+        if repaired:
+            narrative = json.dumps(repaired)
+            logger.warning(
+                "Ollama response for log %d was not valid JSON; stored repaired structured narrative",
+                log_id,
+            )
+        else:
+            logger.warning(
+                "Ollama response for log %d was not valid JSON, storing as raw narrative", log_id
+            )
 
     db.execute(
         text("""
@@ -433,6 +650,164 @@ async def analyze_threat_log(log_id: int, db: Session, request: Request | None =
         "xai_narrative": narrative,
         "xai_confidence": confidence,
         "xai_confidence_breakdown": confidence_breakdown,
+        "admin_action_taken": row[9],
+        "resolved_at": row[10].isoformat() if row[10] else None,
+        "reviewed_by": str(row[11]) if row[11] else None,
+    }
+
+
+async def generate_recommended_action(log_id: int, db: Session) -> dict:
+    """Generate only the recommended_action field as stage 2 of XAI review."""
+    row = db.execute(
+        text("""
+            SELECT log_id, timestamp, source_ip, destination_ip, suricata_sid,
+                   severity_level, raw_payload, xai_narrative, xai_confidence,
+                   admin_action_taken, resolved_at, reviewed_by,
+                   suricata_signature, classification
+            FROM wims.security_threat_logs
+            WHERE log_id = :log_id
+        """),
+        {"log_id": log_id},
+    ).fetchone()
+
+    if row is None:
+        raise HTTPException(status_code=404, detail="Security log not found")
+
+    if not row[7]:
+        raise HTTPException(status_code=409, detail="Run AI analysis before generating action")
+
+    narrative_data = _narrative_to_dict(row[7])
+    if str(narrative_data.get("recommended_action") or "").strip():
+        return {
+            "log_id": row[0],
+            "timestamp": row[1].isoformat() if row[1] else None,
+            "source_ip": row[2],
+            "destination_ip": row[3],
+            "suricata_sid": row[4],
+            "severity_level": row[5],
+            "raw_payload": row[6],
+            "xai_narrative": json.dumps(narrative_data),
+            "xai_confidence": row[8],
+            "admin_action_taken": row[9],
+            "resolved_at": row[10].isoformat() if row[10] else None,
+            "reviewed_by": str(row[11]) if row[11] else None,
+        }
+
+    if not await acquire_recommended_action_lock(log_id):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Recommended action generation is already running for log {log_id}",
+        )
+
+    raw_payload = row[6] or ""
+    suricata_signature = row[12] or ""
+    classification = row[13] or ""
+    anomaly = _coerce_text_field(narrative_data.get("anomaly_description"), max_len=1200)
+    evidence = _coerce_text_field(narrative_data.get("log_evidence"), max_len=900)
+    risk = _coerce_text_field(narrative_data.get("risk_assessment"), max_len=900)
+
+    prompt = (
+        "You are a BFP WIMS incident-response advisor. Generate only recommended actions.\n"
+        f"Severity: {row[5]}\n"
+        f"SID: {row[4]}\n"
+        f"Signature: {suricata_signature}\n"
+        f"Classification: {classification}\n"
+        f"Anomaly summary: {json.dumps(anomaly)}\n"
+        f"Evidence summary: {json.dumps(evidence)}\n"
+        f"Risk summary: {json.dumps(risk)}\n"
+        f"Raw Payload Excerpt: {json.dumps(raw_payload[:1800])}\n"
+        "Return ONLY valid JSON. No markdown. Values must be strings except confidence must be a decimal 0.0 to 1.0. "
+        'Schema: {"recommended_action": string, "risk_assessment": string, "confidence": number}. '
+        "recommended_action must be 4 concise sentences covering: immediate containment, logs/evidence to inspect, "
+        "remediation for the exposed route/configuration, and monitoring for recurrence. "
+        "Use concrete details from the signature and payload; do not return generic labels like only 'containment'."
+    )
+
+    payload = _ollama_payload(prompt)
+    payload["options"]["num_predict"] = _ollama_recommended_action_num_predict()
+
+    confidence = row[8] if row[8] is not None else 0.5
+    try:
+        _t0 = time.perf_counter()
+        resp = await _ollama_post_with_retry(
+            payload,
+            call_label="generate_recommended_action",
+            db=db,
+        )
+        await _record_inference_metric(
+            "generate_recommended_action",
+            time.perf_counter() - _t0,
+        )
+
+        response_text = resp.json().get("response", "")
+        recommended_action = ""
+        risk_assessment = ""
+        try:
+            parsed = json.loads(response_text)
+            if isinstance(parsed, dict):
+                recommended_action = _coerce_text_field(
+                    parsed.get("recommended_action"), max_len=1200
+                )
+                risk_assessment = _coerce_text_field(parsed.get("risk_assessment"), max_len=900)
+                confidence = _parse_confidence(parsed.get("confidence"), default=float(confidence))
+        except json.JSONDecodeError:
+            recommended_action = (
+                _extract_jsonish_string_field(response_text, "recommended_action") or ""
+            )
+            risk_assessment = _extract_jsonish_string_field(response_text, "risk_assessment") or ""
+
+        if not recommended_action:
+            recommended_action = _truncate_for_narrative(response_text, 1200) or (
+                "Review the source request and related logs, block or rate-limit the source if malicious, "
+                "and remediate the exposed endpoint or rule condition identified by the Suricata signature."
+            )
+
+        narrative_data["recommended_action"] = recommended_action
+        if risk_assessment and not str(narrative_data.get("risk_assessment") or "").strip():
+            narrative_data["risk_assessment"] = risk_assessment
+        sources = narrative_data.get("sources")
+        if isinstance(sources, list):
+            if "Ollama recommended-action pass" not in sources:
+                sources.append("Ollama recommended-action pass")
+        else:
+            narrative_data["sources"] = [
+                "Suricata EVE log",
+                "Payload content",
+                "Signature taxonomy",
+                "Ollama recommended-action pass",
+            ]
+
+        narrative = json.dumps(narrative_data)
+        db.execute(
+            text("""
+                UPDATE wims.security_threat_logs
+                SET xai_narrative = :narrative,
+                    xai_confidence = :confidence
+                WHERE log_id = :log_id
+            """),
+            {"narrative": narrative, "confidence": confidence, "log_id": log_id},
+        )
+        db.commit()
+
+        await publish_security_event(
+            "security.ai_recommended_action_complete",
+            log_id=log_id,
+            severity=row[5],
+            extra={"xai_confidence": confidence},
+        )
+    finally:
+        await release_recommended_action_lock(log_id)
+
+    return {
+        "log_id": row[0],
+        "timestamp": row[1].isoformat() if row[1] else None,
+        "source_ip": row[2],
+        "destination_ip": row[3],
+        "suricata_sid": row[4],
+        "severity_level": row[5],
+        "raw_payload": row[6],
+        "xai_narrative": narrative,
+        "xai_confidence": confidence,
         "admin_action_taken": row[9],
         "resolved_at": row[10].isoformat() if row[10] else None,
         "reviewed_by": str(row[11]) if row[11] else None,

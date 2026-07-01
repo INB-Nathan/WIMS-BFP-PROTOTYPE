@@ -45,11 +45,15 @@ vi.mock('@/context/AuthContext', () => ({
 
 const mockFetchAdminSecurityLogs = vi.fn();
 const mockAnalyzeSecurityLog = vi.fn();
+const mockGenerateRecommendedAction = vi.fn();
+const mockCheckRecommendedActionStatus = vi.fn();
 const mockFetchAdminUsers = vi.fn();
 const mockFetchAuditLogs = vi.fn();
 
 vi.mock('@/lib/api/admin', () => ({
     analyzeSecurityLog: (logId: number) => mockAnalyzeSecurityLog(logId),
+    checkRecommendedActionStatus: (logId: number) => mockCheckRecommendedActionStatus(logId),
+    generateRecommendedAction: (logId: number) => mockGenerateRecommendedAction(logId),
     updateAdminSecurityLog: vi.fn(),
     createIncidentFromAlert: vi.fn(),
     fetchRelatedAuditLogs: vi.fn().mockResolvedValue({ log_id: 0, items: [], related_alerts: [] }),
@@ -108,6 +112,15 @@ describe('Admin System — Analyze with AI in Threat Telemetry', () => {
         vi.clearAllMocks();
         mockFetchAdminUsers.mockResolvedValue([]);
         mockFetchAuditLogs.mockResolvedValue({ items: [], total: 0 });
+        mockCheckRecommendedActionStatus.mockResolvedValue({ log_id: 2, status: 'idle' });
+        mockGenerateRecommendedAction.mockResolvedValue({
+            log_id: 2,
+            xai_narrative: JSON.stringify({
+                anomaly_description: 'Suspicious outbound connection detected.',
+                recommended_action: 'Block the source IP and inspect related logs.',
+            }),
+            xai_confidence: 0.85,
+        });
     });
 
     it('shows "Analyze with AI" button for logs with xai_narrative === null', async () => {
@@ -191,6 +204,87 @@ describe('Admin System — Analyze with AI in Threat Telemetry', () => {
 
         // Verify analyzeSecurityLog was NOT called on initial render
         expect(mockAnalyzeSecurityLog).not.toHaveBeenCalled();
+    });
+
+    it('Stage 2: shows "Generate Recommended Action" for structured narrative without action and generates on click', async () => {
+        const narrativeJson = {
+            anomaly_description: 'Suspicious outbound connection detected from internal host.',
+            log_evidence: 'Source IP 10.0.0.5 made repeated connections to known C2 domains.',
+            risk_assessment: 'Potential data exfiltration attempt requiring investigation.',
+            confidence: 0.85,
+            confidence_breakdown: {
+                anomaly_detection: 0.87,
+                classification: 0.83,
+                overall: 0.85,
+            },
+            sources: ['Suricata EVE log'],
+        };
+
+        const stage2Log = {
+            ...mockLogWithoutNarrative,
+            log_id: 3,
+            xai_narrative: JSON.stringify(narrativeJson),
+            xai_confidence: 0.85,
+        };
+
+        mockFetchAdminSecurityLogs.mockResolvedValue({ items: [stage2Log], total: 1 });
+
+        // Override default mock to return updated narrative with recommended_action
+        mockGenerateRecommendedAction.mockResolvedValue({
+            log_id: 3,
+            xai_narrative: JSON.stringify({
+                ...narrativeJson,
+                recommended_action: 'Block the source IP and inspect related logs.',
+            }),
+            xai_confidence: 0.85,
+        });
+
+        render(<AdminSystemPage />);
+
+        await waitFor(() => {
+            expect(screen.getByText('Threat Telemetry')).toBeInTheDocument();
+        });
+
+        // Open the detail modal
+        const viewButtons = await screen.findAllByRole('button', { name: /^View$/i });
+        fireEvent.click(viewButtons[0]);
+
+        // Wait for modal to render with the correct log ID
+        await waitFor(() => {
+            expect(screen.getByText(/Suricata Alert.*#3/)).toBeInTheDocument();
+        });
+
+        // Wait for Stage 2 section to appear
+        await waitFor(() => {
+            expect(screen.getByText('Stage 2: Recommended Action')).toBeInTheDocument();
+        });
+
+        // Click "Generate Recommended Action"
+        const generateBtn = screen.getByRole('button', { name: /Generate Recommended Action/i });
+        fireEvent.click(generateBtn);
+
+        // Should show generating state
+        await waitFor(() => {
+            expect(screen.getByText('Generating Recommended Action…')).toBeInTheDocument();
+        });
+
+        // API was called with the correct log_id
+        await waitFor(() => {
+            expect(mockGenerateRecommendedAction).toHaveBeenCalledWith(3);
+        });
+
+        // After resolution: recommended action text appears in the UI
+        await waitFor(() => {
+            expect(screen.getByText('Block the source IP and inspect related logs.')).toBeInTheDocument();
+        });
+
+        // "Recommended Action" heading should now be visible
+        expect(screen.getByText('Recommended Action')).toBeInTheDocument();
+
+        // Stage 2 section should have disappeared (no longer needed)
+        await waitFor(() => {
+            expect(screen.queryByText('Stage 2: Recommended Action')).not.toBeInTheDocument();
+        });
     });
 
     it('#419: manual Analyze click calls analyzeSecurityLog exactly once', async () => {

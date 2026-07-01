@@ -1,7 +1,7 @@
 ---
 title: Security Baseline
 created: 2026-05-14
-updated: 2026-06-22
+updated: 2026-07-01
 type: security
 tags: [wims-bfp, security, auth, rbac, rls, audit-log, ids, xai, privacy, fail-closed]
 sources: [raw/frs/frs-auth.md, raw/frs/frs-complianceanddataprivacy.md, raw/frs/frs-intrusiondetectionandnetworkingmonitoring.md, raw/frs/frs-threatdetectionwithexplainableai.md, raw/codebase/codebase-snapshot-2026-05-14.md, src/keycloak/demo-otp-provider, src/keycloak/bfp-realm.json, src/keycloak/import/bfp-realm.json]
@@ -123,6 +123,13 @@ The `wims-audit-event-listener` Keycloak SPI now forces `HttpClient.Version.HTTP
 
 ### XAI Prompt Completeness (2026-06-23)
 `analyze_threat_log()` in `src/backend/services/ai_service.py` now includes `suricata_signature` and `classification` in the Ollama prompt (added between `SID=` and `payload=`). Custom WIMS SIDs 1000001-1000134 are NOT in any public Suricata feed, so the bare SID is opaque to Ollama — the human-readable signature (e.g. "WIMS OWASP A03 SQLi UNION SELECT") tells the LLM the attack type, and the classification (e.g. "high_signal_threat") tells the threat model. Without these, the LLM could only guess from the raw payload, producing generic narratives that failed the user's goal: XAI must tell humans **what the attack is and what to do for future purposes**. Regression test: `test_analyze_threat_log_prompt_includes_signature_and_classification` in `tests/integration/test_ai_ids_api.py` (captures the Ollama request body via `respx` and asserts both fields are present in the prompt).
+
+### Staged XAI Recommended Actions (2026-07-01)
+Manual security-log analysis keeps the normal low-latency `qwen2.5:1.5b` path (`num_ctx=1024`, default `num_predict=256`) for stage 1. Stage 1 generates the anomaly description, log evidence, risk assessment, confidence, and sources so system admins see a clear narrative quickly.
+
+Recommended action is now a separate stage 2 user action: `POST /api/admin/security-logs/{log_id}/recommended-action` runs a focused action-only prompt and merges the result into the stored `xai_narrative`. `GET /api/admin/security-logs/{log_id}/recommended-action-status` lets the admin modal recover persistent loading state if the modal is reopened while action generation is still running. This keeps every alert normalized: first review the anomaly/evidence, then explicitly generate response guidance when needed.
+
+The backend still repairs malformed or token-truncated model JSON into normalized `xai_narrative` sections when known fields can be extracted. `OLLAMA_NUM_PREDICT` remains the stage-1 environment override; `OLLAMA_RECOMMENDED_ACTION_NUM_PREDICT` controls stage-2 action generation.
 
 ### Network Topology (M7a)
 

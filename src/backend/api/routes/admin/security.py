@@ -14,7 +14,12 @@ from sqlalchemy.orm import Session
 
 from auth import get_system_admin
 from auth import get_db_with_rls
-from services.ai_service import analyze_threat_log, get_analysis_status
+from services.ai_service import (
+    analyze_threat_log,
+    generate_recommended_action,
+    get_analysis_status,
+    get_recommended_action_status,
+)
 from services.event_bus import publish_security_event_sync
 from services.suricata_ingestion import _create_security_incident
 from utils.audit import log_system_audit
@@ -494,8 +499,29 @@ async def analyze_security_log(
     _admin: Annotated[dict, Depends(get_system_admin)],
     db: Annotated[Session, Depends(get_db_with_rls)],
 ):
-    """Run AI analysis on a security threat log via Ollama. Updates xai_narrative and xai_confidence."""
+    """Run stage-1 AI analysis on a security threat log via Ollama."""
     return await analyze_threat_log(log_id, db, request)
+
+
+@router.get("/security-logs/{log_id}/recommended-action-status")
+async def get_recommended_action_generation_status(
+    log_id: int,
+    _admin: Annotated[dict, Depends(get_system_admin)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
+):
+    """Return stage-2 recommended-action generation status."""
+    status = await get_recommended_action_status(log_id, db)
+    return {"log_id": log_id, "status": status}
+
+
+@router.post("/security-logs/{log_id}/recommended-action")
+async def generate_security_log_recommended_action(
+    log_id: int,
+    _admin: Annotated[dict, Depends(get_system_admin)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
+):
+    """Run stage-2 AI generation for recommended action after stage-1 analysis."""
+    return await generate_recommended_action(log_id, db)
 
 
 @router.patch("/security-logs/{log_id}")
