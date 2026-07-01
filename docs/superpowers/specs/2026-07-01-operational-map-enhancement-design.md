@@ -154,7 +154,7 @@ date_to?: string;
 
 **LoC:** ~15 backend + ~10 frontend types = **~25 total**
 **Risk:** Low — additive, existing behavior unchanged when omitted
-**Files:** 3
+**Files:** 2 (map.py + legacy.ts)
 
 ---
 
@@ -196,7 +196,7 @@ cache_key = f"map:operational:{zoom}:{sw_lat:.4f}:{sw_lng:.4f}:{ne_lat:.4f}:{ne_
 **LoC:** ~35 backend (cache key gen + read/write + stale fallback)
 **Risk:** Low — exact same pattern as public clusters, already proven in production
 **Files:** 1
-**Note:** This also naturally enables the `cached_at` response field (Slice 1 placeholder)
+**Note:** The `cached_at` field already exists on `ClusterResponse` (shared model, currently `None` on operational endpoint). This slice populates it with the cache timestamp.
 
 ---
 
@@ -246,19 +246,7 @@ const drillUrl = cluster.region_id
 
 **LoC:** ~30 backend (new endpoint with region JOIN) + ~60 frontend = **~90 total**
 **Risk:** Low — new endpoint is additive; existing `ref.py` endpoint unchanged
-**Files:** 4 (map.py backend + 3 frontend)
-
-**Icon:** Use `firePinIcon` from `src/components/map/leafletIcons.ts` (already exists, BFP maroon SVG divIcon).
-
-**Toggle:** Small toggle button in filter bar: `[🔥 Stations]` — toggles station layer visibility.
-
-**Popup on station click:** Station name, address, region.
-
-**Fetch timing:** Load stations once on mount (they change rarely), cache in component state.
-
-**LoC:** ~50-70 frontend (marker layer component + toggle UI + popup + fetch)
-**Risk:** Low — reuse existing ref endpoint and icon; standard Leaflet overlay
-**Files:** 2
+**Files:** 4 (map.py backend + ValidatorMapInner.tsx + page.tsx + map.ts)
 
 ---
 
@@ -305,7 +293,7 @@ const drillUrl = cluster.region_id
 
 ### Slice 10: Frontend component tests
 
-**Files touched:** new test file (e.g., `__tests__/ValidatorMapInner.test.tsx`)
+**Files touched:** new test file (e.g., `src/app/dashboard/validator/map/__tests__/ValidatorMapInner.test.tsx`)
 
 **What:** Test the map component rendering. Requires Leaflet mocking.
 
@@ -385,8 +373,6 @@ Slice 10 (frontend tests) [after slices 2, 4, 6, 7, 8 stabilize]
 
 ## Risk Register
 
-| Risk | Likelihood | Mitigation |
-|------|-----------|------------|
 | Risk | Likelihood | Mitigation |
 |------|-----------|------------|
 | SQL performance: detail subquery on large bounding boxes | Low-Medium | Redis cache (Slice 5) absorbs repeated queries; test with seeded 500-incident dataset |
