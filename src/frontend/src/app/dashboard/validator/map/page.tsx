@@ -47,6 +47,14 @@ const STATUS_OPTIONS = [
   { value: 'REJECTED', label: 'Rejected' },
 ];
 
+const DATE_PRESETS = [
+  { value: '', label: 'All Time' },
+  { value: '24h', label: 'Last 24 Hours' },
+  { value: '7d', label: 'Last 7 Days' },
+  { value: '30d', label: 'Last 30 Days' },
+  { value: 'custom', label: 'Custom Range' },
+] as const;
+
 const OFFLINE_UNAVAILABLE_MESSAGE =
   'The operational map is unavailable offline. Reconnect to refresh this view.';
 
@@ -55,6 +63,9 @@ const OFFLINE_UNAVAILABLE_MESSAGE =
 export default function ValidatorOperationalMapPage() {
   const networkStatus = useNetworkStatus();
   const [statusFilter, setStatusFilter] = useState('');
+  const [datePreset, setDatePreset] = useState('');
+  const [customDateFrom, setCustomDateFrom] = useState('');
+  const [customDateTo, setCustomDateTo] = useState('');
   const [clusters, setClusters] = useState<MapClusterItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -67,17 +78,40 @@ export default function ValidatorOperationalMapPage() {
   const lastBoundsRef = useRef<{ sw: [number, number]; ne: [number, number] } | null>(null);
   const lastZoomRef = useRef<number>(10);
 
+  // Derive date_from/date_to from the current preset or custom values
+  const getDateParams = useCallback(() => {
+    if (datePreset === '24h') {
+      const from = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      return { date_from: from, date_to: '' };
+    }
+    if (datePreset === '7d') {
+      const from = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      return { date_from: from, date_to: '' };
+    }
+    if (datePreset === '30d') {
+      const from = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      return { date_from: from, date_to: '' };
+    }
+    if (datePreset === 'custom') {
+      return { date_from: customDateFrom || undefined, date_to: customDateTo || undefined };
+    }
+    return { date_from: undefined, date_to: undefined };
+  }, [datePreset, customDateFrom, customDateTo]);
+
   const fetchOperationalClusters = useCallback(
     async (bounds: { sw: [number, number]; ne: [number, number] }, zoom: number, status: string) => {
       setLoading(true);
       setError(null);
       setUnavailableOffline(false);
       try {
+        const dates = getDateParams();
         const result = await fetchOperationalMapOfflineAware({
           sw: bounds.sw,
           ne: bounds.ne,
           zoom,
           status: status || undefined,
+          date_from: dates.date_from,
+          date_to: dates.date_to,
         });
         setClusters(result.response);
         if (result.fromCache && result.cachedAt != null) {
@@ -104,7 +138,7 @@ export default function ValidatorOperationalMapPage() {
         setLoading(false);
       }
     },
-    [networkStatus.isOnline],
+    [networkStatus.isOnline, getDateParams],
   );
 
   const handleViewportChange = useCallback(
@@ -122,13 +156,13 @@ export default function ValidatorOperationalMapPage() {
     [fetchOperationalClusters, statusFilter],
   );
 
-  // Refetch when status filter changes
+  // Refetch when status or date filter changes
   useEffect(() => {
     if (lastBoundsRef.current) {
       if (debounceTimer.current) clearTimeout(debounceTimer.current);
       fetchOperationalClusters(lastBoundsRef.current, lastZoomRef.current, statusFilter);
     }
-  }, [statusFilter, fetchOperationalClusters]);
+  }, [statusFilter, datePreset, customDateFrom, customDateTo, fetchOperationalClusters]);
 
   return (
     <div className="h-[calc(100vh-3.5rem)] flex flex-col">
@@ -151,17 +185,53 @@ export default function ValidatorOperationalMapPage() {
           </span>
         )}
 
-        <div className="flex items-center gap-2 ml-auto">
-          <label className="text-xs text-slate-500 font-medium">Status:</label>
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="text-sm rounded-md border border-slate-300 px-3 py-1.5 bg-white"
-          >
-            {STATUS_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>{opt.label}</option>
-            ))}
-          </select>
+        <div className="flex items-center gap-4 ml-auto">
+          {/* Status filter */}
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-slate-500 font-medium">Status:</label>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="text-sm rounded-md border border-slate-300 px-3 py-1.5 bg-white"
+            >
+              {STATUS_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Date range filter */}
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-slate-500 font-medium">Period:</label>
+            <select
+              value={datePreset}
+              onChange={(e) => setDatePreset(e.target.value)}
+              className="text-sm rounded-md border border-slate-300 px-3 py-1.5 bg-white"
+            >
+              {DATE_PRESETS.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+            {datePreset === 'custom' && (
+              <>
+                <input
+                  type="date"
+                  value={customDateFrom}
+                  onChange={(e) => setCustomDateFrom(e.target.value)}
+                  className="text-sm rounded-md border border-slate-300 px-2 py-1.5 bg-white w-36"
+                  aria-label="From date"
+                />
+                <span className="text-slate-400 text-xs">to</span>
+                <input
+                  type="date"
+                  value={customDateTo}
+                  onChange={(e) => setCustomDateTo(e.target.value)}
+                  className="text-sm rounded-md border border-slate-300 px-2 py-1.5 bg-white w-36"
+                  aria-label="To date"
+                />
+              </>
+            )}
+          </div>
         </div>
 
         {loading && (
