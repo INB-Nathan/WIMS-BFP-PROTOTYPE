@@ -397,6 +397,27 @@ async def get_operational_map(
     """
     grid_deg = _grid_size_for_zoom(zoom)
 
+    # ── Attempt cache read ───────────────────────────────────────────────
+    cache_key = (
+        f"map:operational:v2:{zoom}:"
+        f"{sw_lat:.4f}:{sw_lng:.4f}:{ne_lat:.4f}:{ne_lng:.4f}:"
+        f"{status_filter or 'all'}:"
+        f"{date_from or ''}:{date_to or ''}"
+    )
+    r = await _get_redis()
+    cached_at = None
+    if r is not None:
+        try:
+            cached = await r.get(cache_key)
+            if cached is not None:
+                cached_data = json.loads(cached)
+                return ClusterResponse(
+                    clusters=[ClusterItem(**c) for c in cached_data["clusters"]],
+                    cached_at=cached_data.get("cached_at"),
+                )
+        except Exception:
+            logger.warning("Redis GET failed for operational map — proceeding without cache")
+
     # Build WHERE clauses. All optional — when omitted, no filter is applied.
     query_params: dict[str, Any] = {
         "grid_deg": grid_deg,
@@ -500,4 +521,19 @@ async def get_operational_map(
         for r in rows
     ]
 
-    return ClusterResponse(clusters=clusters)
+    cached_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+    # ── Write cache (best-effort) ─────────────────────────────────────────
+    if r is not None:
+        try:
+            cache_payload = json.dumps(
+                {
+                    "clusters": [c.model_dump() for c in clusters],
+                    "cached_at": cached_at,
+                }
+            )
+            await r.setex(cache_key, _REDIS_CLUSTER_TTL, cache_payload)
+        except Exception:
+            logger.warning("Redis SET failed for operational map — cache write skipped")
+
+    return ClusterResponse(clusters=clusters, cached_at=cached_at)
