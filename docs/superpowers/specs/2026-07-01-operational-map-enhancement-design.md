@@ -25,7 +25,7 @@ Each slice must be:
 
 **What:** Extend the `get_operational_map()` SQL query with a subquery join (not a direct LEFT JOIN — see SQL correctness note below) to `incident_nonsensitive_details` and return per-cluster aggregate data. Add optional fields to `ClusterItem` Pydantic model and `MapClusterItem` TypeScript interface.
 
-**⚠ SQL correctness:** Do NOT use a direct `LEFT JOIN incident_nonsensitive_details` in the clustered CTE — the table has no UNIQUE constraint on `incident_id`, so a detail multiply-joined against its parent incident inflates `COUNT(*)`. Instead, aggregate detail data in a subquery BEFORE the clustering step:
+**⚠ SQL correctness:** Use a subquery to pre-aggregate detail data before the clustering GROUP BY, even though `incident_nonsensitive_details` has a UNIQUE constraint on `incident_id` (`uq_nsd_incident_id`, migration 45). A subquery is cleaner: it separates the detail aggregation concern from the spatial clustering concern, avoids any future row-multiplication risk if the constraint is removed, and makes the query easier to read and maintain.
 
 ```sql
 WITH detail_agg AS (
@@ -53,8 +53,10 @@ clustered AS (
 | `category_mix` | `list[str] \| null` | `jsonb_agg(DISTINCT ind.general_category)` |
 | `total_damage_php` | `float \| null` | `SUM(ind.estimated_damage_php)` |
 | `total_casualties` | `int \| null` | `SUM(ind.civilian_injured + ind.civilian_deaths)` |
-| `earliest_at` | `str \| null` | `MIN(fi.created_at)` |
+| `earliest_at` | `str \| null` | `MIN(fi.created_at)` — ⚠ this is system timestamp, not fire event time. See note below. |
 | `latest_at` | `str \| null` | already exists (was `MAX(fi.created_at)`) |
+
+**⚠ `created_at` vs event time:** `fi.created_at` is the system insertion timestamp, not the fire's notification/event time. The actual fire event time lives in `incident_nonsensitive_details.notification_dt`. For simplicity and consistency with the existing `latest_at` field (which also uses `fi.created_at`), we keep `earliest_at` as `MIN(fi.created_at)`. If users need event-time filtering, that's a future enhancement using `notification_dt`.
 | `region_id` | `int \| null` | representative region for drill-down (mode of `fi.region_id` in cluster) |
 
 **SQL change:**
@@ -116,6 +118,16 @@ Range:   Jan 15 – Mar 20, 2026
 **Risk:** Low — pure JSX, conditionally renders when new fields exist
 **Files:** 2
 
+**Layout with empty-state fallback:**
+```tsx
+// If enriched data exists, show expanded layout. Otherwise simple layout.
+{cluster.status_breakdown ? (
+  <EnrichedPopupContent cluster={cluster} onDrill={handleDrill} />
+) : (
+  <SimplePopupContent cluster={cluster} />
+)}
+```
+
 ---
 
 ### Slice 3: Backend — time-range filter params
@@ -137,6 +149,8 @@ date_to?: string;
 ```
 
 **Wire** — add to `URLSearchParams` in `fetchOperationalMap()`.
+
+**⚠ `date_to` boundary:** `fi.created_at` is `TIMESTAMPTZ`. An ISO date string `"2026-03-20"` compared as `<= '2026-03-20T00:00:00Z'` excludes incidents created during that final day. Use `AND fi.created_at < :date_to::date + interval '1 day'` for an inclusive upper bound, so `date_to=2026-03-20` includes all incidents through end-of-day.
 
 **LoC:** ~15 backend + ~10 frontend types = **~25 total**
 **Risk:** Low — additive, existing behavior unchanged when omitted
@@ -211,11 +225,28 @@ const drillUrl = cluster.region_id
 
 ### Slice 7: Frontend — fire station layer
 
-**Files touched:** `ValidatorMapInner.tsx`, `page.tsx`, `map.ts`
+**Files touched:** `map.py` (backend), `ValidatorMapInner.tsx`, `page.tsx`, `map.ts`
 
-**What:** Fetch fire stations from `GET /api/ref/fire-stations` (returns stations with `station_name`, `address`, `region_name`, `latitude`, `longitude` — verify exact field names in `ref.py` before coding). Render them as distinct Leaflet markers (custom fire-station icon) on the validator map with a toggle switch in the filter bar.
+**What:** 
+1. **Backend:** Add a new endpoint or extend `GET /api/validator/fire-stations` that joins `wims.ref_fire_stations` with `wims.ref_regions` to include `region_name`. The existing `GET /api/ref/fire-stations` does NOT return `region_name` (it queries `ref_fire_stations` only, no region JOIN). The existing `GET /api/public/emergency-services` DOES return `region_name` but requires lat/lng and is proximity-sorted — not suitable for showing all stations. 
+2. **Frontend:** Fetch stations from the new validator endpoint. Render as distinct Leaflet markers using `firePinIcon` from `@/components/map/leafletIcons.ts`. Toggle button in filter bar: `[🔥 Stations]`.
 
-**⚠ Verify before coding:** Read `src/backend/api/routes/ref.py` to confirm the `get_fire_stations` response model field names. The validator will need those fields for the popup.
+**📌 Verified endpoint fields (from `ref.py`):**
+- `GET /api/ref/fire-stations` returns: `station_id`, `station_name`, `address`, `latitude`, `longitude`, `distance_m` (null when no coords given)
+- **No `region_name` field** — the SQL is `SELECT ... FROM wims.ref_fire_stations` with no JOIN to `ref_regions`
+- Requires adding a JOIN or creating a new validator-specific endpoint
+
+**Icon:** `firePinIcon` from `src/components/map/leafletIcons.ts` (already exists, BFP maroon SVG divIcon).
+
+**Toggle:** Small toggle button in filter bar: `[🔥 Stations]` — toggles station layer visibility.
+
+**Popup on station click:** Station name, address, region.
+
+**Fetch timing:** Load stations once on mount (they change rarely), cache in component state.
+
+**LoC:** ~30 backend (new endpoint with region JOIN) + ~60 frontend = **~90 total**
+**Risk:** Low — new endpoint is additive; existing `ref.py` endpoint unchanged
+**Files:** 4 (map.py backend + 3 frontend)
 
 **Icon:** Use `firePinIcon` from `src/components/map/leafletIcons.ts` (already exists, BFP maroon SVG divIcon).
 
@@ -263,8 +294,11 @@ const drillUrl = cluster.region_id
 5. Status filter + date filter compose correctly
 6. Empty bounding box returns empty clusters
 
-**LoC:** ~100-120 backend tests
+**LoC:** ~120-140 backend tests
 **Risk:** Low — standard FastAPI test pattern with DB mock
+
+**⚠ RLS interaction:** `incident_nonsensitive_details` has RLS enforced (`FORCE ROW LEVEL SECURITY`, migration 10). The `detail_agg` CTE joins this table, so test data must be seeded through the admin session (`_AdminSessionLocal`) to bypass RLS. If tests use a regular DB session, the CTE may return empty results. Reference `tests/test_admin_new_routes.py` for the admin session pattern.
+
 **Files:** 1
 
 ---
@@ -325,9 +359,9 @@ Slice 10 (frontend tests) [after slices 2, 4, 6, 7, 8 stabilize]
 | 4 | Slice 4 — date picker | ~90 | 1 |
 | 5 | Slice 5 — Redis cache | ~35 | 0.5 |
 | 6 | Slice 6 — click-to-drill | ~25 | 0.5 |
-| 7 | Slice 7 — fire stations | ~60 | 1 |
+| 7 | Slice 7 — fire stations | ~90 | 1-2 |
 | 8 | Slice 8 — operations overlay | ~60 | 1 |
-| 9 | Slice 9 — backend tests | ~110 | 1 |
+| 9 | Slice 9 — backend tests | ~130 | 1 |
 | 10 | Slice 10 — frontend tests | ~115 | 1 |
 
 ### Alternative grouping (fewer PRs, larger slices)
@@ -336,8 +370,8 @@ Slice 10 (frontend tests) [after slices 2, 4, 6, 7, 8 stabilize]
 |----|--------|-----------|----------|
 | #501a | 1+2+6 (core enrichment) | ~165 | 2 |
 | #501b | 3+4+5 (time + cache) | ~150 | 2 |
-| #501c | 7+8 (layers) | ~120 | 1-2 |
-| #501d | 9+10 (tests) | ~225 | 2 |
+| #501c | 7+8 (layers) | ~150 | 2-3 |
+| #501d | 9+10 (tests) | ~245 | 2-3 |
 
 ---
 
@@ -353,8 +387,14 @@ Slice 10 (frontend tests) [after slices 2, 4, 6, 7, 8 stabilize]
 
 | Risk | Likelihood | Mitigation |
 |------|-----------|------------|
-| SQL performance: LEFT JOIN on large bounding boxes | Low-Medium | Redis cache (Slice 5) absorbs repeated queries; test with seeded 500-incident dataset |
+| Risk | Likelihood | Mitigation |
+|------|-----------|------------|
+| SQL performance: detail subquery on large bounding boxes | Low-Medium | Redis cache (Slice 5) absorbs repeated queries; test with seeded 500-incident dataset |
 | Shared `MapClusterItem` type breaks callers | Low | All new fields are optional (`?` in TS, `Optional` / `None` default in Python) |
-| Shared `ClusterItem` Pydantic model between public + operational endpoints | Low | Add fields only to operational-specific model or use `None` defaults |
+| Shared `ClusterItem` Pydantic model between public + operational endpoints | Low | Add fields with `None` defaults to the shared model — safe because public endpoint doesn't query the detail CTE |
+| Redis cache serves stale (pre-enrichment) clusters after Slice 1 lands | Low-Medium | Bump cache key prefix from `map:operational:` to `map:operational:v2:` when Slice 1 changes response shape, or flush Redis after deploy |
+| Fire station endpoint missing `region_name` | High | Add a validator-specific endpoint with region JOIN (handled in Slice 7) |
+| `date_to` boundary excludes last day | Low | Use `AND fi.created_at < :date_to::date + interval '1 day'` per Slice 3 |
+| RLS blocks `detail_agg` CTE in tests | Medium | Seed test data through `_AdminSessionLocal`; reference `test_admin_new_routes.py` |
 | Leaflet mocking fragile for frontend tests | Medium | Follow established patterns from `ClusterMapInner.test.tsx` and `MapPickerInner.test.tsx` |
 | Date range + viewport debounce interaction | Low | Date range change triggers immediate refetch; viewport change preserves date range state |
