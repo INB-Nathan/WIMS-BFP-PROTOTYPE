@@ -532,9 +532,9 @@ async def get_operational_map(
                         COUNT(*) FILTER (WHERE fi.verification_status = 'VERIFIED') AS verified_count,
                         COUNT(*) FILTER (WHERE fi.verification_status = 'REJECTED') AS rejected_count,
                         MIN(fi.created_at) AS earliest_at,
-                        da.categories,
-                        da.total_damage,
-                        da.total_casualties,
+                        MAX(da.categories) AS categories,
+                        MAX(da.total_damage) AS total_damage,
+                        MAX(da.total_casualties) AS total_casualties,
                         mode() WITHIN GROUP (ORDER BY fi.region_id) AS region_id
                     FROM wims.fire_incidents fi
                     LEFT JOIN detail_agg da ON da.incident_id = fi.incident_id
