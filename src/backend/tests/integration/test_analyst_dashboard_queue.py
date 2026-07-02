@@ -352,10 +352,10 @@ class TestPhase2FiltersAndCharts:
     def test_response_time_by_region_endpoint_exists(self, client: TestClient):
         """GET /api/analytics/response-time-by-region must exist and return 200."""
         mock_db = _set_analyst(client)
-        # Mock returns (region_id, avg_rt, min_rt, max_rt) matching SQL
+        # Mock returns (region_id, avg_rt, min_rt, max_rt, total_incidents) matching SQL
         mock_db.execute.return_value.fetchall.return_value = [
-            (1, 12.5, 3, 45),
-            (2, 18.2, 5, 32),
+            (1, 12.5, 3, 45, 10),
+            (2, 18.2, 5, 32, 8),
         ]
         response = client.get("/api/analytics/response-time-by-region")
         assert response.status_code == 200
@@ -369,6 +369,7 @@ class TestPhase2FiltersAndCharts:
         assert "avg_response_time" in item
         assert "min_response_time" in item
         assert "max_response_time" in item
+        assert "total_incidents" in item
 
     def test_response_time_supports_date_filter(self, client: TestClient):
         """Response time must accept date range."""
