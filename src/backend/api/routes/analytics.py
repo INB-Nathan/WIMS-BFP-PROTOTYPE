@@ -13,7 +13,7 @@ from typing import Annotated, Any, Literal, Optional
 from celery.result import AsyncResult
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, field_validator, model_validator
 from sqlalchemy.orm import Session
 
 from celery_config import celery_app
@@ -40,6 +40,10 @@ from tasks.exports import (
     export_incidents_csv_task,
     export_incidents_pdf_task,
     export_incidents_excel_task,
+    export_workflow_comparative_task,
+    export_workflow_response_time_task,
+    export_workflow_top_n_task,
+    export_workflow_trends_task,
 )
 from tasks.analytics_refresh import refresh_materialized_views
 
@@ -252,6 +256,76 @@ def get_execution_plans(
     return verify_indexed_access(db)
 
 
+class WorkflowComparativeExportRequest(BaseModel):
+    filters: dict[str, Any] = {}
+    range_a_start: str
+    range_a_end: str
+    range_b_start: str
+    range_b_end: str
+
+    @field_validator("range_a_start", "range_a_end", "range_b_start", "range_b_end")
+    @classmethod
+    def validate_dates(cls, v: str) -> str:
+        validate_iso_date(v, "date")
+        return v
+
+
+class WorkflowTrendsExportRequest(BaseModel):
+    filters: dict[str, Any] = {}
+    interval: str = "daily"
+
+    @field_validator("interval")
+    @classmethod
+    def validate_interval(cls, v: str) -> str:
+        allowed = {"daily", "weekly", "monthly", "quarterly", "yearly"}
+        if v not in allowed:
+            raise ValueError(f"interval must be one of {allowed}")
+        return v
+
+
+class WorkflowResponseTimeExportRequest(BaseModel):
+    filters: dict[str, Any] = {}
+
+
+class WorkflowTopNExportRequest(BaseModel):
+    filters: dict[str, Any] = {}
+    metric: str
+    dimension: str
+    mode: str
+    selected_name: str | None = None
+    metric_value: float | None = None
+
+    @field_validator("metric")
+    @classmethod
+    def validate_metric(cls, v: str) -> str:
+        allowed = {"incidents", "response_time", "casualties", "damage_cost"}
+        if v not in allowed:
+            raise ValueError(f"metric must be one of {allowed}")
+        return v
+
+    @field_validator("dimension")
+    @classmethod
+    def validate_dimension(cls, v: str) -> str:
+        allowed = {"fire_station", "region", "municipality", "barangay"}
+        if v not in allowed:
+            raise ValueError(f"dimension must be one of {allowed}")
+        return v
+
+    @field_validator("mode")
+    @classmethod
+    def validate_mode(cls, v: str) -> str:
+        allowed = {"full", "selected"}
+        if v not in allowed:
+            raise ValueError(f"mode must be one of {allowed}")
+        return v
+
+    @model_validator(mode="after")
+    def validate_selected_fields(self):
+        if self.mode == "selected" and not self.selected_name:
+            raise ValueError("selected_name required when mode is 'selected'")
+        return self
+
+
 class ExportCsvRequest(BaseModel):
     filters: dict[str, Any] = {}
     columns: list[str] = []
@@ -340,6 +414,89 @@ def export_excel(
         user_id=str(current_user["user_id"]),
         filters=body.filters,
         columns=body.columns,
+    )
+    return {"task_id": result.id}
+
+
+# ─── Workflow Export Endpoints ──────────────────────────────────────────────────
+
+
+@router.post("/export/workflow/comparative")
+def export_workflow_comparative(
+    body: WorkflowComparativeExportRequest,
+    current_user: Annotated[dict, Depends(get_analyst_or_admin)],
+):
+    validate_date_range(body.range_a_start, body.range_a_end)
+    validate_date_range(body.range_b_start, body.range_b_end)
+    _SAFE_FILTER_KEYS = {"start_date", "end_date", "region_id", "province", "municipality",
+                          "fire_station", "incident_type", "alarm_level", "casualty_severity",
+                          "damage_min", "damage_max", "barangay_name"}
+    clean_filters = {k: v for k, v in body.filters.items() if k in _SAFE_FILTER_KEYS}
+    filters = build_analytics_filters(**clean_filters).as_task_filters() if clean_filters else {}
+    result = export_workflow_comparative_task.delay(
+        user_id=str(current_user["user_id"]),
+        range_a_start=body.range_a_start,
+        range_a_end=body.range_a_end,
+        range_b_start=body.range_b_start,
+        range_b_end=body.range_b_end,
+        filters=filters,
+    )
+    return {"task_id": result.id}
+
+
+@router.post("/export/workflow/trends")
+def export_workflow_trends(
+    body: WorkflowTrendsExportRequest,
+    current_user: Annotated[dict, Depends(get_analyst_or_admin)],
+):
+    _SAFE_FILTER_KEYS = {"start_date", "end_date", "region_id", "province", "municipality",
+                          "fire_station", "incident_type", "alarm_level", "casualty_severity",
+                          "damage_min", "damage_max", "barangay_name"}
+    clean_filters = {k: v for k, v in body.filters.items() if k in _SAFE_FILTER_KEYS}
+    filters = build_analytics_filters(**clean_filters).as_task_filters() if clean_filters else {}
+    result = export_workflow_trends_task.delay(
+        user_id=str(current_user["user_id"]),
+        interval=body.interval,
+        filters=filters,
+    )
+    return {"task_id": result.id}
+
+
+@router.post("/export/workflow/response-time")
+def export_workflow_response_time(
+    body: WorkflowResponseTimeExportRequest,
+    current_user: Annotated[dict, Depends(get_analyst_or_admin)],
+):
+    _SAFE_FILTER_KEYS = {"start_date", "end_date", "region_id", "province", "municipality",
+                          "fire_station", "incident_type", "alarm_level", "casualty_severity",
+                          "damage_min", "damage_max", "barangay_name"}
+    clean_filters = {k: v for k, v in body.filters.items() if k in _SAFE_FILTER_KEYS}
+    filters = build_analytics_filters(**clean_filters).as_task_filters() if clean_filters else {}
+    result = export_workflow_response_time_task.delay(
+        user_id=str(current_user["user_id"]),
+        filters=filters,
+    )
+    return {"task_id": result.id}
+
+
+@router.post("/export/workflow/top-n")
+def export_workflow_top_n(
+    body: WorkflowTopNExportRequest,
+    current_user: Annotated[dict, Depends(get_analyst_or_admin)],
+):
+    _SAFE_FILTER_KEYS = {"start_date", "end_date", "region_id", "province", "municipality",
+                          "fire_station", "incident_type", "alarm_level", "casualty_severity",
+                          "damage_min", "damage_max", "barangay_name"}
+    clean_filters = {k: v for k, v in body.filters.items() if k in _SAFE_FILTER_KEYS}
+    filters = build_analytics_filters(**clean_filters).as_task_filters() if clean_filters else {}
+    result = export_workflow_top_n_task.delay(
+        user_id=str(current_user["user_id"]),
+        metric=body.metric,
+        dimension=body.dimension,
+        mode=body.mode,
+        selected_name=body.selected_name,
+        metric_value=body.metric_value,
+        filters=filters,
     )
     return {"task_id": result.id}
 

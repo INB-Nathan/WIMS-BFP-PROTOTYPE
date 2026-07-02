@@ -37,6 +37,7 @@ import {
 import type { Region } from '@/types/api';
 import { AnalystIncidentList } from '@/components/analytics/AnalystIncidentList';
 import { ExportPreviewModal, type ExportFormat } from '@/components/analytics/ExportPreviewModal';
+import { useWorkflowExport } from '@/lib/useWorkflowExport';
 import { MetricTile } from '@/components/analytics/MetricTile';
 import { ResponseTimeChart } from '@/components/analytics/ResponseTimeChart';
 import { TopNExplorer } from '@/components/analytics/TopNExplorer';
@@ -472,6 +473,13 @@ export default function AnalystWorkflowPage() {
     return buildTopNDrilldownFilters(activeFilters, topNDimension, topNSelectedName, regions);
   }, [activeFilters, regions, topNDimension, topNSelectedName]);
 
+  const { exportWorkflow } = useWorkflowExport();
+
+  const selectedTopNItem = useMemo(() => {
+    if (!topNData || !topNSelectedName) return null;
+    return topNData.find((item) => item.name === topNSelectedName) ?? null;
+  }, [topNData, topNSelectedName]);
+
   const handleTopNShowMatchingIncidents = useCallback(() => {
     if (!topNSelectedName) return;
     setSelectedSetActive(false);
@@ -513,6 +521,25 @@ export default function AnalystWorkflowPage() {
       </div>
     );
   }
+
+  const downloadMapImage = useCallback(async (format: 'png' | 'jpeg') => {
+    const el = document.querySelector('[data-heatmap-export]');
+    if (!el) return;
+    try {
+      const domToImage = await import('dom-to-image-more');
+      const dataUrl = format === 'png'
+        ? await domToImage.toPng(el as HTMLElement)
+        : await domToImage.toJpeg(el as HTMLElement, { quality: 0.92 });
+      const a = document.createElement('a');
+      a.href = dataUrl;
+      a.download = `wims-heatmap-${new Date().toISOString().split('T')[0]}.${format}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } catch (err) {
+      console.error('Heatmap export failed:', err);
+    }
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -719,6 +746,7 @@ export default function AnalystWorkflowPage() {
                   <option value="municipality">Municipality</option>
                   <option value="fire_station">Fire Station</option>
                   <option value="region">Region</option>
+                  <option value="barangay">Barangay</option>
                 </select>
               </FilterField>
             </div>
@@ -787,7 +815,32 @@ export default function AnalystWorkflowPage() {
       </Panel>
 
       {workflow === 'comparative' && (
-        <Panel title="Calculation Detail" icon={<BarChart3 className="h-5 w-5" />} description="Variance = (Range B - Range A) / Range A, returned by the analytics API.">
+        <Panel
+          title="Calculation Detail"
+          icon={<BarChart3 className="h-5 w-5" />}
+          description="Variance = (Range B - Range A) / Range A, returned by the analytics API."
+          action={
+            <button
+              type="button"
+              onClick={() => exportWorkflow('comparative', {
+                range_a_start: cmpRanges.rangeAStart,
+                range_a_end: cmpRanges.rangeAEnd,
+                range_b_start: cmpRanges.rangeBStart,
+                range_b_end: cmpRanges.rangeBEnd,
+                filters: activeFilters,
+              })}
+              disabled={exportUnavailableOffline}
+              title={exportUnavailableOffline ? 'Unavailable offline' : undefined}
+              className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold text-white transition-colors disabled:opacity-50"
+              style={{ backgroundColor: '#991B1B' }}
+              onMouseEnter={(e) => { if (!exportUnavailableOffline) (e.currentTarget as HTMLElement).style.backgroundColor = '#7f1d1d'; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#991B1B'; }}
+            >
+              <Download className="h-4 w-4" aria-hidden="true" />
+              Export XLSX
+            </button>
+          }
+        >
           {comparative ? (
             <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
               <MetricTile label="Range A" value={comparative.range_a.count.toLocaleString()} detail={`${comparative.range_a.start} to ${comparative.range_a.end}`} />
@@ -807,20 +860,48 @@ export default function AnalystWorkflowPage() {
           icon={<MapPinned className="h-5 w-5" />}
           description="Each marker represents one verified incident with coordinates in the current filter result."
           action={(
-            <div className="inline-flex rounded-md border border-gray-200 bg-gray-50 p-1 text-xs font-semibold text-gray-600">
+            <div className="flex flex-wrap gap-2">
+              <div className="inline-flex rounded-md border border-gray-200 bg-gray-50 p-1 text-xs font-semibold text-gray-600">
+                <button
+                  type="button"
+                  onClick={() => setHeatmapSource('filtered')}
+                  className={`rounded px-2.5 py-1.5 transition-colors ${heatmapSource === 'filtered' ? 'bg-white text-red-700 shadow-sm' : 'hover:text-gray-800'}`}
+                >
+                  Filtered ({heatmap?.features.length ?? 0})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setHeatmapSource('selected')}
+                  className={`rounded px-2.5 py-1.5 transition-colors ${heatmapSource === 'selected' ? 'bg-white text-red-700 shadow-sm' : 'hover:text-gray-800'}`}
+                >
+                  Selected ({selectedIncidentIds.length})
+                </button>
+              </div>
               <button
                 type="button"
-                onClick={() => setHeatmapSource('filtered')}
-                className={`rounded px-2.5 py-1.5 transition-colors ${heatmapSource === 'filtered' ? 'bg-white text-red-700 shadow-sm' : 'hover:text-gray-800'}`}
+                onClick={() => void downloadMapImage('png')}
+                disabled={exportUnavailableOffline}
+                title={exportUnavailableOffline ? 'Unavailable offline' : undefined}
+                className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold text-white transition-colors disabled:opacity-50"
+                style={{ backgroundColor: '#991B1B' }}
+                onMouseEnter={(e) => { if (!exportUnavailableOffline) (e.currentTarget as HTMLElement).style.backgroundColor = '#7f1d1d'; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#991B1B'; }}
               >
-                Filtered ({heatmap?.features.length ?? 0})
+                <Download className="h-4 w-4" aria-hidden="true" />
+                PNG
               </button>
               <button
                 type="button"
-                onClick={() => setHeatmapSource('selected')}
-                className={`rounded px-2.5 py-1.5 transition-colors ${heatmapSource === 'selected' ? 'bg-white text-red-700 shadow-sm' : 'hover:text-gray-800'}`}
+                onClick={() => void downloadMapImage('jpeg')}
+                disabled={exportUnavailableOffline}
+                title={exportUnavailableOffline ? 'Unavailable offline' : undefined}
+                className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold text-white transition-colors disabled:opacity-50"
+                style={{ backgroundColor: '#991B1B' }}
+                onMouseEnter={(e) => { if (!exportUnavailableOffline) (e.currentTarget as HTMLElement).style.backgroundColor = '#7f1d1d'; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#991B1B'; }}
               >
-                Selected ({selectedIncidentIds.length})
+                <Download className="h-4 w-4" aria-hidden="true" />
+                JPEG
               </button>
             </div>
           )}
@@ -830,14 +911,36 @@ export default function AnalystWorkflowPage() {
             <MetricTile label="Map Mode" value="Point" detail="GeoJSON incident locations" />
             <MetricTile label="Evidence" value={heatmapSource === 'selected' ? 'Selected Set' : 'Filtered Set'} detail="Incident evidence table remains below" />
           </div>
-          <div className="overflow-hidden rounded-md border border-gray-200">
+          <div className="overflow-hidden rounded-md border border-gray-200" data-heatmap-export>
             {displayedHeatmap ? <HeatmapViewer geojson={displayedHeatmap} emptyMessage={heatmapSource === 'selected' ? 'No selected incidents to display on map' : 'No incidents to display on map'} /> : <div className="flex h-[520px] items-center justify-center text-gray-500">No map data loaded.</div>}
           </div>
         </Panel>
       )}
 
       {workflow === 'trends' && (
-        <Panel title="Trend Calculation" icon={<TrendingUp className="h-5 w-5" />} description="Incident counts are bucketed by the selected interval over verified analytics facts.">
+        <Panel
+          title="Trend Calculation"
+          icon={<TrendingUp className="h-5 w-5" />}
+          description="Incident counts are bucketed by the selected interval over verified analytics facts."
+          action={
+            <button
+              type="button"
+              onClick={() => exportWorkflow('trends', {
+                interval,
+                filters: activeFilters,
+              })}
+              disabled={exportUnavailableOffline}
+              title={exportUnavailableOffline ? 'Unavailable offline' : undefined}
+              className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold text-white transition-colors disabled:opacity-50"
+              style={{ backgroundColor: '#991B1B' }}
+              onMouseEnter={(e) => { if (!exportUnavailableOffline) (e.currentTarget as HTMLElement).style.backgroundColor = '#7f1d1d'; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#991B1B'; }}
+            >
+              <Download className="h-4 w-4" aria-hidden="true" />
+              Export XLSX
+            </button>
+          }
+        >
           <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
             <MetricTile label="Total In Window" value={totalTrendCount.toLocaleString()} detail="Sum of returned buckets" />
             <MetricTile label="Interval" value={interval.charAt(0).toUpperCase() + interval.slice(1)} detail="Selected bucket granularity" />
@@ -848,7 +951,28 @@ export default function AnalystWorkflowPage() {
       )}
 
       {workflow === 'response-time' && (
-        <Panel title="Regional Response Detail" icon={<Clock className="h-5 w-5" />} description="Average, minimum, and maximum response times are grouped by region.">
+        <Panel
+          title="Regional Response Detail"
+          icon={<Clock className="h-5 w-5" />}
+          description="Average, minimum, and maximum response times are grouped by region."
+          action={
+            <button
+              type="button"
+              onClick={() => exportWorkflow('response-time', {
+                filters: activeFilters,
+              })}
+              disabled={exportUnavailableOffline}
+              title={exportUnavailableOffline ? 'Unavailable offline' : undefined}
+              className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold text-white transition-colors disabled:opacity-50"
+              style={{ backgroundColor: '#991B1B' }}
+              onMouseEnter={(e) => { if (!exportUnavailableOffline) (e.currentTarget as HTMLElement).style.backgroundColor = '#7f1d1d'; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#991B1B'; }}
+            >
+              <Download className="h-4 w-4" aria-hidden="true" />
+              Export XLSX
+            </button>
+          }
+        >
           <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
             <MetricTile label="Mean Regional Avg" value={avgResponse == null ? 'N/A' : `${avgResponse.toFixed(1)} min`} detail="Average of regional averages" />
             <MetricTile label="Fastest Minimum" value={minResponse == null ? 'N/A' : `${minResponse.toFixed(1)} min`} detail="Lowest regional minimum" />
@@ -859,7 +983,52 @@ export default function AnalystWorkflowPage() {
       )}
 
       {workflow === 'top-n' && (
-        <Panel title="Ranked Results" icon={<ListChecks className="h-5 w-5" />} description="The ranked result uses /analytics/top-n with the selected metric and dimension.">
+        <Panel
+          title="Ranked Results"
+          icon={<ListChecks className="h-5 w-5" />}
+          description="The ranked result uses /analytics/top-n with the selected metric and dimension."
+          action={
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => exportWorkflow('top-n', {
+                  metric: topNMetric,
+                  dimension: topNDimension,
+                  mode: 'full',
+                })}
+                disabled={exportUnavailableOffline}
+                title={exportUnavailableOffline ? 'Unavailable offline' : undefined}
+                className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold text-white transition-colors disabled:opacity-50"
+                style={{ backgroundColor: '#991B1B' }}
+                onMouseEnter={(e) => { if (!exportUnavailableOffline) (e.currentTarget as HTMLElement).style.backgroundColor = '#7f1d1d'; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#991B1B'; }}
+              >
+                <Download className="h-4 w-4" aria-hidden="true" />
+                Export Chart
+              </button>
+              <button
+                type="button"
+                onClick={() => exportWorkflow('top-n', {
+                  metric: topNMetric,
+                  dimension: topNDimension,
+                  mode: 'selected',
+                  selected_name: topNSelectedName,
+                  metric_value: selectedTopNItem?.value ?? null,
+                  filters: selectedTopNTransferFilters,
+                })}
+                disabled={exportUnavailableOffline || !topNSelectedName}
+                title={exportUnavailableOffline ? 'Unavailable offline' : (!topNSelectedName ? 'Select a hotspot first' : undefined)}
+                className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold text-white transition-colors disabled:opacity-50"
+                style={{ backgroundColor: topNSelectedName ? '#991B1B' : '#9CA3AF' }}
+                onMouseEnter={(e) => { if (!exportUnavailableOffline && topNSelectedName) (e.currentTarget as HTMLElement).style.backgroundColor = '#7f1d1d'; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = topNSelectedName ? '#991B1B' : '#9CA3AF'; }}
+              >
+                <Download className="h-4 w-4" aria-hidden="true" />
+                Export Selected
+              </button>
+            </div>
+          }
+        >
           <TopNExplorer
             data={topNData ?? []}
             metric={topNMetric}
