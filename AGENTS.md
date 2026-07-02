@@ -89,3 +89,46 @@ For cross-cutting changes (auth, schema, security), also read:
 - [ ] If non-trivial behavior changed: system-wiki synthesis page, `log.md` updated.
 - [ ] If FRS alignment changed: `system-wiki/gaps/frs-codebase-gap-register.md` updated.
 - [ ] Final response states whether wiki updates were made or were not needed.
+
+## Ponytail Skill — Scope & Guardrails
+
+[Ponytail](https://github.com/DietrichGebert/ponytail) is a YAGNI skill that
+pushes toward minimal code via a 7-rung decision ladder. It is installed as a
+**skills-only** package at project level (`.pi/settings.json`; extension
+disabled). Skills auto-activate when the agent detects a matching task, or
+manually via `/skill:ponytail`. Companion skills: `/skill:ponytail-review`,
+`/skill:ponytail-audit`, `/skill:ponytail-debt`, `/skill:ponytail-gain`.
+
+### Permitted scope
+
+- Frontend presentational UI (native HTML inputs, simple components)
+- Backend helpers, formatting, pure functions, existing-service reuse
+- Over-engineering review passes (`/skill:ponytail-review`)
+- Low-risk, bounded implementation tasks where over-building is the known risk
+
+### Forbidden scope
+
+Ponytail must **never** be the deciding frame when modifying these paths:
+
+| Area | Why excluded |
+|------|-------------|
+| Auth, RBAC, Keycloak | Dependency order and RLS GUC handling are fragile and critical (`CLAUDE.md:67-69`, `src/backend/AGENTS.md:22-23`) |
+| RLS policies | Row-level security context must be explicit; minimal RLS = broken auth |
+| PII encryption | AES-256-GCM via `crypto.py` — explicit encryption mandatory, not optional (`AGENTS.md:47`) |
+| Audit / security logs | Append-only insert triggers — must never be simplified (`AGENTS.md:46`) |
+| PostGIS / spatial data | PostGIS is source of truth — app-level geometry breaks correctness (`AGENTS.md:48`) |
+| Offline/PWA sync | Dual-path sync engine is inherently stateful — Ponytail may suggest deleting the compatibility path |
+| Celery pipeline orchestration | Workers must never call external APIs directly — route through service/util (`AGENTS.md:42`) |
+| SQL bootstrap / migrations | 74 bootstrap files in lexical order with `ON_ERROR_STOP=1` — minimal changes break schema |
+| OpenBao / KMS bootstrap | Secret store init and unseal — mandatory explicit steps |
+| Suricata IDS / XAI pipeline | Security threat detection rules — correctness not reducible |
+| Nginx edge gateway | Rate limiting, TLS, security headers — explicit config required |
+| Incident promotion / official records | Workflow invariants and state machine transitions must be explicit |
+
+### Mode rules
+
+- **`ultra` is prohibited** for all WIMS work.
+- **`lite`** is the recommended mode: suggests simpler alternatives without forcing them.
+- **`full`** may be used on low-risk, bounded tasks after explicit user consent.
+- Ponytail's guidance is always subordinate to WIMS architecture constraints
+  (`AGENTS.md:40-49`) and subsystem AGENTS.md files.

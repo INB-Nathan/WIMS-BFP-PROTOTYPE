@@ -1,0 +1,8 @@
+{
+  "packages": [
+    {
+      "source": "npm:@dietrichgebert/ponytail@4.8.4",
+      "extensions": []
+    }
+  ]
+}
