@@ -497,9 +497,10 @@ export default function AnalystWorkflowPage() {
     try {
       // Wait for map tiles to finish loading
       const imgs = el.querySelectorAll('img.leaflet-tile');
-      await Promise.allSettled(Array.from(imgs).map((img) => {
-        if ((img as HTMLImageElement).complete && (img as HTMLImageElement).naturalWidth > 0) return Promise.resolve();
-        return new Promise((resolve) => { img.onload = resolve; img.onerror = resolve; setTimeout(resolve, 5000); });
+      const tiles = Array.from(imgs) as HTMLImageElement[];
+      await Promise.allSettled(tiles.map((tile) => {
+        if (tile.complete && tile.naturalWidth > 0) return Promise.resolve();
+        return new Promise((resolve) => { tile.onload = resolve; tile.onerror = resolve; setTimeout(resolve, 5000); });
       }));
       // Extra settling delay for canvas renderers
       await new Promise((r) => setTimeout(r, 500));
