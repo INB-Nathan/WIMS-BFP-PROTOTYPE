@@ -428,9 +428,20 @@ def export_workflow_comparative(
 ):
     validate_date_range(body.range_a_start, body.range_a_end)
     validate_date_range(body.range_b_start, body.range_b_end)
-    _SAFE_FILTER_KEYS = {"start_date", "end_date", "region_id", "province", "municipality",
-                          "fire_station", "incident_type", "alarm_level", "casualty_severity",
-                          "damage_min", "damage_max", "barangay_name"}
+    _SAFE_FILTER_KEYS = {
+        "start_date",
+        "end_date",
+        "region_id",
+        "province",
+        "municipality",
+        "fire_station",
+        "incident_type",
+        "alarm_level",
+        "casualty_severity",
+        "damage_min",
+        "damage_max",
+        "barangay_name",
+    }
     clean_filters = {k: v for k, v in body.filters.items() if k in _SAFE_FILTER_KEYS}
     filters = build_analytics_filters(**clean_filters).as_task_filters() if clean_filters else {}
     result = export_workflow_comparative_task.delay(
@@ -449,9 +460,20 @@ def export_workflow_trends(
     body: WorkflowTrendsExportRequest,
     current_user: Annotated[dict, Depends(get_analyst_or_admin)],
 ):
-    _SAFE_FILTER_KEYS = {"start_date", "end_date", "region_id", "province", "municipality",
-                          "fire_station", "incident_type", "alarm_level", "casualty_severity",
-                          "damage_min", "damage_max", "barangay_name"}
+    _SAFE_FILTER_KEYS = {
+        "start_date",
+        "end_date",
+        "region_id",
+        "province",
+        "municipality",
+        "fire_station",
+        "incident_type",
+        "alarm_level",
+        "casualty_severity",
+        "damage_min",
+        "damage_max",
+        "barangay_name",
+    }
     clean_filters = {k: v for k, v in body.filters.items() if k in _SAFE_FILTER_KEYS}
     filters = build_analytics_filters(**clean_filters).as_task_filters() if clean_filters else {}
     result = export_workflow_trends_task.delay(
@@ -467,9 +489,20 @@ def export_workflow_response_time(
     body: WorkflowResponseTimeExportRequest,
     current_user: Annotated[dict, Depends(get_analyst_or_admin)],
 ):
-    _SAFE_FILTER_KEYS = {"start_date", "end_date", "region_id", "province", "municipality",
-                          "fire_station", "incident_type", "alarm_level", "casualty_severity",
-                          "damage_min", "damage_max", "barangay_name"}
+    _SAFE_FILTER_KEYS = {
+        "start_date",
+        "end_date",
+        "region_id",
+        "province",
+        "municipality",
+        "fire_station",
+        "incident_type",
+        "alarm_level",
+        "casualty_severity",
+        "damage_min",
+        "damage_max",
+        "barangay_name",
+    }
     clean_filters = {k: v for k, v in body.filters.items() if k in _SAFE_FILTER_KEYS}
     filters = build_analytics_filters(**clean_filters).as_task_filters() if clean_filters else {}
     result = export_workflow_response_time_task.delay(
@@ -484,9 +517,20 @@ def export_workflow_top_n(
     body: WorkflowTopNExportRequest,
     current_user: Annotated[dict, Depends(get_analyst_or_admin)],
 ):
-    _SAFE_FILTER_KEYS = {"start_date", "end_date", "region_id", "province", "municipality",
-                          "fire_station", "incident_type", "alarm_level", "casualty_severity",
-                          "damage_min", "damage_max", "barangay_name"}
+    _SAFE_FILTER_KEYS = {
+        "start_date",
+        "end_date",
+        "region_id",
+        "province",
+        "municipality",
+        "fire_station",
+        "incident_type",
+        "alarm_level",
+        "casualty_severity",
+        "damage_min",
+        "damage_max",
+        "barangay_name",
+    }
     clean_filters = {k: v for k, v in body.filters.items() if k in _SAFE_FILTER_KEYS}
     filters = build_analytics_filters(**clean_filters).as_task_filters() if clean_filters else {}
     result = export_workflow_top_n_task.delay(

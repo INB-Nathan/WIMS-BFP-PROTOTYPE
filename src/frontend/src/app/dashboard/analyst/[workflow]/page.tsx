@@ -491,6 +491,25 @@ export default function AnalystWorkflowPage() {
     router.push(createAnalystWorkflowTransferUrl('heatmap', { filters: selectedTopNTransferFilters }));
   }, [router, selectedTopNTransferFilters]);
 
+  const downloadMapImage = useCallback(async (format: 'png' | 'jpeg') => {
+    const el = document.querySelector('[data-heatmap-export]');
+    if (!el) return;
+    try {
+      const domToImage = await import('dom-to-image-more');
+      const dataUrl = format === 'png'
+        ? await domToImage.toPng(el as HTMLElement)
+        : await domToImage.toJpeg(el as HTMLElement, { quality: 0.92 });
+      const a = document.createElement('a');
+      a.href = dataUrl;
+      a.download = `wims-heatmap-${new Date().toISOString().split('T')[0]}.${format}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } catch (err) {
+      console.error('Heatmap export failed:', err);
+    }
+  }, []);
+
   if (loading) {
     return <div className="flex min-h-[40vh] items-center justify-center text-gray-500">Loading...</div>;
   }
@@ -521,25 +540,6 @@ export default function AnalystWorkflowPage() {
       </div>
     );
   }
-
-  const downloadMapImage = useCallback(async (format: 'png' | 'jpeg') => {
-    const el = document.querySelector('[data-heatmap-export]');
-    if (!el) return;
-    try {
-      const domToImage = await import('dom-to-image-more');
-      const dataUrl = format === 'png'
-        ? await domToImage.toPng(el as HTMLElement)
-        : await domToImage.toJpeg(el as HTMLElement, { quality: 0.92 });
-      const a = document.createElement('a');
-      a.href = dataUrl;
-      a.download = `wims-heatmap-${new Date().toISOString().split('T')[0]}.${format}`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-    } catch (err) {
-      console.error('Heatmap export failed:', err);
-    }
-  }, []);
 
   return (
     <div className="space-y-6">

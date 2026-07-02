@@ -115,27 +115,33 @@ def _write_xlsx(path: str, rows: list[dict[str, Any]], columns: list[str]) -> No
 # ─── Workflow-Specific XLSX Writers ────────────────────────────────────────────
 
 
-def _write_comparative_xlsx(path: str, rows_a: list[dict[str, Any]], rows_b: list[dict[str, Any]], summary: dict[str, Any]) -> None:
+def _write_comparative_xlsx(
+    path: str, rows_a: list[dict[str, Any]], rows_b: list[dict[str, Any]], summary: dict[str, Any]
+) -> None:
     from openpyxl import Workbook
 
     wb = Workbook()
     ws = wb.active
     ws.title = "Summary"
     ws.append(["Metric", "Range A", "Range B", "Difference", "Variance %"])
-    ws.append([
-        "Incident Count",
-        summary["count_a"],
-        summary["count_b"],
-        "=C2-B2",
-        '=IF(B2=0,0,(C2-B2)/B2)',
-    ])
-    ws.append([
-        "Date Range",
-        f"{summary['range_a_start']} to {summary['range_a_end']}",
-        f"{summary['range_b_start']} to {summary['range_b_end']}",
-        "",
-        "",
-    ])
+    ws.append(
+        [
+            "Incident Count",
+            summary["count_a"],
+            summary["count_b"],
+            "=C2-B2",
+            "=IF(B2=0,0,(C2-B2)/B2)",
+        ]
+    )
+    ws.append(
+        [
+            "Date Range",
+            f"{summary['range_a_start']} to {summary['range_a_end']}",
+            f"{summary['range_b_start']} to {summary['range_b_end']}",
+            "",
+            "",
+        ]
+    )
     ws2 = wb.create_sheet("Incidents")
     columns = DEFAULT_EXPORT_COLUMNS + ["period"]
     ws2.append(columns)
@@ -188,13 +194,15 @@ def _write_response_time_xlsx(path: str, data: list[dict[str, Any]]) -> None:
     ws_data.title = "Data"
     ws_data.append(["Region", "Avg (min)", "Min (min)", "Max (min)", "Total Incidents"])
     for item in data:
-        ws_data.append([
-            item.get("region_id", ""),
-            item.get("avg_response_time", ""),
-            item.get("min_response_time", ""),
-            item.get("max_response_time", ""),
-            item.get("total_incidents", ""),
-        ])
+        ws_data.append(
+            [
+                item.get("region_id", ""),
+                item.get("avg_response_time", ""),
+                item.get("min_response_time", ""),
+                item.get("max_response_time", ""),
+                item.get("total_incidents", ""),
+            ]
+        )
 
     ws_chart = wb.create_sheet("Response Time Chart")
     chart = BarChart()
@@ -1193,8 +1201,17 @@ def export_workflow_comparative_task(
     db = get_session()
     try:
         set_rls_context(db, uuid.UUID(user_id))
-        _CIR_KEYS = {"region_id", "province", "municipality", "fire_station", "incident_type",
-                     "alarm_level", "casualty_severity", "damage_min", "damage_max"}
+        _CIR_KEYS = {
+            "region_id",
+            "province",
+            "municipality",
+            "fire_station",
+            "incident_type",
+            "alarm_level",
+            "casualty_severity",
+            "damage_min",
+            "damage_max",
+        }
         cir_filters = {k: v for k, v in filters.items() if k in _CIR_KEYS}
         count_a = count_in_range(db, range_a_start, range_a_end, **cir_filters)
         count_b = count_in_range(db, range_b_start, range_b_end, **cir_filters)
@@ -1211,17 +1228,31 @@ def export_workflow_comparative_task(
             "range_b_end": range_b_end,
         }
         cols = DEFAULT_EXPORT_COLUMNS
-        rows_a = get_export_rows(db, {**filters, "start_date": range_a_start, "end_date": range_a_end}, cols)
-        rows_b = get_export_rows(db, {**filters, "start_date": range_b_start, "end_date": range_b_end}, cols)
+        rows_a = get_export_rows(
+            db, {**filters, "start_date": range_a_start, "end_date": range_a_end}, cols
+        )
+        rows_b = get_export_rows(
+            db, {**filters, "start_date": range_b_start, "end_date": range_b_end}, cols
+        )
         os.makedirs(EXPORT_DIR, exist_ok=True)
         path = os.path.join(EXPORT_DIR, f"comparative_export_{uuid.uuid4().hex[:12]}.xlsx")
         _write_comparative_xlsx(path, rows_a, rows_b, summary)
         _insert_export_log(
-            db, user_id=user_id, export_format="excel", export_type="workflow_comparative",
-            filters={**filters, "range_a_start": range_a_start, "range_a_end": range_a_end,
-                     "range_b_start": range_b_start, "range_b_end": range_b_end},
-            columns=cols, task_id=getattr(self.request, "id", None),
-            path=path, content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            db,
+            user_id=user_id,
+            export_format="excel",
+            export_type="workflow_comparative",
+            filters={
+                **filters,
+                "range_a_start": range_a_start,
+                "range_a_end": range_a_end,
+                "range_b_start": range_b_start,
+                "range_b_end": range_b_end,
+            },
+            columns=cols,
+            task_id=getattr(self.request, "id", None),
+            path=path,
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             row_count=len(rows_a) + len(rows_b),
         )
     finally:
@@ -1257,10 +1288,15 @@ def export_workflow_trends_task(
         path = os.path.join(EXPORT_DIR, f"trends_export_{uuid.uuid4().hex[:12]}.xlsx")
         _write_trends_xlsx(path, data, interval)
         _insert_export_log(
-            db, user_id=user_id, export_format="excel", export_type="workflow_trends",
+            db,
+            user_id=user_id,
+            export_format="excel",
+            export_type="workflow_trends",
             filters={**filters, "interval": interval},
-            columns=DEFAULT_EXPORT_COLUMNS, task_id=getattr(self.request, "id", None),
-            path=path, content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            columns=DEFAULT_EXPORT_COLUMNS,
+            task_id=getattr(self.request, "id", None),
+            path=path,
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             row_count=len(data),
         )
     finally:
@@ -1295,10 +1331,15 @@ def export_workflow_response_time_task(
         path = os.path.join(EXPORT_DIR, f"response_time_export_{uuid.uuid4().hex[:12]}.xlsx")
         _write_response_time_xlsx(path, data)
         _insert_export_log(
-            db, user_id=user_id, export_format="excel", export_type="workflow_response_time",
+            db,
+            user_id=user_id,
+            export_format="excel",
+            export_type="workflow_response_time",
             filters=filters,
-            columns=DEFAULT_EXPORT_COLUMNS, task_id=getattr(self.request, "id", None),
-            path=path, content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            columns=DEFAULT_EXPORT_COLUMNS,
+            task_id=getattr(self.request, "id", None),
+            path=path,
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             row_count=len(data),
         )
     finally:
@@ -1340,7 +1381,11 @@ def export_workflow_top_n_task(
         os.makedirs(EXPORT_DIR, exist_ok=True)
         path = os.path.join(EXPORT_DIR, f"top_n_export_{uuid.uuid4().hex[:12]}.xlsx")
         _write_top_n_xlsx(
-            path, data, metric, dimension, mode,
+            path,
+            data,
+            metric,
+            dimension,
+            mode,
             selected_name=selected_name,
             metric_value=metric_value,
             filters=filters,
@@ -1348,10 +1393,15 @@ def export_workflow_top_n_task(
             columns=DEFAULT_EXPORT_COLUMNS if mode == "selected" else None,
         )
         _insert_export_log(
-            db, user_id=user_id, export_format="excel", export_type="workflow_top_n",
+            db,
+            user_id=user_id,
+            export_format="excel",
+            export_type="workflow_top_n",
             filters={**(filters or {}), "metric": metric, "dimension": dimension, "mode": mode},
-            columns=DEFAULT_EXPORT_COLUMNS, task_id=getattr(self.request, "id", None),
-            path=path, content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            columns=DEFAULT_EXPORT_COLUMNS,
+            task_id=getattr(self.request, "id", None),
+            path=path,
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             row_count=len(data),
         )
     finally:
