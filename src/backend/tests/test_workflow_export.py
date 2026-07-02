@@ -214,7 +214,8 @@ class TestBarangayFilterInfrastructure:
         clauses: list[str] = []
         params: dict[str, str] = {}
         _append_common_filters(
-            clauses, params,
+            clauses,
+            params,
             start_date="2024-01-01",
             end_date="2024-12-31",
             barangay_name="Test Barangay",
@@ -247,7 +248,8 @@ class TestBarangayFilterInfrastructure:
         clauses: list[str] = []
         params: dict[str, str] = {}
         _append_common_filters(
-            clauses, params,
+            clauses,
+            params,
             barangay_name="Specific Barangay",
         )
         assert params.get("barangay_name") == "Specific Barangay"
