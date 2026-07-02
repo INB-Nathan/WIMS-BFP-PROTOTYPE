@@ -16,9 +16,13 @@ from celery_config import celery_app
 from utils.analytics_validation import escape_csv_cell
 from database import get_session, set_rls_context
 from services.analytics_read_model import (
+    count_in_range,
     get_analyst_export_rows,
     get_export_rows,
     get_incident_export_data,
+    get_response_time_by_region,
+    get_top_n,
+    get_trends,
 )
 
 logger = logging.getLogger(__name__)
@@ -108,7 +112,168 @@ def _write_xlsx(path: str, rows: list[dict[str, Any]], columns: list[str]) -> No
     workbook.save(path)
 
 
-# ─── AFOR Template Writers ────────────────────────────────────────────────────
+# ─── Workflow-Specific XLSX Writers ────────────────────────────────────────────
+
+
+def _write_comparative_xlsx(
+    path: str, rows_a: list[dict[str, Any]], rows_b: list[dict[str, Any]], summary: dict[str, Any]
+) -> None:
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Summary"
+    ws.append(["Metric", "Range A", "Range B", "Difference", "Variance %"])
+    ws.append(
+        [
+            "Incident Count",
+            summary["count_a"],
+            summary["count_b"],
+            "=C2-B2",
+            "=IF(B2=0,0,(C2-B2)/B2)",
+        ]
+    )
+    ws.append(
+        [
+            "Date Range",
+            f"{summary['range_a_start']} to {summary['range_a_end']}",
+            f"{summary['range_b_start']} to {summary['range_b_end']}",
+            "",
+            "",
+        ]
+    )
+    ws2 = wb.create_sheet("Incidents")
+    columns = DEFAULT_EXPORT_COLUMNS + ["period"]
+    ws2.append(columns)
+    for row in rows_a:
+        ws2.append([_serialize_value(row.get(c)) for c in DEFAULT_EXPORT_COLUMNS] + ["Range A"])
+    for row in rows_b:
+        ws2.append([_serialize_value(row.get(c)) for c in DEFAULT_EXPORT_COLUMNS] + ["Range B"])
+    wb.save(path)
+
+
+def _write_trends_xlsx(path: str, data: list[dict[str, Any]], interval: str) -> None:
+    from openpyxl import Workbook
+    from openpyxl.chart import LineChart, Reference
+
+    wb = Workbook()
+    ws_data = wb.active
+    ws_data.title = "Data"
+    ws_data.append(["Bucket", "Count"])
+    for item in data:
+        ws_data.append([item["bucket"], item["count"]])
+    total = sum(item["count"] for item in data)
+    peak = max(data, key=lambda x: x["count"]) if data else {}
+    ws_data.append([])
+    ws_data.append(["Total", total])
+    ws_data.append(["Interval", interval])
+    ws_data.append(["Peak Bucket", peak.get("bucket", "N/A")])
+
+    ws_chart = wb.create_sheet("Trend Chart")
+    chart = LineChart()
+    chart.title = f"Incident Trend — {interval}"
+    chart.style = 10
+    chart.x_axis.title = "Bucket"
+    chart.y_axis.title = "Count"
+    data_ref = Reference(ws_data, min_col=2, min_row=1, max_row=len(data) + 1)
+    cats = Reference(ws_data, min_col=1, min_row=2, max_row=len(data) + 1)
+    chart.add_data(data_ref, titles_from_data=True)
+    chart.set_categories(cats)
+    chart.width = 20
+    chart.height = 12
+    ws_chart.add_chart(chart, "A1")
+    wb.save(path)
+
+
+def _write_response_time_xlsx(path: str, data: list[dict[str, Any]]) -> None:
+    from openpyxl import Workbook
+    from openpyxl.chart import BarChart, Reference
+
+    wb = Workbook()
+    ws_data = wb.active
+    ws_data.title = "Data"
+    ws_data.append(["Region", "Avg (min)", "Min (min)", "Max (min)", "Total Incidents"])
+    for item in data:
+        ws_data.append(
+            [
+                item.get("region_id", ""),
+                item.get("avg_response_time", ""),
+                item.get("min_response_time", ""),
+                item.get("max_response_time", ""),
+                item.get("total_incidents", ""),
+            ]
+        )
+
+    ws_chart = wb.create_sheet("Response Time Chart")
+    chart = BarChart()
+    chart.title = "Response Time by Region"
+    chart.style = 10
+    chart.x_axis.title = "Region"
+    chart.y_axis.title = "Minutes"
+    data_ref = Reference(ws_data, min_col=2, min_row=1, max_row=len(data) + 1, max_col=4)
+    cats = Reference(ws_data, min_col=1, min_row=2, max_row=len(data) + 1)
+    chart.add_data(data_ref, titles_from_data=True)
+    chart.set_categories(cats)
+    chart.width = 20
+    chart.height = 12
+    ws_chart.add_chart(chart, "A1")
+    wb.save(path)
+
+
+def _write_top_n_xlsx(
+    path: str,
+    data: list[dict[str, Any]],
+    metric: str,
+    dimension: str,
+    mode: str,
+    selected_name: str | None = None,
+    metric_value: float | None = None,
+    filters: dict[str, Any] | None = None,
+    db: Any | None = None,
+    columns: list[str] | None = None,
+) -> None:
+    from openpyxl import Workbook
+    from openpyxl.chart import BarChart, Reference
+
+    wb = Workbook()
+
+    if mode == "full":
+        ws_data = wb.active
+        ws_data.title = "Data"
+        ws_data.append(["Rank", "Name", "Metric Value", "Incident Count"])
+        for i, item in enumerate(data, 1):
+            ws_data.append([i, item["name"], item["value"], item.get("incident_count", "")])
+
+        ws_chart = wb.create_sheet("Hotspot Chart")
+        chart = BarChart()
+        chart.title = f"Top 10 Hotspots by {metric} — {dimension}"
+        data_ref = Reference(ws_data, min_col=3, min_row=1, max_row=len(data) + 1)
+        cats = Reference(ws_data, min_col=2, min_row=2, max_row=len(data) + 1)
+        chart.add_data(data_ref, titles_from_data=True)
+        chart.set_categories(cats)
+        chart.width = 20
+        chart.height = 12
+        ws_chart.add_chart(chart, "A1")
+    else:
+        ws = wb.active
+        ws.title = "Selected Hotspot"
+        ws.append(["Hotspot", selected_name or ""])
+        ws.append(["Dimension", dimension])
+        ws.append(["Metric", metric])
+        ws.append(["Metric Value", metric_value or ""])
+        ws.append(["Filters", json.dumps(filters or {})])
+
+        if db and columns:
+            ws2 = wb.create_sheet("Incidents")
+            rows = get_export_rows(db, filters or {}, columns)
+            ws2.append(columns)
+            for row in rows:
+                ws2.append([_serialize_value(row.get(c)) for c in columns])
+
+    wb.save(path)
+
+
+# ─── AFOR Template Writers ────────────────────────────────────────────────
 
 # AFOR cell address map: field_key → (row, col_letter)
 # col letters: A=1, B=2, C=3, D=4, E=5, F=6
@@ -1018,3 +1183,227 @@ def _write_pdf(path: str, rows: list[dict[str, Any]], columns: list[str]) -> Non
     )
     story.append(table)
     doc.build(story)
+
+
+# ─── Workflow Export Tasks ─────────────────────────────────────────────────────
+
+
+@celery_app.task(bind=True, name="tasks.exports.export_workflow_comparative")
+def export_workflow_comparative_task(
+    self,
+    user_id: str,
+    range_a_start: str,
+    range_a_end: str,
+    range_b_start: str,
+    range_b_end: str,
+    filters: dict[str, Any],
+) -> str:
+    db = get_session()
+    try:
+        set_rls_context(db, uuid.UUID(user_id))
+        _CIR_KEYS = {
+            "region_id",
+            "province",
+            "municipality",
+            "fire_station",
+            "incident_type",
+            "alarm_level",
+            "casualty_severity",
+            "damage_min",
+            "damage_max",
+        }
+        cir_filters = {k: v for k, v in filters.items() if k in _CIR_KEYS}
+        count_a = count_in_range(db, range_a_start, range_a_end, **cir_filters)
+        count_b = count_in_range(db, range_b_start, range_b_end, **cir_filters)
+        variance = 0.0
+        if count_a > 0:
+            variance = ((count_b - count_a) / count_a) * 100
+        summary = {
+            "count_a": count_a,
+            "count_b": count_b,
+            "variance_percent": round(variance, 2),
+            "range_a_start": range_a_start,
+            "range_a_end": range_a_end,
+            "range_b_start": range_b_start,
+            "range_b_end": range_b_end,
+        }
+        cols = DEFAULT_EXPORT_COLUMNS
+        rows_a = get_export_rows(
+            db, {**filters, "start_date": range_a_start, "end_date": range_a_end}, cols
+        )
+        rows_b = get_export_rows(
+            db, {**filters, "start_date": range_b_start, "end_date": range_b_end}, cols
+        )
+        os.makedirs(EXPORT_DIR, exist_ok=True)
+        path = os.path.join(EXPORT_DIR, f"comparative_export_{uuid.uuid4().hex[:12]}.xlsx")
+        _write_comparative_xlsx(path, rows_a, rows_b, summary)
+        _insert_export_log(
+            db,
+            user_id=user_id,
+            export_format="excel",
+            export_type="workflow_comparative",
+            filters={
+                **filters,
+                "range_a_start": range_a_start,
+                "range_a_end": range_a_end,
+                "range_b_start": range_b_start,
+                "range_b_end": range_b_end,
+            },
+            columns=cols,
+            task_id=getattr(self.request, "id", None),
+            path=path,
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            row_count=len(rows_a) + len(rows_b),
+        )
+    finally:
+        db.close()
+    return path
+
+
+@celery_app.task(bind=True, name="tasks.exports.export_workflow_trends")
+def export_workflow_trends_task(
+    self,
+    user_id: str,
+    interval: str,
+    filters: dict[str, Any],
+) -> str:
+    db = get_session()
+    try:
+        set_rls_context(db, uuid.UUID(user_id))
+        data = get_trends(
+            db,
+            start_date=filters.get("start_date"),
+            end_date=filters.get("end_date"),
+            region_id=filters.get("region_id"),
+            province=filters.get("province"),
+            municipality=filters.get("municipality"),
+            fire_station=filters.get("fire_station"),
+            incident_type=filters.get("incident_type"),
+            alarm_level=filters.get("alarm_level"),
+            casualty_severity=filters.get("casualty_severity"),
+            damage_min=filters.get("damage_min"),
+            damage_max=filters.get("damage_max"),
+        )
+        os.makedirs(EXPORT_DIR, exist_ok=True)
+        path = os.path.join(EXPORT_DIR, f"trends_export_{uuid.uuid4().hex[:12]}.xlsx")
+        _write_trends_xlsx(path, data, interval)
+        _insert_export_log(
+            db,
+            user_id=user_id,
+            export_format="excel",
+            export_type="workflow_trends",
+            filters={**filters, "interval": interval},
+            columns=DEFAULT_EXPORT_COLUMNS,
+            task_id=getattr(self.request, "id", None),
+            path=path,
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            row_count=len(data),
+        )
+    finally:
+        db.close()
+    return path
+
+
+@celery_app.task(bind=True, name="tasks.exports.export_workflow_response_time")
+def export_workflow_response_time_task(
+    self,
+    user_id: str,
+    filters: dict[str, Any],
+) -> str:
+    db = get_session()
+    try:
+        set_rls_context(db, uuid.UUID(user_id))
+        data = get_response_time_by_region(
+            db,
+            start_date=filters.get("start_date"),
+            end_date=filters.get("end_date"),
+            region_id=filters.get("region_id"),
+            province=filters.get("province"),
+            municipality=filters.get("municipality"),
+            fire_station=filters.get("fire_station"),
+            incident_type=filters.get("incident_type"),
+            alarm_level=filters.get("alarm_level"),
+            casualty_severity=filters.get("casualty_severity"),
+            damage_min=filters.get("damage_min"),
+            damage_max=filters.get("damage_max"),
+        )
+        os.makedirs(EXPORT_DIR, exist_ok=True)
+        path = os.path.join(EXPORT_DIR, f"response_time_export_{uuid.uuid4().hex[:12]}.xlsx")
+        _write_response_time_xlsx(path, data)
+        _insert_export_log(
+            db,
+            user_id=user_id,
+            export_format="excel",
+            export_type="workflow_response_time",
+            filters=filters,
+            columns=DEFAULT_EXPORT_COLUMNS,
+            task_id=getattr(self.request, "id", None),
+            path=path,
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            row_count=len(data),
+        )
+    finally:
+        db.close()
+    return path
+
+
+@celery_app.task(bind=True, name="tasks.exports.export_workflow_top_n")
+def export_workflow_top_n_task(
+    self,
+    user_id: str,
+    metric: str,
+    dimension: str,
+    mode: str,
+    selected_name: str | None = None,
+    metric_value: float | None = None,
+    filters: dict[str, Any] | None = None,
+) -> str:
+    db = get_session()
+    try:
+        set_rls_context(db, uuid.UUID(user_id))
+        data = get_top_n(
+            db,
+            metric=metric,
+            dimension=dimension,
+            limit=10,
+            start_date=filters.get("start_date") if filters else None,
+            end_date=filters.get("end_date") if filters else None,
+            region_id=filters.get("region_id") if filters else None,
+            province=filters.get("province") if filters else None,
+            municipality=filters.get("municipality") if filters else None,
+            fire_station=filters.get("fire_station") if filters else None,
+            incident_type=filters.get("incident_type") if filters else None,
+            alarm_level=filters.get("alarm_level") if filters else None,
+            casualty_severity=filters.get("casualty_severity") if filters else None,
+            damage_min=filters.get("damage_min") if filters else None,
+            damage_max=filters.get("damage_max") if filters else None,
+        )
+        os.makedirs(EXPORT_DIR, exist_ok=True)
+        path = os.path.join(EXPORT_DIR, f"top_n_export_{uuid.uuid4().hex[:12]}.xlsx")
+        _write_top_n_xlsx(
+            path,
+            data,
+            metric,
+            dimension,
+            mode,
+            selected_name=selected_name,
+            metric_value=metric_value,
+            filters=filters,
+            db=db if mode == "selected" else None,
+            columns=DEFAULT_EXPORT_COLUMNS if mode == "selected" else None,
+        )
+        _insert_export_log(
+            db,
+            user_id=user_id,
+            export_format="excel",
+            export_type="workflow_top_n",
+            filters={**(filters or {}), "metric": metric, "dimension": dimension, "mode": mode},
+            columns=DEFAULT_EXPORT_COLUMNS,
+            task_id=getattr(self.request, "id", None),
+            path=path,
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            row_count=len(data),
+        )
+    finally:
+        db.close()
+    return path

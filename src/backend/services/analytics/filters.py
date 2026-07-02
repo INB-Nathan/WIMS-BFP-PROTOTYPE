@@ -22,6 +22,7 @@ class AnalyticsQueryFilters:
     casualty_severity: str | None = None
     damage_min: float | None = None
     damage_max: float | None = None
+    barangay_name: str | None = None
     selected_incident_ids: tuple[int, ...] = ()
 
     def __post_init__(self) -> None:
@@ -51,6 +52,7 @@ class AnalyticsQueryFilters:
             "casualty_severity": self.casualty_severity,
             "damage_min": self.damage_min,
             "damage_max": self.damage_max,
+            "barangay_name": self.barangay_name,
         }
         if self.region_ids:
             filters["region_ids"] = list(self.region_ids)
@@ -83,6 +85,7 @@ def build_analytics_filters(
     casualty_severity: str | None = None,
     damage_min: float | None = None,
     damage_max: float | None = None,
+    barangay_name: str | None = None,
     selected_incident_ids: list[int] | tuple[int, ...] | None = None,
 ) -> AnalyticsQueryFilters:
     if isinstance(region_ids, str) or region_ids is None:
@@ -104,6 +107,7 @@ def build_analytics_filters(
             casualty_severity=casualty_severity,
             damage_min=damage_min,
             damage_max=damage_max,
+            barangay_name=barangay_name,
             selected_incident_ids=tuple(sorted(set(selected_incident_ids or ()))),
         )
     except ValueError as exc:
@@ -133,6 +137,7 @@ def append_common_filters(
     firefighter_deaths = columns.get("firefighter_deaths", f"{prefix}firefighter_deaths")
     civilian_injured = columns.get("civilian_injured", f"{prefix}civilian_injured")
     firefighter_injured = columns.get("firefighter_injured", f"{prefix}firefighter_injured")
+    barangay = columns.get("barangay_name", f"{prefix}barangay_name")
     damage_column = damage_expression or f"{prefix}estimated_damage_php"
 
     if filters.start_date:
@@ -180,6 +185,9 @@ def append_common_filters(
     if filters.damage_max is not None:
         clauses.append(f"{damage_column} <= :damage_max")
         params["damage_max"] = filters.damage_max
+    if filters.barangay_name:
+        clauses.append(f"{barangay} = :barangay_name")
+        params["barangay_name"] = filters.barangay_name
     if filters.selected_incident_ids:
         clauses.append(f"{incident_id} = ANY(:selected_incident_ids)")
         params["selected_incident_ids"] = list(filters.selected_incident_ids)

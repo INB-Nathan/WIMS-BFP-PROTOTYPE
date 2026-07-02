@@ -1,6 +1,6 @@
 import type { AnalystIncidentListParams } from '@/lib/api';
 
-export type TopNDimension = 'region' | 'municipality' | 'fire_station';
+export type TopNDimension = 'region' | 'municipality' | 'fire_station' | 'barangay';
 
 export interface TopNRegionLookup {
   region_id: number;
@@ -11,6 +11,7 @@ export interface TopNRegionLookup {
 export function getTopNDimensionLabel(dimension: TopNDimension): string {
   if (dimension === 'fire_station') return 'Fire station';
   if (dimension === 'municipality') return 'Municipality';
+  if (dimension === 'barangay') return 'Barangay';
   return 'Region';
 }
 
@@ -41,6 +42,14 @@ export function buildTopNDrilldownFilters(
     return {
       ...baseFilters,
       municipality: hotspotName,
+      fire_station: undefined,
+    };
+  }
+
+  if (dimension === 'barangay') {
+    return {
+      ...baseFilters,
+      barangay_name: hotspotName,
       fire_station: undefined,
     };
   }

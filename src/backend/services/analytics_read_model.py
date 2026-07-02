@@ -36,6 +36,7 @@ def _append_common_filters(
     casualty_severity: Optional[str] = None,
     damage_min: Optional[float] = None,
     damage_max: Optional[float] = None,
+    barangay_name: Optional[str] = None,
 ) -> None:
     try:
         filters = build_analytics_filters(
@@ -51,6 +52,7 @@ def _append_common_filters(
             casualty_severity=casualty_severity,
             damage_min=damage_min,
             damage_max=damage_max,
+            barangay_name=barangay_name,
         )
     except HTTPException:
         raise
@@ -711,6 +713,7 @@ def get_export_rows(
         casualty_severity=filters.get("casualty_severity"),
         damage_min=filters.get("damage_min"),
         damage_max=filters.get("damage_max"),
+        barangay_name=filters.get("barangay_name"),
     )
     if filters.get("incident_id") is not None:
         clauses.append("a.incident_id = :incident_id")
@@ -933,7 +936,8 @@ def get_response_time_by_region(
             SELECT a.region_id,
                    AVG(a.total_response_time_minutes) AS avg_rt,
                    MIN(a.total_response_time_minutes) AS min_rt,
-                   MAX(a.total_response_time_minutes) AS max_rt
+                   MAX(a.total_response_time_minutes) AS max_rt,
+                   COUNT(*) AS total_incidents
             FROM wims.analytics_incident_facts a
             WHERE {where_sql}
             GROUP BY a.region_id
@@ -948,6 +952,7 @@ def get_response_time_by_region(
             "avg_response_time": round(float(r[1]), 1),
             "min_response_time": r[2],
             "max_response_time": r[3],
+            "total_incidents": r[4],
         }
         for r in rows
     ]

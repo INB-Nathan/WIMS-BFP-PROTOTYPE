@@ -1786,6 +1786,7 @@ export interface AnalystIncidentListParams {
   province?: string;
   municipality?: string;
   fire_station?: string;
+  barangay_name?: string;
   incident_type?: string;
   alarm_level?: string;
   casualty_severity?: 'high' | 'medium' | 'low';

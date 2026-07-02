@@ -86,7 +86,11 @@ export function HeatmapViewer({
       </div>
 
       {fullscreen && (
-        <div className="fixed inset-0 z-[100] bg-black/70 p-4 sm:p-6" role="dialog" aria-modal="true" aria-label="Fullscreen heatmap">
+        <div
+          className="fixed z-[100] bg-black/70 p-4 sm:p-6"
+          role="dialog" aria-modal="true" aria-label="Fullscreen heatmap"
+          style={{ top: 'var(--header-height)', left: 'var(--sidebar-width)', right: 0, bottom: 0 }}
+        >
           <div className="relative h-full w-full overflow-hidden rounded-xl border border-gray-200 bg-white shadow-2xl">
             <button
               type="button"

@@ -112,30 +112,31 @@ export default function ValidatorMapInner({
 
   return (
     <div className="relative h-full w-full">
-      {/* Floating station toggle */}
-      <button
-        onClick={() => setShowStations((prev) => !prev)}
-        className={`absolute top-3 left-3 z-[1000] text-xs font-medium px-3 py-1.5 rounded-md border shadow-sm transition-colors ${
-          showStations
-            ? 'bg-red-700 text-white border-red-800 hover:bg-red-800'
-            : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
-        }`}
-        aria-label={showStations ? 'Hide fire stations' : 'Show fire stations'}
-      >
-        🔥 Stations{stationsError ? ' (unavailable)' : ` (${stations.length})`}
-      </button>
-      {/* Floating operations toggle */}
-      <button
-        onClick={() => setShowOperations((prev) => !prev)}
-        className={`absolute top-3 left-28 z-[1000] text-xs font-medium px-3 py-1.5 rounded-md border shadow-sm transition-colors ${
-          showOperations
-            ? 'bg-amber-700 text-white border-amber-800 hover:bg-amber-800'
-            : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
-        }`}
-        aria-label={showOperations ? 'Hide operations' : 'Show operations'}
-      >
-        🚒 Operations{operationsError ? ' (unavailable)' : ` (${operations.length})`}
-      </button>
+      {/* Floating layer toggles — right side to avoid Leaflet zoom controls */}
+      <div className="absolute top-3 right-3 z-[1000] flex gap-2">
+        <button
+          onClick={() => setShowStations((prev) => !prev)}
+          className={`text-xs font-medium px-3 py-1.5 rounded-md border shadow-sm transition-colors ${
+            showStations
+              ? 'bg-red-700 text-white border-red-800 hover:bg-red-800'
+              : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+          }`}
+          aria-label={showStations ? 'Hide fire stations' : 'Show fire stations'}
+        >
+          🔥 Stations{stationsError ? ' (unavailable)' : ` (${stations.length})`}
+        </button>
+        <button
+          onClick={() => setShowOperations((prev) => !prev)}
+          className={`text-xs font-medium px-3 py-1.5 rounded-md border shadow-sm transition-colors ${
+            showOperations
+              ? 'bg-amber-700 text-white border-amber-800 hover:bg-amber-800'
+              : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+          }`}
+          aria-label={showOperations ? 'Hide operations' : 'Show operations'}
+        >
+          🚒 Operations{operationsError ? ' (unavailable)' : ` (${operations.length})`}
+        </button>
+      </div>
 
     <MapContainer
       center={[14.5995, 120.9842]}
