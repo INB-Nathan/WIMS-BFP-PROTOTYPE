@@ -67,7 +67,11 @@ And in the return dict (around line 949), add:
 **File:** `src/backend/api/routes/analytics.py`
 
 **Changes:**
-Add 4 Pydantic models before the `ExportCsvRequest` class (around line 248):
+1. Add `field_validator` to the imports (currently only `BaseModel, model_validator` are imported):
+   ```python
+   from pydantic import BaseModel, field_validator, model_validator
+   ```
+2. Add 4 Pydantic models before the `ExportCsvRequest` class (around line 248):
 
 ```python
 class WorkflowComparativeExportRequest(BaseModel):
@@ -318,9 +322,13 @@ def export_workflow_comparative_task(self, user_id, range_a_start, range_a_end, 
     db = get_session()
     try:
         set_rls_context(db, uuid.UUID(user_id))
+        # count_in_range only accepts specific keyword args; extract them from filters
+        _CIR_KEYS = {"region_id", "province", "municipality", "fire_station", "incident_type",
+                     "alarm_level", "casualty_severity", "damage_min", "damage_max"}
+        cir_filters = {k: v for k, v in filters.items() if k in _CIR_KEYS}
         # Fetch counts
-        count_a = count_in_range(db, range_a_start, range_a_end, **filters)
-        count_b = count_in_range(db, range_b_start, range_b_end, **filters)
+        count_a = count_in_range(db, range_a_start, range_a_end, **cir_filters)
+        count_b = count_in_range(db, range_b_start, range_b_end, **cir_filters)
         variance = 0.0
         if count_a > 0:
             variance = ((count_b - count_a) / count_a) * 100
@@ -383,8 +391,12 @@ def export_workflow_comparative(
     # Validate dates (already done by Pydantic)
     validate_date_range(body.range_a_start, body.range_a_end)
     validate_date_range(body.range_b_start, body.range_b_end)
-    # Normalize filters
-    filters = build_analytics_filters(**body.filters).as_task_filters() if body.filters else {}
+    # Normalize filters — pre-filter to only keys that build_analytics_filters accepts
+    _SAFE_FILTER_KEYS = {"start_date", "end_date", "region_id", "province", "municipality",
+                          "fire_station", "incident_type", "alarm_level", "casualty_severity",
+                          "damage_min", "damage_max", "barangay_name"}
+    clean_filters = {k: v for k, v in body.filters.items() if k in _SAFE_FILTER_KEYS}
+    filters = build_analytics_filters(**clean_filters).as_task_filters() if clean_filters else {}
     result = export_workflow_comparative_task.delay(
         user_id=str(current_user["user_id"]),
         range_a_start=body.range_a_start,
@@ -653,6 +665,8 @@ if (dimension === 'barangay') {
 }
 ```
 
+**Spec deviation note:** The source spec (§5.2) says "No other service changes" for filter infrastructure, but this step adds `barangay_name` support to `build_analytics_filters`, `append_common_filters`, and `get_export_rows`. This is a **justified correction** — the spec assumed existing filter infra covered all dimensions, but `barangay_name` was never plumbed through the shared filter pipeline.
+
 **Note:** This requires `AnalystIncidentListParams` to have `barangay_name` — add it:
 ```typescript
 export interface AnalystIncidentListParams {
@@ -699,7 +713,7 @@ export interface AnalystIncidentListParams {
 6. **Step 12 (topNDrilldown barangay)** must precede the Top-N selected button (Step 9)
 7. **Steps 10-11 (tests)** are last in the order
 
-**Recommended order:** 1 → 2 → 3 → 4 → 5 → (7, 8, 12) → 9 → 6 → 10 → 11
+**Recommended order:** 1 → 2 → 3 → 4 → 5 → 6 → (7, 8, 12) → 9 → 10 → 11
 
 ## Risks
 
