@@ -33,7 +33,7 @@ export function useWorkflowExport() {
       for (let i = 0; i < maxAttempts; i++) {
         await new Promise((r) => setTimeout(r, 2000));
         try {
-          const path = `/analytics/export/${encodeURIComponent(task_id)}`;
+          const path = `/api/analytics/export/${encodeURIComponent(task_id)}`;
           const downloadResp = await fetch(path, { credentials: 'include' });
           if (!downloadResp.ok) continue;
           blob = await downloadResp.blob();
