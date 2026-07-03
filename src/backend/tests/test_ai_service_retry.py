@@ -377,3 +377,68 @@ class TestDockerComposeConfig:
         for service in ("backend", "celery-worker"):
             env = data["services"][service]["environment"]
             assert "OLLAMA_NUM_PREDICT=${OLLAMA_NUM_PREDICT:-256}" in env
+
+
+class TestSuricataInferenceLock:
+    """Tests for the shared Suricata AI inference lock."""
+
+    @pytest.mark.asyncio
+    async def test_recommended_action_status_uses_shared_analysis_lock(self, monkeypatch):
+        import services.ai_service as ai_service
+
+        class FakeRedis:
+            async def exists(self, key):
+                assert key == f"{ai_service._ANALYSIS_LOCK_PREFIX}42"
+                return 1
+
+            async def aclose(self):
+                return None
+
+        monkeypatch.setattr(ai_service, "_get_metrics_redis", lambda: FakeRedis())
+
+        class FailDb:
+            def execute(self, *_args, **_kwargs):
+                raise AssertionError("DB should not be read while shared lock is running")
+
+        assert await ai_service.get_recommended_action_status(42, FailDb()) == "running"
+
+    @pytest.mark.asyncio
+    async def test_generate_recommended_action_conflicts_on_shared_analysis_lock(self, monkeypatch):
+        import services.ai_service as ai_service
+
+        row = (
+            42,  # log_id
+            None,  # timestamp
+            "1.1.1.1",  # source_ip
+            "2.2.2.2",  # destination_ip
+            1001,  # sid
+            "HIGH",  # severity
+            "payload",  # raw_payload
+            json.dumps({"anomaly_description": "probe"}),  # xai_narrative
+            0.8,  # confidence
+            None,  # admin_action_taken
+            None,  # resolved_at
+            None,  # reviewed_by
+            "signature",  # suricata_signature
+            "classification",  # classification
+        )
+
+        class FakeResult:
+            def fetchone(self):
+                return row
+
+        class FakeDb:
+            def execute(self, *_args, **_kwargs):
+                return FakeResult()
+
+        async def deny_lock(log_id: int) -> bool:
+            assert log_id == 42
+            return False
+
+        monkeypatch.setattr(ai_service, "acquire_analysis_lock", deny_lock)
+
+        with pytest.raises(HTTPException) as exc_info:
+            await ai_service.generate_recommended_action(42, FakeDb())
+
+        assert exc_info.value.status_code == 409
+        assert "AI inference is already running" in exc_info.value.detail

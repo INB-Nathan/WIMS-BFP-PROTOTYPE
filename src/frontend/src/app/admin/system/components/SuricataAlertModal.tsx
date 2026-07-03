@@ -12,6 +12,7 @@ import {
   fetchRelatedAuditLogs,
 } from '@/lib/api/admin';
 import type { RelatedAlertItem, RelatedAuditItem } from '@/lib/api/legacy';
+import { ApiRequestError } from '@/lib/api/transport';
 
 // ---------------------------------------------------------------------------
 // Interfaces
@@ -64,6 +65,12 @@ function hitlErrorMessage(error: unknown): string {
     return 'Server failed while applying the threat decision. The alert was not updated; please retry or check backend logs.';
   }
   return message;
+}
+
+function isAiInferenceConflict(error: unknown): boolean {
+  if (!(error instanceof ApiRequestError) || error.status !== 409) return false;
+  const message = String(error.message ?? error.detail ?? '');
+  return /already running|in progress|inference/i.test(message);
 }
 
 // ---------------------------------------------------------------------------
@@ -321,7 +328,9 @@ export function SuricataAlertModal({ log, onClose, onDecisionComplete }: Suricat
     analysisState === 'fetching' ||
     analysisState === 'analyzing' ||
     analysisState === 'normalizing' ||
-    isBackgroundRunning;
+    isBackgroundRunning ||
+    actionState === 'generating' ||
+    isActionBackgroundRunning;
 
   // ── Effects ──────────────────────────────────────────────────────────
 
@@ -582,6 +591,12 @@ export function SuricataAlertModal({ log, onClose, onDecisionComplete }: Suricat
         cleanupAnalysis();
         return;
       }
+      if (isAiInferenceConflict(e)) {
+        setAnalysisState('idle');
+        setAnalysisError(null);
+        setIsBackgroundRunning(true);
+        return;
+      }
       setAnalysisState('error');
       setAnalysisError(
         (e as { message?: string })?.message ?? 'Analysis failed'
@@ -608,6 +623,12 @@ export function SuricataAlertModal({ log, onClose, onDecisionComplete }: Suricat
         xai_confidence: updated.xai_confidence ?? undefined,
       });
     } catch (e: unknown) {
+      if (isAiInferenceConflict(e)) {
+        setActionState('generating');
+        setIsActionBackgroundRunning(true);
+        setActionError(null);
+        return;
+      }
       setActionState('error');
       setIsActionBackgroundRunning(false);
       setActionError((e as { message?: string })?.message ?? 'Failed to generate recommended action');
@@ -923,7 +944,7 @@ export function SuricataAlertModal({ log, onClose, onDecisionComplete }: Suricat
             <button
               type="button"
               onClick={handleGenerateRecommendedAction}
-              disabled={isRunning}
+              disabled={isRunning || isAnalysisRunning}
               className="px-3 py-1.5 bg-amber-600 text-white rounded text-sm font-medium hover:bg-amber-700 disabled:opacity-50 flex items-center gap-2"
             >
               {isRunning ? <IconSpinner /> : <IconSparkles />}
