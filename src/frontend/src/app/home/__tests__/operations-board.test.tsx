@@ -118,6 +118,9 @@ vi.mock('@/lib/api/operations', () => ({
   createOperation: vi.fn().mockResolvedValue({}),
   updateOperation: vi.fn().mockResolvedValue({}),
   deleteOperation: vi.fn().mockResolvedValue(undefined),
+  fetchResetPreview: vi.fn().mockResolvedValue({ archive_count: 0, carried_over_count: 0 }),
+  runResetDay: vi.fn().mockResolvedValue({ archive_count: 0, carried_over_count: 0, reset_id: 1 }),
+  restoreOperation: vi.fn().mockResolvedValue({}),
   fetchLinkableReports: vi.fn().mockResolvedValue([
     {
       report_id: 7,

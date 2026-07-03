@@ -15,6 +15,13 @@ export interface Operation {
   latitude: number | null;
   longitude: number | null;
   radius_meters: number | null;
+  is_archived: boolean;
+  archived_at: string | null;
+  archived_by: string | null;
+  archive_reason: string | null;
+  keep_overnight: boolean;
+  carried_over_at: string | null;
+  last_reset_at: string | null;
   linked_report_ids: number[];
   linked_reports: LinkedReportDetail[];
 }
@@ -40,10 +47,12 @@ export interface OperationUpdate {
   latitude?: number;
   longitude?: number;
   radius_meters?: number;
+  keep_overnight?: boolean;
 }
 
-export async function fetchOperations(status?: FireStatus[]): Promise<Operation[]> {
+export async function fetchOperations(status?: FireStatus[], archived = false): Promise<Operation[]> {
   const params = new URLSearchParams();
+  if (archived) params.set('archived', 'true');
   status?.forEach((s) => params.append('status', s));
   const qs = params.toString();
   return apiFetch<Operation[]>(`/operations${qs ? `?${qs}` : ''}`);
@@ -126,4 +135,31 @@ export async function fetchLinkableReports(
   if (params.longitude != null) search.set('longitude', String(params.longitude));
   const qs = search.toString();
   return apiFetch<LinkableReportDetail[]>(`/operations/linkable-reports${qs ? `?${qs}` : ''}`);
+}
+
+export interface OperationResetPreview {
+  archive_count: number;
+  carried_over_count: number;
+}
+
+export interface OperationResetResponse extends OperationResetPreview {
+  reset_id: number;
+}
+
+export async function fetchResetPreview(): Promise<OperationResetPreview> {
+  return apiFetch<OperationResetPreview>('/operations/reset-preview');
+}
+
+export async function runResetDay(): Promise<OperationResetResponse> {
+  return apiFetch<OperationResetResponse>('/operations/reset-day', { method: 'POST' });
+}
+
+export async function restoreOperation(
+  operationId: number,
+  fireStatus: FireStatus,
+): Promise<Operation> {
+  return apiFetch<Operation>(`/operations/${operationId}/restore`, {
+    method: 'POST',
+    body: JSON.stringify({ fire_status: fireStatus }),
+  });
 }

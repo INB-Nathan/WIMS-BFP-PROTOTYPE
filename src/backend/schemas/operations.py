@@ -35,6 +35,20 @@ class OperationUpdate(BaseModel):
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     radius_meters: Optional[float] = None
+    keep_overnight: Optional[bool] = None
+
+
+class OperationResetPreview(BaseModel):
+    archive_count: int
+    carried_over_count: int
+
+
+class OperationResetResponse(OperationResetPreview):
+    reset_id: int
+
+
+class OperationRestoreRequest(BaseModel):
+    fire_status: FireStatus
 
 
 class OperationLinkedReport(BaseModel):
@@ -66,6 +80,13 @@ class OperationResponse(BaseModel):
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     radius_meters: Optional[float] = None
+    is_archived: bool = False
+    archived_at: Optional[datetime] = None
+    archived_by: Optional[uuid.UUID] = None
+    archive_reason: Optional[str] = None
+    keep_overnight: bool = False
+    carried_over_at: Optional[datetime] = None
+    last_reset_at: Optional[datetime] = None
     linked_report_ids: list[int] = []
     linked_reports: list[OperationLinkedReport] = []
 

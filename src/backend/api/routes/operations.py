@@ -15,7 +15,10 @@ from schemas.operations import (
     LinkReportRequest,
     OperationCreate,
     OperationLinkedReport,
+    OperationResetPreview,
+    OperationResetResponse,
     OperationResponse,
+    OperationRestoreRequest,
     OperationUpdate,
 )
 from utils.audit import log_system_audit
@@ -214,6 +217,24 @@ def _row_to_response(
         latitude=getattr(row, "latitude", None),
         longitude=getattr(row, "longitude", None),
         radius_meters=getattr(row, "radius_meters", None),
+        is_archived=bool(getattr(row, "is_archived", False)),
+        archived_at=getattr(row, "archived_at", None)
+        if getattr(row, "archived_at", None)
+        else None,
+        archived_by=getattr(row, "archived_by", None)
+        if getattr(row, "archived_by", None)
+        else None,
+        archive_reason=getattr(row, "archive_reason", None)
+        if getattr(row, "archive_reason", None) is not None
+        and isinstance(getattr(row, "archive_reason", None), str)
+        else None,
+        keep_overnight=bool(getattr(row, "keep_overnight", False)),
+        carried_over_at=getattr(row, "carried_over_at", None)
+        if getattr(row, "carried_over_at", None)
+        else None,
+        last_reset_at=getattr(row, "last_reset_at", None)
+        if getattr(row, "last_reset_at", None)
+        else None,
         linked_report_ids=linked_report_ids,
         linked_reports=linked_reports,
     )
@@ -234,21 +255,23 @@ def _row_to_response(
 def list_operations(
     _viewer: Annotated[dict, Depends(get_incident_viewer)],
     status: Optional[List[str]] = Query(None),
+    archived: bool = Query(False),
     db: Session = Depends(get_db),
 ) -> List[OperationResponse]:
+    where_clauses = [f"is_archived = {'TRUE' if archived else 'FALSE'}"]
+    params: dict[str, object] = {}
     if status:
         placeholders = ", ".join(f":s{i}" for i in range(len(status)))
-        params = {f"s{i}": s for i, s in enumerate(status)}
-        rows = db.execute(
-            text(
-                f"SELECT * FROM wims.operations"
-                f" WHERE fire_status IN ({placeholders})"
-                f" ORDER BY created_at DESC"
-            ),
-            params,
-        ).fetchall()
-    else:
-        rows = db.execute(text("SELECT * FROM wims.operations ORDER BY created_at DESC")).fetchall()
+        where_clauses.append(f"fire_status IN ({placeholders})")
+        params.update({f"s{i}": s for i, s in enumerate(status)})
+    rows = db.execute(
+        text(
+            f"SELECT * FROM wims.operations"
+            f" WHERE {' AND '.join(where_clauses)}"
+            f" ORDER BY created_at DESC"
+        ),
+        params,
+    ).fetchall()
 
     if not rows:
         return []
@@ -603,3 +626,154 @@ def unlink_report(
     )
     db.commit()
     return _row_to_response(op, db=db)
+
+
+# ---------------------------------------------------------------------------
+# GET /api/operations/reset-preview — validator-only preview of pending reset
+# ---------------------------------------------------------------------------
+
+
+@router.get("/reset-preview", response_model=OperationResetPreview)
+def reset_day_preview(
+    current_user: Annotated[dict, Depends(get_national_validator)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
+) -> OperationResetPreview:
+    rows = db.execute(
+        text("SELECT keep_overnight FROM wims.operations WHERE is_archived = FALSE")
+    ).fetchall()
+    carried = sum(1 for r in rows if r.keep_overnight)
+    total = len(rows)
+    return OperationResetPreview(
+        archive_count=total - carried,
+        carried_over_count=carried,
+    )
+
+
+# ---------------------------------------------------------------------------
+# POST /api/operations/reset-day — validator-only manual reset
+# ---------------------------------------------------------------------------
+
+
+@router.post("/reset-day", response_model=OperationResetResponse)
+def reset_day(
+    current_user: Annotated[dict, Depends(get_national_validator)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
+) -> OperationResetResponse:
+    reset_at = datetime.now(tz=timezone.utc)
+
+    # 1) Carry over kept operations: clear flag, stamp
+    carried = db.execute(
+        text(
+            "UPDATE wims.operations"
+            " SET keep_overnight = FALSE,"
+            "     carried_over_at = :now,"
+            "     last_reset_at = :now,"
+            "     updated_at = :now"
+            " WHERE is_archived = FALSE AND keep_overnight = TRUE"
+            " RETURNING operation_id"
+        ),
+        {"now": reset_at},
+    ).fetchall()
+    carried_count = len(carried)
+
+    # 2) Archive everything else that is active
+    archived = db.execute(
+        text(
+            "UPDATE wims.operations"
+            " SET is_archived = TRUE,"
+            "     archived_at = :now,"
+            "     archived_by = :uid,"
+            "     archive_reason = 'daily_reset',"
+            "     last_reset_at = :now,"
+            "     updated_at = :now"
+            " WHERE is_archived = FALSE"
+            " RETURNING operation_id"
+        ),
+        {"now": reset_at, "uid": current_user["user_id"]},
+    ).fetchall()
+    archive_count = len(archived)
+
+    # 3) Record reset batch
+    batch = db.execute(
+        text(
+            "INSERT INTO wims.operation_reset_batches"
+            " (triggered_by, trigger_type, started_at, completed_at,"
+            "  archive_count, carried_over_count, notes)"
+            " VALUES (:uid, 'MANUAL', :now, :now, :ac, :cc, :notes)"
+            " RETURNING reset_id"
+        ),
+        {
+            "uid": current_user["user_id"],
+            "now": reset_at,
+            "ac": archive_count,
+            "cc": carried_count,
+            "notes": None,
+        },
+    ).fetchone()
+    log_system_audit(
+        db=db,
+        user_id=current_user["user_id"],
+        action_type="OPERATION_DAY_RESET",
+        table_affected="operations",
+        record_id=batch.reset_id,
+        new_values={
+            "archive_count": archive_count,
+            "carried_over_count": carried_count,
+        },
+    )
+    db.commit()
+    return OperationResetResponse(
+        archive_count=archive_count,
+        carried_over_count=carried_count,
+        reset_id=int(batch.reset_id),
+    )
+
+
+# ---------------------------------------------------------------------------
+# POST /api/operations/{operation_id}/restore — validator-only unarchive
+# ---------------------------------------------------------------------------
+
+
+@router.post("/{operation_id}/restore", response_model=OperationResponse)
+def restore_operation(
+    operation_id: int,
+    payload: OperationRestoreRequest,
+    current_user: Annotated[dict, Depends(get_national_validator)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
+) -> OperationResponse:
+    existing = db.execute(
+        text("SELECT * FROM wims.operations WHERE operation_id = :oid"),
+        {"oid": operation_id},
+    ).fetchone()
+    if not existing or not existing.is_archived:
+        raise HTTPException(status_code=404, detail="Archived operation not found")
+
+    row = db.execute(
+        text(
+            "UPDATE wims.operations"
+            " SET is_archived = FALSE,"
+            "     archived_at = NULL,"
+            "     archived_by = NULL,"
+            "     archive_reason = NULL,"
+            "     fire_status = :status,"
+            "     last_reset_at = NULL,"
+            "     updated_at = :now"
+            " WHERE operation_id = :oid"
+            " RETURNING *"
+        ),
+        {
+            "status": payload.fire_status.value,
+            "oid": operation_id,
+            "now": datetime.now(tz=timezone.utc),
+        },
+    ).fetchone()
+    log_system_audit(
+        db=db,
+        user_id=current_user["user_id"],
+        action_type="OPERATION_RESTORE",
+        table_affected="operations",
+        record_id=operation_id,
+        new_values={"fire_status": payload.fire_status.value},
+    )
+    db.commit()
+    return _row_to_response(row, db=db)

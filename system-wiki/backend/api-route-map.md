@@ -168,8 +168,10 @@ FastAPI route ownership snapshot from `src/backend/api/routes`.
 - `ref.py` is the reference data read API tied to `wims.ref_*` tables in [[database/schema-overview]].
 
 ## Operations (Linked Reports)
-- `GET /api/operations` returns operation rows with `linked_report_ids` and PII-free `linked_reports` detail objects derived from `wims.citizen_reports.location` via PostGIS.
+- `GET /api/operations` returns active operation rows by default with `linked_report_ids` and PII-free `linked_reports` detail objects derived from `wims.citizen_reports.location` via PostGIS; `?archived=true` switches to the read-only archive board.
 - `GET /api/operations/linkable-reports` is `NATIONAL_VALIDATOR`-only and returns eligible non-rejected civilian reports for operation linking, including disabled already-linked cards.
+- `GET /api/operations/reset-preview` and `POST /api/operations/reset-day` are `NATIONAL_VALIDATOR`-only. Reset archives non-kept active operations, carries over `keep_overnight` rows once, and records `wims.operation_reset_batches`.
+- `POST /api/operations/{operation_id}/restore` is `NATIONAL_VALIDATOR`-only and restores an archived operation with an explicit chosen fire status.
 - `POST /api/operations/{operation_id}/link` and `DELETE /api/operations/{operation_id}/link/{report_id}` enforce one-operation-per-report and transactional status transitions.
 
 ## Related
