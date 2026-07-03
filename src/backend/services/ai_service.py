@@ -28,11 +28,10 @@ logger = logging.getLogger("wims.ai_service")
 OLLAMA_MODEL = "qwen2.5:1.5b"
 
 # ---------------------------------------------------------------------------
-# Redis analysis lock — prevents concurrent analysis of the same log_id
+# Redis inference lock — prevents concurrent Suricata AI inference for one log_id.
 # TTL matches the max Ollama timeout so locks don't orphan on crash.
 # ---------------------------------------------------------------------------
 _ANALYSIS_LOCK_PREFIX = "wims:ai:lock:"
-_RECOMMENDED_ACTION_LOCK_PREFIX = "wims:ai:recommended_action_lock:"
 _ANALYSIS_LOCK_TTL = int(os.environ.get("OLLAMA_TIMEOUT", "480")) + 60
 
 # ---------------------------------------------------------------------------
@@ -107,14 +106,14 @@ async def _record_inference_metric(function_name: str, elapsed_s: float) -> None
 
 
 # ---------------------------------------------------------------------------
-# Analysis lock (Redis) — prevents concurrent analysis of the same log
+# Analysis lock (Redis) — prevents concurrent Suricata AI inference for the same log
 # ---------------------------------------------------------------------------
 
 
 async def acquire_analysis_lock(log_id: int) -> bool:
-    """Try to acquire a Redis lock for analyzing this log.
+    """Try to acquire a Redis lock for AI inference on this log.
 
-    Returns True if the lock was acquired (no concurrent analysis running).
+    Returns True if the lock was acquired (no concurrent inference running).
     The lock auto-expires after _ANALYSIS_LOCK_TTL seconds.
     """
     redis = _get_metrics_redis()
@@ -135,30 +134,6 @@ async def release_analysis_lock(log_id: int) -> None:
     redis = _get_metrics_redis()
     try:
         await redis.delete(f"{_ANALYSIS_LOCK_PREFIX}{log_id}")
-    finally:
-        await redis.aclose()
-
-
-async def acquire_recommended_action_lock(log_id: int) -> bool:
-    """Try to acquire a Redis lock for generating recommended action."""
-    redis = _get_metrics_redis()
-    try:
-        result = await redis.set(
-            f"{_RECOMMENDED_ACTION_LOCK_PREFIX}{log_id}",
-            "1",
-            nx=True,
-            ex=_ANALYSIS_LOCK_TTL,
-        )
-        return result is True
-    finally:
-        await redis.aclose()
-
-
-async def release_recommended_action_lock(log_id: int) -> None:
-    """Release the Redis recommended-action lock for this log."""
-    redis = _get_metrics_redis()
-    try:
-        await redis.delete(f"{_RECOMMENDED_ACTION_LOCK_PREFIX}{log_id}")
     finally:
         await redis.aclose()
 
@@ -358,7 +333,7 @@ async def get_recommended_action_status(log_id: int, db: Session) -> str:
     """Return recommended-action status: running, completed, needs_analysis, or idle."""
     redis = _get_metrics_redis()
     try:
-        lock_exists = await redis.exists(f"{_RECOMMENDED_ACTION_LOCK_PREFIX}{log_id}")
+        lock_exists = await redis.exists(f"{_ANALYSIS_LOCK_PREFIX}{log_id}")
     finally:
         await redis.aclose()
 
@@ -693,10 +668,10 @@ async def generate_recommended_action(log_id: int, db: Session) -> dict:
             "reviewed_by": str(row[11]) if row[11] else None,
         }
 
-    if not await acquire_recommended_action_lock(log_id):
+    if not await acquire_analysis_lock(log_id):
         raise HTTPException(
             status_code=409,
-            detail=f"Recommended action generation is already running for log {log_id}",
+            detail=f"AI inference is already running for log {log_id}",
         )
 
     raw_payload = row[6] or ""
@@ -796,7 +771,7 @@ async def generate_recommended_action(log_id: int, db: Session) -> dict:
             extra={"xai_confidence": confidence},
         )
     finally:
-        await release_recommended_action_lock(log_id)
+        await release_analysis_lock(log_id)
 
     return {
         "log_id": row[0],

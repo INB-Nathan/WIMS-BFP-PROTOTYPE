@@ -7,6 +7,7 @@
  */
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { ApiRequestError } from '@/lib/api/transport';
 import AdminSystemPage from './page';
 
 const mockLogWithoutNarrative = {
@@ -46,12 +47,14 @@ vi.mock('@/context/AuthContext', () => ({
 const mockFetchAdminSecurityLogs = vi.fn();
 const mockAnalyzeSecurityLog = vi.fn();
 const mockGenerateRecommendedAction = vi.fn();
+const mockCheckAnalysisStatus = vi.fn();
 const mockCheckRecommendedActionStatus = vi.fn();
 const mockFetchAdminUsers = vi.fn();
 const mockFetchAuditLogs = vi.fn();
 
 vi.mock('@/lib/api/admin', () => ({
     analyzeSecurityLog: (logId: number) => mockAnalyzeSecurityLog(logId),
+    checkAnalysisStatus: (logId: number) => mockCheckAnalysisStatus(logId),
     checkRecommendedActionStatus: (logId: number) => mockCheckRecommendedActionStatus(logId),
     generateRecommendedAction: (logId: number) => mockGenerateRecommendedAction(logId),
     updateAdminSecurityLog: vi.fn(),
@@ -112,6 +115,7 @@ describe('Admin System — Analyze with AI in Threat Telemetry', () => {
         vi.clearAllMocks();
         mockFetchAdminUsers.mockResolvedValue([]);
         mockFetchAuditLogs.mockResolvedValue({ items: [], total: 0 });
+        mockCheckAnalysisStatus.mockResolvedValue({ log_id: 1, status: 'idle' });
         mockCheckRecommendedActionStatus.mockResolvedValue({ log_id: 2, status: 'idle' });
         mockGenerateRecommendedAction.mockResolvedValue({
             log_id: 2,
@@ -284,6 +288,38 @@ describe('Admin System — Analyze with AI in Threat Telemetry', () => {
         // Stage 2 section should have disappeared (no longer needed)
         await waitFor(() => {
             expect(screen.queryByText('Stage 2: Recommended Action')).not.toBeInTheDocument();
+        });
+    });
+
+    it('treats 409 AI inference conflict as background analysis in progress', async () => {
+        mockFetchAdminSecurityLogs.mockResolvedValue({ items: [mockLogWithoutNarrative], total: 1 });
+        mockAnalyzeSecurityLog.mockRejectedValue(
+            new ApiRequestError('AI inference is already running for log 1', 409)
+        );
+
+        render(<AdminSystemPage />);
+
+        await waitFor(() => {
+            expect(screen.getByText('Threat Telemetry')).toBeInTheDocument();
+        });
+
+        const viewButtons = await screen.findAllByRole('button', { name: /^View$/i });
+        fireEvent.click(viewButtons[0]);
+
+        await waitFor(() => {
+            expect(screen.getByText(/Suricata Alert.*#1/)).toBeInTheDocument();
+        });
+
+        const analyzeButtons = screen.getAllByRole('button', { name: /^Analyze with AI$/i });
+        fireEvent.click(analyzeButtons[analyzeButtons.length - 1]);
+
+        await waitFor(() => {
+            expect(mockAnalyzeSecurityLog).toHaveBeenCalledWith(1);
+        });
+
+        await waitFor(() => {
+            expect(screen.getByText('AI Threat Analysis in Progress')).toBeInTheDocument();
+            expect(screen.queryByText('AI inference is already running for log 1')).not.toBeInTheDocument();
         });
     });
 
