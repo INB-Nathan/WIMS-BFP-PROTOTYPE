@@ -223,6 +223,32 @@ export default function AdminAuditPage() {
     });
   };
 
+  /**
+   * Render-time transform: for Keycloak auth events (table_affected='wims.auth')
+   * where the audit row has no user context (user_id/user_name are null),
+   * relabel 'username' to 'subject_username' so the admin knows it's a
+   * Keycloak auth subject, not a WIMS user.
+   */
+  const transformValuesForDisplay = (
+    entry: AuditLogEntry,
+    values: Record<string, unknown> | null | undefined,
+  ): Record<string, unknown> | null | undefined => {
+    if (
+      !values ||
+      entry.table_affected !== 'wims.auth' ||
+      entry.user_id !== null ||
+      entry.user_name !== null
+    ) {
+      return values;
+    }
+    const transformed: Record<string, unknown> = { ...values };
+    if ('username' in transformed) {
+      transformed['subject_username'] = transformed['username'];
+      delete transformed['username'];
+    }
+    return transformed;
+  };
+
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const currentPage = Math.floor(offset / PAGE_SIZE) + 1;
 
@@ -545,7 +571,7 @@ export default function AdminAuditPage() {
                                 <div>
                                   <h4 className="text-xs font-semibold text-gray-500 uppercase mb-1">Old Values</h4>
                                   <pre className="text-xs bg-white border border-gray-200 rounded p-2 overflow-x-auto max-h-40 font-mono text-gray-700">
-                                    {JSON.stringify(a.old_values, null, 2)}
+                                    {JSON.stringify(transformValuesForDisplay(a, a.old_values), null, 2)}
                                   </pre>
                                 </div>
                               )}
@@ -553,7 +579,7 @@ export default function AdminAuditPage() {
                                 <div>
                                   <h4 className="text-xs font-semibold text-gray-500 uppercase mb-1">New Values</h4>
                                   <pre className="text-xs bg-white border border-gray-200 rounded p-2 overflow-x-auto max-h-40 font-mono text-gray-700">
-                                    {JSON.stringify(a.new_values, null, 2)}
+                                    {JSON.stringify(transformValuesForDisplay(a, a.new_values), null, 2)}
                                   </pre>
                                 </div>
                               )}
