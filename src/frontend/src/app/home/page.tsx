@@ -3,31 +3,29 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import Link from 'next/link';
-import { Search, Pencil, Plus, Trash2, Link2 } from 'lucide-react';
+import { Search, Plus, Archive } from 'lucide-react';
 import { GhostOperationCards } from '@/components/ui/GhostOperationsCard';
 import { MapPickerInner } from '@/components/MapPickerInner';
 import { OperationsConsole } from '@/components/operations/OperationsConsole';
 import {
   createOperation,
   updateOperation,
-  deleteOperation,
   linkReport,
   unlinkReport,
+  fetchResetPreview,
+  runResetDay,
+  restoreOperation,
   type Operation,
   type FireStatus,
   type OperationCreate,
+  type OperationResetPreview,
   type LinkableReportDetail,
 } from '@/lib/api/operations';
 import { fetchOperationsOfflineAware } from '@/lib/api/offlineOperations';
 import { LinkableReportSearch } from '@/components/operations/LinkableReportSearch';
 
 type TabValue = 'ON-GOING' | 'FIRE OUT' | 'ALL';
-
-const STATUS_BADGE: Record<FireStatus, { label: string; className: string }> = {
-  ACTIVE: { label: 'Active', className: 'bg-red-100 text-red-700 border-red-200' },
-  CONTAINED: { label: 'Contained', className: 'bg-amber-100 text-amber-700 border-amber-200' },
-  FIRE_OUT: { label: 'Fire Out', className: 'bg-green-100 text-green-700 border-green-200' },
-};
+type BoardMode = 'active' | 'archived';
 
 export default function HomePage() {
   const { user, loading: authLoading } = useAuth();
@@ -45,16 +43,19 @@ export default function HomePage() {
   const [ops, setOps] = useState<Operation[]>([]);
   const [opsLoading, setOpsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<TabValue>('ALL');
+  const [boardMode, setBoardMode] = useState<BoardMode>('active');
   const [showForm, setShowForm] = useState(false);
   const [editTarget, setEditTarget] = useState<Operation | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [linkingTarget, setLinkingTarget] = useState<Operation | null>(null);
   const [selectedOperationId, setSelectedOperationId] = useState<number | null>(null);
+  const [resetPreview, setResetPreview] = useState<OperationResetPreview | null>(null);
+  const [opsRefreshTrigger, setOpsRefreshTrigger] = useState(0);
 
-  const loadOps = useCallback(async () => {
+  const loadOps = useCallback(async (archived = false) => {
     setOpsLoading(true);
     try {
-      const result = await fetchOperationsOfflineAware();
+      const result = await fetchOperationsOfflineAware(undefined, archived);
       setOps(result.response);
     } catch {
       /* non-critical — board renders empty */
@@ -64,17 +65,34 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => {
-    if (!authLoading) void loadOps();
-  }, [authLoading, loadOps]);
+    if (!authLoading) void loadOps(boardMode === 'archived');
+  }, [authLoading, boardMode, loadOps]);
 
   async function handleLink(opId: number, reportId: number) {
     await linkReport(opId, reportId);
-    await loadOps();
+    await loadOps(boardMode === 'archived');
   }
 
   async function handleUnlink(opId: number, reportId: number) {
     await unlinkReport(opId, reportId);
-    await loadOps();
+    await loadOps(boardMode === 'archived');
+  }
+
+  async function handleKeepOvernight(opId: number, keep: boolean) {
+    await updateOperation(opId, { keep_overnight: keep });
+    await loadOps(boardMode === 'archived');
+    setOpsRefreshTrigger((value) => value + 1);
+  }
+
+  async function handleRestore(opId: number, status: FireStatus) {
+    await restoreOperation(opId, status);
+    await loadOps(boardMode === 'archived');
+  }
+
+  async function handleResetDay() {
+    await runResetDay();
+    setResetPreview(null);
+    await loadOps(false);
   }
 
   const filteredOps = ops.filter((op) => {
@@ -100,16 +118,16 @@ export default function HomePage() {
     }
   }, [filteredOps, selectedOperationId]);
 
-  async function handleStatusChange(id: number, status: FireStatus) {
-    await updateOperation(id, { fire_status: status });
-    await loadOps();
-  }
-
-  async function handleDelete(id: number) {
-    if (!confirm('Delete this operation?')) return;
-    await deleteOperation(id);
-    await loadOps();
-  }
+  // Load reset preview when on active board and user is validator
+  useEffect(() => {
+    if (boardMode === 'active' && isValidator) {
+      fetchResetPreview()
+        .then(setResetPreview)
+        .catch(() => setResetPreview(null));
+    } else {
+      setResetPreview(null);
+    }
+  }, [boardMode, isValidator, opsRefreshTrigger]);
 
   if (authLoading)
     return (
@@ -192,7 +210,34 @@ export default function HomePage() {
           </div>
 
           {/* Filter tabs */}
-          <div className="flex gap-2 flex-wrap">
+          <div className="flex gap-2 flex-wrap items-center">
+            {/* Active / Archived toggle */}
+            <div className="flex rounded-lg border border-slate-200 p-0.5">
+              <button
+                type="button"
+                onClick={() => setBoardMode('active')}
+                className={`rounded-md px-3 py-1 text-xs font-bold transition ${
+                  boardMode === 'active'
+                    ? 'bg-red-700 text-white'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Active
+              </button>
+              <button
+                type="button"
+                onClick={() => setBoardMode('archived')}
+                className={`rounded-md px-3 py-1 text-xs font-bold transition ${
+                  boardMode === 'archived'
+                    ? 'bg-slate-700 text-white'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Archive className="mr-1 inline-block h-3 w-3" />
+                Archived
+              </button>
+            </div>
+            <div className="w-px h-6 bg-slate-200" />
             {(['ON-GOING', 'FIRE OUT', 'ALL'] as TabValue[]).map((tab) => (
               <button
                 key={tab}
@@ -222,6 +267,12 @@ export default function HomePage() {
               canManageReports={isValidator}
               onLinkReport={(operationId, reportId) => void handleLink(operationId, reportId)}
               onUnlinkReport={(operationId, reportId) => void handleUnlink(operationId, reportId)}
+              isArchivedBoard={boardMode === 'archived'}
+              onKeepOvernight={isValidator ? (id, keep) => void handleKeepOvernight(id, keep) : undefined}
+              onRestore={isValidator ? (id, status) => handleRestore(id, status) : undefined}
+              resetPreview={resetPreview}
+              onResetDay={isValidator ? () => handleResetDay() : undefined}
+              loading={opsLoading}
             />
           )}
         </div>
@@ -243,7 +294,8 @@ export default function HomePage() {
             }
             setShowForm(false);
             setEditTarget(null);
-            await loadOps();
+            await loadOps(boardMode === 'archived');
+            setOpsRefreshTrigger((value) => value + 1);
           }}
         />
       )}
@@ -251,7 +303,7 @@ export default function HomePage() {
       {linkingTarget && (
         <ReportLinkingModal
           operation={linkingTarget}
-          onClose={() => { setLinkingTarget(null); loadOps(); }}
+          onClose={() => { setLinkingTarget(null); void loadOps(boardMode === 'archived'); }}
           onLink={handleLink}
           onUnlink={handleUnlink}
         />

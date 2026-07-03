@@ -1,3 +1,10 @@
+## [2026-07-03] feat(operations): day reset archive board
+
+- **Scope:** Add validator-controlled Operations Board day reset, one-night carryover, archive viewing, and restore support.
+- **Files modified:** `src/postgres-init/79_operations_day_reset.sql`, `src/backend/api/routes/operations.py`, `src/backend/schemas/operations.py`, `src/backend/tests/test_operations.py`, `src/frontend/src/app/home/page.tsx`, `src/frontend/src/components/operations/OperationsConsole.tsx`, `src/frontend/src/lib/api/operations.ts`, `src/frontend/src/lib/api/offlineOperations.ts`, `system-wiki/backend/api-route-map.md`, `system-wiki/frontend/route-map.md`, `system-wiki/database/schema-overview.md`.
+- **Behavior:** Active operations can be soft-archived by Reset Day unless a validator marks `keep_overnight`; kept operations clear the flag after one reset. Archived operations are shown on a read-only board and can be restored with an explicit fire status.
+- **Validation:** `cd src/backend && ruff format --check . && ruff check .`; `cd src/backend && pytest tests/test_operations.py -q`; `cd src/frontend && npm run lint` (0 errors, pre-existing warnings); `cd src/frontend && npx vitest run src/app/home/__tests__/operations-board.test.tsx`; `cd src/frontend && NEXT_PUBLIC_AUTH_API_URL=http://localhost:8080/auth/realms/bfp NEXT_PUBLIC_BASE_URL=http://localhost NEXT_PUBLIC_MAPBOX_TOKEN= npm run build`.
+
 ## [2026-07-03] fix(triage): claimable singleton reports and stale self-claim refresh
 
 - **Scope:** Unblock validator triage actions for isolated civilian reports and for clusters whose current user's claim has gone stale in an open modal.

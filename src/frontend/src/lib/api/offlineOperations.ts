@@ -23,14 +23,16 @@ const OFFLINE_OPS_MSG =
  */
 export function fetchOperationsOfflineAware(
   status?: FireStatus[],
+  archived = false,
 ): Promise<OfflineResult<Operation[]>> {
   return offlineAware<Operation[]>(
     'operations',
-    [status?.sort() ?? []],
+    [archived ? 'archived' : 'active', (status?.sort() ?? [])],
     'operations',
     OPS_TTL_MS,
     async () => {
       const params = new URLSearchParams();
+      if (archived) params.set('archived', 'true');
       status?.forEach((s) => params.append('status', s));
       const qs = params.toString();
       return apiFetch<Operation[]>(`/operations${qs ? `?${qs}` : ''}`);

@@ -87,6 +87,13 @@ def _op_row(
     row.created_by = created_by
     row.created_at = "2026-06-10T08:00:00+00:00"
     row.updated_at = "2026-06-10T08:00:00+00:00"
+    row.is_archived = False
+    row.archived_at = None
+    row.archived_by = None
+    row.archive_reason = None
+    row.keep_overnight = False
+    row.carried_over_at = None
+    row.last_reset_at = None
     return row
 
 
@@ -130,12 +137,32 @@ def _make_db(op_rows=None, linked_rows=None, rowcount=1):
                 result.fetchall.return_value = linked_rows
                 result.fetchone.return_value = linked_rows[0] if linked_rows else None
         elif "wims.operations" in sql or "operations" in sql:
+            row = op_rows[0] if op_rows else None
+            if (
+                row is not None
+                and "UPDATE wims.operations" in sql
+                and "RETURNING *" in sql
+                and "is_archived = FALSE" in sql
+            ):
+                row.is_archived = False
+                row.archived_at = None
+                row.archived_by = None
+                row.archive_reason = None
+                if params and "status" in params:
+                    row.fire_status = params["status"]
             result.fetchall.return_value = op_rows
-            result.fetchone.return_value = op_rows[0] if op_rows else None
+            result.fetchone.return_value = row
         elif "citizen_reports" in sql:
             rid = (params or {}).get("rid", 5)
             result.fetchone.return_value = _CitizenReportStatusRow(report_id=rid)
             result.fetchall.return_value = []
+        elif "wims.users" in sql or "users" in sql:
+            # Return a minimal user row so get_national_validator resolves
+            user_row = MagicMock()
+            user_row.assigned_region_id = None
+            user_row.user_id = "00000000-0000-0000-0000-000000000001"
+            result.fetchone.return_value = user_row
+            result.fetchall.return_value = [user_row]
         else:
             result.fetchall.return_value = []
             result.fetchone.return_value = None
@@ -158,6 +185,11 @@ class _CitizenReportStatusRow:
         self.report_id = report_id
         self.status = status
         self.linked_operation_id = linked_operation_id
+
+
+class _MockResetBatch:
+    def __init__(self, reset_id=1):
+        self.reset_id = reset_id
 
 
 class _LinkedReportRow:
@@ -289,6 +321,7 @@ class TestListOperationsLinkedReportDetails:
 class TestLinkableReportsSearch:
     def test_linkable_reports_requires_validator(self, client: TestClient):
         _, get_db_override = _make_db()
+        app.dependency_overrides[get_db] = get_db_override
         app.dependency_overrides[get_db_with_rls] = get_db_override
         app.dependency_overrides[auth.get_current_wims_user] = _mock_encoder
 
@@ -372,6 +405,7 @@ class TestCreateOperation:
     def test_create_operation_non_validator(self, client: TestClient):
         """POST /api/operations with REGIONAL_ENCODER returns 403."""
         _, get_db_override = _make_db()
+        app.dependency_overrides[get_db] = get_db_override
         app.dependency_overrides[get_db_with_rls] = get_db_override
         app.dependency_overrides[auth.get_current_wims_user] = _mock_encoder
 
@@ -476,6 +510,7 @@ class TestUpdateOperation:
     def test_update_non_validator_forbidden(self, client: TestClient):
         """PATCH /api/operations/{id} by REGIONAL_ENCODER returns 403."""
         _, get_db_override = _make_db()
+        app.dependency_overrides[get_db] = get_db_override
         app.dependency_overrides[get_db_with_rls] = get_db_override
         app.dependency_overrides[auth.get_current_wims_user] = _mock_encoder
 
@@ -520,6 +555,7 @@ class TestDeleteOperation:
     def test_delete_non_validator_forbidden(self, client: TestClient):
         """DELETE /api/operations/{id} by REGIONAL_ENCODER returns 403."""
         _, get_db_override = _make_db()
+        app.dependency_overrides[get_db] = get_db_override
         app.dependency_overrides[get_db_with_rls] = get_db_override
         app.dependency_overrides[auth.get_current_wims_user] = _mock_encoder
 
@@ -805,6 +841,7 @@ class TestUnlinkReport:
     def test_unlink_non_validator_forbidden(self, client: TestClient):
         """DELETE /api/operations/{id}/link/{report_id} by REGIONAL_ENCODER returns 403."""
         _, get_db_override = _make_db()
+        app.dependency_overrides[get_db] = get_db_override
         app.dependency_overrides[get_db_with_rls] = get_db_override
         app.dependency_overrides[auth.get_current_wims_user] = _mock_encoder
 
@@ -918,3 +955,164 @@ class TestMapFields:
         assert resp.status_code == 200
         data = resp.json()
         assert "operation_id" in data
+
+
+# ---------------------------------------------------------------------------
+# New: Day Reset & Archive tests
+# ---------------------------------------------------------------------------
+
+
+class TestDayResetPreview:
+    def test_reset_preview_requires_validator(self, client: TestClient):
+        _, get_db_override = _make_db()
+        app.dependency_overrides[get_db] = get_db_override
+        app.dependency_overrides[get_db_with_rls] = get_db_override
+        app.dependency_overrides[auth.get_current_wims_user] = _mock_encoder
+
+        resp = client.get("/api/operations/reset-preview")
+        assert resp.status_code == 403
+
+    def test_reset_preview_counts(self, client: TestClient):
+        """Preview correctly counts non-kept vs kept-overnight operations."""
+        op1 = _op_row(operation_id=1, fire_status="ACTIVE")
+        op2 = _op_row(operation_id=2, fire_status="CONTAINED")
+        op2.keep_overnight = True
+
+        mock_db, get_db_override = _make_db(op_rows=[op1, op2])
+        app.dependency_overrides[get_db] = get_db_override
+        app.dependency_overrides[get_db_with_rls] = get_db_override
+        app.dependency_overrides[auth.get_current_wims_user] = _mock_validator
+
+        resp = client.get("/api/operations/reset-preview")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["archive_count"] == 1
+        assert body["carried_over_count"] == 1
+
+
+class TestDayReset:
+    def test_reset_day_requires_validator(self, client: TestClient):
+        _, get_db_override = _make_db()
+        app.dependency_overrides[get_db] = get_db_override
+        app.dependency_overrides[get_db_with_rls] = get_db_override
+        app.dependency_overrides[auth.get_current_wims_user] = _mock_encoder
+
+        resp = client.post("/api/operations/reset-day")
+        assert resp.status_code == 403
+
+    def test_reset_day_archives_non_kept_and_carries_over_kept(self, client: TestClient):
+        """Reset archives ops without keep_overnight, carries over those with it."""
+        op1 = _op_row(operation_id=1, fire_status="ACTIVE")
+        op2 = _op_row(operation_id=2, fire_status="CONTAINED")
+        op2.keep_overnight = True
+
+        mock_db, get_db_override = _make_db(op_rows=[op1, op2])
+        execute_calls = []
+
+        def multi_execute(query, params=None):
+            execute_calls.append({"sql": str(query), "params": params})
+            result = MagicMock()
+            sql = str(query)
+            if "keep_overnight = TRUE" in sql and "is_archived = FALSE" in sql:
+                result.fetchall.return_value = [op2]
+            elif "is_archived = TRUE" in sql:
+                result.fetchall.return_value = [op1]
+            elif "operation_reset_batches" in sql:
+                result.fetchone.return_value = _MockResetBatch(1)
+            else:
+                result.fetchall.return_value = [op1, op2]
+                result.fetchone.return_value = op1
+            result.rowcount = 1
+            return result
+
+        mock_db.execute.side_effect = multi_execute
+        mock_db.commit = MagicMock()
+
+        app.dependency_overrides[get_db] = get_db_override
+        app.dependency_overrides[get_db_with_rls] = get_db_override
+        app.dependency_overrides[auth.get_current_wims_user] = _mock_validator
+
+        resp = client.post("/api/operations/reset-day")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "archive_count" in body
+        assert "carried_over_count" in body
+        assert "reset_id" in body
+        # Verify the carried-over SQL targeted kept ops
+        assert any("keep_overnight = TRUE" in c["sql"] for c in execute_calls)
+        # Verify the archive SQL targeted non-kept ops
+        assert any("is_archived = TRUE" in c["sql"] for c in execute_calls)
+
+
+class TestRestoreOperation:
+    def test_restore_requires_validator(self, client: TestClient):
+        _, get_db_override = _make_db()
+        app.dependency_overrides[get_db] = get_db_override
+        app.dependency_overrides[get_db_with_rls] = get_db_override
+        app.dependency_overrides[auth.get_current_wims_user] = _mock_encoder
+
+        resp = client.post(
+            "/api/operations/1/restore",
+            json={"fire_status": "ACTIVE"},
+        )
+        assert resp.status_code == 403
+
+    def test_restore_archived_operation(self, client: TestClient):
+        """Restoring an archived op clears archive fields and sets chosen fire_status."""
+        archived_op = _op_row(operation_id=5, fire_status="FIRE_OUT")
+        archived_op.is_archived = True
+        archived_op.archived_at = "2026-07-01T06:00:00+00:00"
+
+        mock_db, get_db_override = _make_db(op_rows=[archived_op])
+        app.dependency_overrides[get_db] = get_db_override
+        app.dependency_overrides[get_db_with_rls] = get_db_override
+        app.dependency_overrides[auth.get_current_wims_user] = _mock_validator
+
+        resp = client.post(
+            "/api/operations/5/restore",
+            json={"fire_status": "ACTIVE"},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["is_archived"] is False
+        assert body["fire_status"] == "ACTIVE"
+
+
+class TestKeepOvernightFlag:
+    def test_toggle_keep_overnight(self, client: TestClient):
+        op = _op_row(operation_id=1, fire_status="ACTIVE")
+
+        mock_db, get_db_override = _make_db(op_rows=[op])
+        app.dependency_overrides[get_db] = get_db_override
+        app.dependency_overrides[get_db_with_rls] = get_db_override
+        app.dependency_overrides[auth.get_current_wims_user] = _mock_validator
+
+        resp = client.patch("/api/operations/1", json={"keep_overnight": True})
+        assert resp.status_code == 200
+
+
+class TestListOperationsArchived:
+    def test_list_active_default(self, client: TestClient):
+        op = _op_row(operation_id=1, fire_status="ACTIVE")
+
+        mock_db, get_db_override = _make_db(op_rows=[op])
+        app.dependency_overrides[get_db] = get_db_override
+        app.dependency_overrides[get_db_with_rls] = get_db_override
+        app.dependency_overrides[auth.get_current_wims_user] = _mock_validator
+
+        resp = client.get("/api/operations")
+        assert resp.status_code == 200
+
+    def test_list_archived(self, client: TestClient):
+        op = _op_row(operation_id=1, fire_status="FIRE_OUT")
+        op.is_archived = True
+
+        mock_db, get_db_override = _make_db(op_rows=[op])
+        app.dependency_overrides[get_db] = get_db_override
+        app.dependency_overrides[get_db_with_rls] = get_db_override
+        app.dependency_overrides[auth.get_current_wims_user] = _mock_validator
+
+        resp = client.get("/api/operations?archived=true")
+        assert resp.status_code == 200
+        assert len(resp.json()) == 1
+        assert resp.json()[0]["is_archived"] is True
