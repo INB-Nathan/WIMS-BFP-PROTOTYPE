@@ -2,6 +2,7 @@
 
 import { AlertTriangle, Clock, Flame, MapPin, Phone, Shield, Users, X } from 'lucide-react';
 import type { TriageClusterEntry } from '@/lib/api';
+import { formatTrustPercent } from '@/lib/trustColors';
 import { useEffect, useState } from 'react';
 
 export interface ClusterSummaryHeaderProps {
@@ -113,7 +114,7 @@ export function ClusterSummaryHeader({ cluster, inspectionMode, onClose }: Clust
         </span>
         <span className="triage-meta">
           <Shield className="h-3.5 w-3.5" />
-          trust&nbsp;<strong>{Math.round(cluster.avg_trust * 100)}%</strong>
+          trust&nbsp;<strong>{formatTrustPercent(cluster.avg_trust)}</strong>
         </span>
         <span className="triage-meta">
           <MapPin className="h-3.5 w-3.5" />
