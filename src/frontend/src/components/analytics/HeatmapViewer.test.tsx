@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { HeatmapViewer } from './HeatmapViewer';
 import type { HeatmapGeoJSON } from '@/lib/api';
 
@@ -72,5 +72,62 @@ describe('HeatmapViewer', () => {
     expect(markers[0]).toHaveAttribute('data-lng', '121.5');
     expect(markers[1]).toHaveAttribute('data-lat', '15');
     expect(markers[1]).toHaveAttribute('data-lng', '122');
+  });
+
+  it('renders PNG and JPEG export buttons when features exist', () => {
+    const geojson: HeatmapGeoJSON = {
+      type: 'FeatureCollection',
+      features: [
+        {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [121.5, 14.6] },
+          properties: { incident_id: 1, alarm_level: '1', general_category: 'STRUCTURAL', notification_dt: '2024-01-15T10:00:00' },
+        },
+      ],
+    };
+    render(<HeatmapViewer geojson={geojson} />);
+    expect(screen.getByRole('button', { name: 'Download heatmap as PNG' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Download heatmap as JPEG' })).toBeInTheDocument();
+  });
+
+  it('does not render export buttons when features array is empty', () => {
+    const geojson: HeatmapGeoJSON = { type: 'FeatureCollection', features: [] };
+    render(<HeatmapViewer geojson={geojson} />);
+    expect(screen.queryByRole('button', { name: 'Download heatmap as PNG' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Download heatmap as JPEG' })).toBeNull();
+  });
+
+  it('disables export buttons when exportDisabled is true', () => {
+    const geojson: HeatmapGeoJSON = {
+      type: 'FeatureCollection',
+      features: [
+        {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [121.5, 14.6] },
+          properties: { incident_id: 1, alarm_level: '1', general_category: 'STRUCTURAL', notification_dt: '2024-01-15T10:00:00' },
+        },
+      ],
+    };
+    render(<HeatmapViewer geojson={geojson} exportDisabled />);
+    expect(screen.getByRole('button', { name: 'Download heatmap as PNG' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Download heatmap as JPEG' })).toBeDisabled();
+  });
+
+  it('renders export buttons in fullscreen mode', () => {
+    const geojson: HeatmapGeoJSON = {
+      type: 'FeatureCollection',
+      features: [
+        {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [121.5, 14.6] },
+          properties: { incident_id: 1, alarm_level: '1', general_category: 'STRUCTURAL', notification_dt: '2024-01-15T10:00:00' },
+        },
+      ],
+    };
+    render(<HeatmapViewer geojson={geojson} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Open heatmap fullscreen' }));
+    // Fullscreen overlay renders its own set of export buttons
+    const buttons = screen.getAllByRole('button', { name: 'Download heatmap as PNG' });
+    expect(buttons.length).toBeGreaterThanOrEqual(1);
   });
 });

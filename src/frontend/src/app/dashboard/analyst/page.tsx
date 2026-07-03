@@ -1438,6 +1438,7 @@ export default function AnalystDashboardPage() {
                     geojson={displayedHeatmap}
                     className="h-[520px] lg:h-[calc(100vh-7rem)] lg:min-h-[600px] lg:max-h-[920px]"
                     emptyMessage={heatmapSource === 'selected' ? 'No selected incidents to display on map' : 'No incidents to display on map'}
+                    exportDisabled={!networkStatus.isOnline}
                   />
                 )}
               </div>

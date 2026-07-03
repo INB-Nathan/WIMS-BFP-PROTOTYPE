@@ -491,57 +491,6 @@ export default function AnalystWorkflowPage() {
     router.push(createAnalystWorkflowTransferUrl('heatmap', { filters: selectedTopNTransferFilters }));
   }, [router, selectedTopNTransferFilters]);
 
-  const downloadMapImage = useCallback(async (format: 'png' | 'jpeg') => {
-    const el = document.querySelector('[data-heatmap-export]');
-    if (!el) return;
-    try {
-      // Wait for map tiles to finish loading
-      const imgs = el.querySelectorAll('img.leaflet-tile');
-      const tiles = Array.from(imgs) as HTMLImageElement[];
-      await Promise.allSettled(tiles.map((tile) => {
-        if (tile.complete && tile.naturalWidth > 0) return Promise.resolve();
-        return new Promise((resolve) => { tile.onload = resolve; tile.onerror = resolve; setTimeout(resolve, 5000); });
-      }));
-      // Extra settling delay for canvas renderers
-      await new Promise((r) => setTimeout(r, 500));
-
-      const domToImage = await import('dom-to-image-more');
-      let dataUrl: string;
-      try {
-        dataUrl = format === 'png'
-          ? await domToImage.toPng(el as HTMLElement)
-          : await domToImage.toJpeg(el as HTMLElement, { quality: 0.92 });
-      } catch (captureErr) {
-        // Canvas taint fallback — toSvg() doesn't go through canvas
-        console.warn('dom-to-image capture failed, falling back to toSvg:', captureErr);
-        dataUrl = await domToImage.toSvg(el as HTMLElement);
-        if (format === 'jpeg') {
-          const img = new Image();
-          await new Promise<void>((resolve, reject) => {
-            img.onload = () => resolve();
-            img.onerror = () => reject(new Error('SVG to Image failed'));
-            img.src = dataUrl;
-          });
-          const canvas = document.createElement('canvas');
-          canvas.width = img.naturalWidth;
-          canvas.height = img.naturalHeight;
-          const ctx = canvas.getContext('2d');
-          if (!ctx) throw new Error('Could not get canvas context');
-          ctx.drawImage(img, 0, 0);
-          dataUrl = canvas.toDataURL('image/jpeg', 0.92);
-        }
-      }
-      const a = document.createElement('a');
-      a.href = dataUrl;
-      a.download = `wims-heatmap-${new Date().toISOString().split('T')[0]}.${format}`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-    } catch (err) {
-      console.error('Heatmap export failed:', err);
-    }
-  }, []);
-
   if (loading) {
     return <div className="flex min-h-[40vh] items-center justify-center text-gray-500">Loading...</div>;
   }
@@ -909,32 +858,6 @@ export default function AnalystWorkflowPage() {
                   Selected ({selectedIncidentIds.length})
                 </button>
               </div>
-              <button
-                type="button"
-                onClick={() => void downloadMapImage('png')}
-                disabled={exportUnavailableOffline}
-                title={exportUnavailableOffline ? 'Unavailable offline' : undefined}
-                className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold text-white transition-colors disabled:opacity-50"
-                style={{ backgroundColor: '#991B1B' }}
-                onMouseEnter={(e) => { if (!exportUnavailableOffline) (e.currentTarget as HTMLElement).style.backgroundColor = '#7f1d1d'; }}
-                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#991B1B'; }}
-              >
-                <Download className="h-4 w-4" aria-hidden="true" />
-                PNG
-              </button>
-              <button
-                type="button"
-                onClick={() => void downloadMapImage('jpeg')}
-                disabled={exportUnavailableOffline}
-                title={exportUnavailableOffline ? 'Unavailable offline' : undefined}
-                className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold text-white transition-colors disabled:opacity-50"
-                style={{ backgroundColor: '#991B1B' }}
-                onMouseEnter={(e) => { if (!exportUnavailableOffline) (e.currentTarget as HTMLElement).style.backgroundColor = '#7f1d1d'; }}
-                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = '#991B1B'; }}
-              >
-                <Download className="h-4 w-4" aria-hidden="true" />
-                JPEG
-              </button>
             </div>
           )}
         >
@@ -943,8 +866,8 @@ export default function AnalystWorkflowPage() {
             <MetricTile label="Map Mode" value="Point" detail="GeoJSON incident locations" />
             <MetricTile label="Evidence" value={heatmapSource === 'selected' ? 'Selected Set' : 'Filtered Set'} detail="Incident evidence table remains below" />
           </div>
-          <div className="overflow-hidden rounded-md border border-gray-200" data-heatmap-export>
-            {displayedHeatmap ? <HeatmapViewer geojson={displayedHeatmap} emptyMessage={heatmapSource === 'selected' ? 'No selected incidents to display on map' : 'No incidents to display on map'} /> : <div className="flex h-[520px] items-center justify-center text-gray-500">No map data loaded.</div>}
+          <div className="overflow-hidden rounded-md border border-gray-200">
+            {displayedHeatmap ? <HeatmapViewer geojson={displayedHeatmap} exportDisabled={exportUnavailableOffline} emptyMessage={heatmapSource === 'selected' ? 'No selected incidents to display on map' : 'No incidents to display on map'} /> : <div className="flex h-[520px] items-center justify-center text-gray-500">No map data loaded.</div>}
           </div>
         </Panel>
       )}
