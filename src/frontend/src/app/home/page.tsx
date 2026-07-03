@@ -220,6 +220,8 @@ export default function HomePage() {
               selectedOperationId={selectedOperationId}
               onSelectOperation={setSelectedOperationId}
               canManageReports={isValidator}
+              canEditOperations={isValidator}
+              onEditOperation={setEditTarget}
               onLinkReport={(operationId, reportId) => void handleLink(operationId, reportId)}
               onUnlinkReport={(operationId, reportId) => void handleUnlink(operationId, reportId)}
             />

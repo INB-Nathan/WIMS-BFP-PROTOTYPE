@@ -266,6 +266,18 @@ describe('Operations Board', () => {
     });
   });
 
+  it('validator can open the edit operation modal from the selected operation panel', async () => {
+    const { default: HomePage } = await import('../page?validator-edit-operation');
+    render(<HomePage />);
+
+    await waitFor(() => expect(screen.getByText('Quezon City, Barangay Tatalon')).toBeDefined());
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Operation' }));
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('Quezon City, Barangay Tatalon')).toBeDefined();
+    });
+  });
+
   it('hides New Operation button for non-validator', async () => {
     // Override the module mock to return encoder role for this test
     vi.doMock('@/context/AuthContext', () => ({

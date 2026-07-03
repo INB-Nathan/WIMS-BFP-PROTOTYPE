@@ -15,6 +15,8 @@ export function OperationsConsole({
   selectedOperationId,
   onSelectOperation,
   canManageReports,
+  canEditOperations,
+  onEditOperation,
   onLinkReport,
   onUnlinkReport,
 }: {
@@ -22,6 +24,8 @@ export function OperationsConsole({
   selectedOperationId: number | null;
   onSelectOperation: (operationId: number) => void;
   canManageReports: boolean;
+  canEditOperations: boolean;
+  onEditOperation: (operation: Operation) => void;
   onLinkReport: (operationId: number, reportId: number) => void;
   onUnlinkReport: (operationId: number, reportId: number) => void;
 }) {
@@ -86,6 +90,15 @@ export function OperationsConsole({
 
         {selectedOperation && (
           <section className="space-y-3 border-t border-slate-200 pt-4">
+            {canEditOperations && (
+              <button
+                type="button"
+                onClick={() => onEditOperation(selectedOperation)}
+                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"
+              >
+                Edit Operation
+              </button>
+            )}
             <div className="flex items-center justify-between gap-2">
               <h3 className="text-sm font-black text-slate-900">Linked civilian reports</h3>
               {canManageReports && (
