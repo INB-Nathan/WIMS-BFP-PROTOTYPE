@@ -2,6 +2,7 @@
 
 import { ArrowRight, GitMerge, Info, Loader2, MapPin, Users } from 'lucide-react';
 import type { MergeCandidateEntry, TriageClusterEntry } from '@/lib/api';
+import { formatTrustPercent } from '@/lib/trustColors';
 
 export interface MergeActionPanelProps {
   cluster: TriageClusterEntry;
@@ -62,7 +63,7 @@ export function MergeActionPanel({
           tone="target"
           title="Target (this cluster)"
           clusterId={cluster.cluster_id}
-          subtitle={`${cluster.station.name ?? 'Station unknown'} · trust ${Math.round(cluster.avg_trust * 100)}%`}
+          subtitle={`${cluster.station.name ?? 'Station unknown'} · trust ${formatTrustPercent(cluster.avg_trust)}`}
           meta={`${cluster.member_count} members · ${cluster.severity}`}
         />
       </div>

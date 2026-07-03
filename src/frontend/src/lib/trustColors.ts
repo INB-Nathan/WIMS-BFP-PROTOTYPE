@@ -24,6 +24,11 @@ export function trustLevel(score: number): TrustLevel {
   return 'low';
 }
 
+export function formatTrustPercent(score: number): string {
+  const percent = score <= 1 ? score * 100 : score;
+  return `${Math.round(Math.max(0, Math.min(100, percent)))}%`;
+}
+
 /**
  * Tailwind color classes per trust level.
  * - bg: background class
