@@ -317,25 +317,22 @@ class TestGetTriageQueue:
         assert rid_normal in cluster_ids
         assert "ACTIONED" not in str(cluster_ids)
 
-    def test_isolated_report_stays_as_singleton(self, client_with_validator, db_session):
-        """Isolated reports without related reports appear as singletons, not clusters."""
+    def test_isolated_report_gets_claimable_singleton_cluster(
+        self, client_with_validator, db_session
+    ):
+        """Isolated reports get one-member workflow clusters so validators can act."""
         rid = make_report(db_session, 121.05, 14.60)
         resp = client_with_validator.get("/api/triage/queue")
         assert resp.status_code == 200
-        # The report should appear as a singleton entry (cluster_id is null)
-        singletons = [
-            c
-            for c in resp.json()["clusters"]
-            if c["cluster_id"] is None and any(r["report_id"] == rid for r in c["reports"])
-        ]
-        assert len(singletons) == 1, f"Expected 1 singleton, got {len(singletons)}"
-        # It should NOT appear in any cluster entry
         cluster_entries = [
             c
             for c in resp.json()["clusters"]
             if c["cluster_id"] is not None and any(r["report_id"] == rid for r in c["reports"])
         ]
-        assert len(cluster_entries) == 0, f"Expected 0 cluster entries, got {len(cluster_entries)}"
+        assert len(cluster_entries) == 1, (
+            f"Expected 1 claimable cluster, got {len(cluster_entries)}"
+        )
+        assert cluster_entries[0]["member_count"] == 1
 
     def test_related_reports_auto_cluster(self, client_with_validator, db_session):
         """Two reports near each other (100m/1hr) each get materialized as clusters."""
@@ -965,6 +962,57 @@ class TestClusterClaimActivityWorkflow:
         assert audit is not None
         assert audit[0] == "CLUSTER_CLAIM"
 
+    def test_claim_cluster_refreshes_current_users_claim(
+        self,
+        client_with_validator,
+        db_session,
+        validator_user,
+    ):
+        rid = make_report(db_session, 121.05, 14.60)
+        cluster_id = make_cluster(db_session, anchor_report_id=rid)
+        add_to_cluster(db_session, cluster_id, rid)
+
+        claim_resp = client_with_validator.post(f"/api/triage/clusters/{cluster_id}/claim", json={})
+        assert claim_resp.status_code == 200
+
+        db_session.execute(
+            text("""
+                UPDATE wims.citizen_report_clusters
+                SET updated_at = now() - interval '9 minutes'
+                WHERE cluster_id = :cid
+            """),
+            {"cid": cluster_id},
+        )
+        db_session.commit()
+        before = db_session.execute(
+            text("""
+                SELECT review_started_at, updated_at
+                FROM wims.citizen_report_clusters
+                WHERE cluster_id = :cid
+            """),
+            {"cid": cluster_id},
+        ).fetchone()
+
+        refresh_resp = client_with_validator.post(
+            f"/api/triage/clusters/{cluster_id}/claim", json={}
+        )
+
+        assert refresh_resp.status_code == 200
+        data = refresh_resp.json()
+        assert data["assigned_to_user_id"] == str(validator_user["user_id"])
+        assert data["claim_is_stale"] is False
+
+        after = db_session.execute(
+            text("""
+                SELECT review_started_at, updated_at
+                FROM wims.citizen_report_clusters
+                WHERE cluster_id = :cid
+            """),
+            {"cid": cluster_id},
+        ).fetchone()
+        assert after.review_started_at == before.review_started_at
+        assert after.updated_at > before.updated_at
+
     def test_active_claim_blocks_other_validator(
         self,
         client_with_validator,
@@ -1117,36 +1165,22 @@ class TestClusterClaimActivityWorkflow:
 class TestPhase2WorkflowActions:
     """Terminal actions, timeout job, and deprecated promotion safeguards."""
 
-    def test_queue_materializes_cluster_only_for_related_reports(
+    def test_queue_materializes_claimable_cluster_for_every_active_report(
         self,
         client_with_validator,
         db_session,
     ):
-        """Only reports with related reports (100m/1hr) get durable clusters; isolated reports don't."""
-        rid_isolated = make_report(db_session, 121.05, 14.60)
-        rid_related_1 = make_report(db_session, 122.00, 15.00)
-        rid_related_2 = make_report(db_session, 122.0005, 15.0005)  # ~56m — related
+        """All active reports get durable clusters, including isolated singleton reports."""
+        report_ids = [
+            make_report(db_session, 121.05, 14.60),
+            make_report(db_session, 122.00, 15.00),
+            make_report(db_session, 122.0005, 15.0005),  # ~56m — related
+        ]
 
         resp = client_with_validator.get("/api/triage/queue")
         assert resp.status_code == 200
 
-        # Isolated report should NOT have a durable cluster in DB
-        isolated_membership = db_session.execute(
-            text("""
-                SELECT cc.cluster_id
-                FROM wims.citizen_report_clusters cc
-                JOIN wims.citizen_report_cluster_members cm ON cm.cluster_id = cc.cluster_id
-                WHERE cm.report_id = :rid
-                  AND cc.status != 'CLUSTER_CLOSED'
-            """),
-            {"rid": rid_isolated},
-        ).fetchone()
-        assert isolated_membership is None, (
-            f"Isolated report should have no cluster, got cluster_id={isolated_membership}"
-        )
-
-        # Related reports SHOULD each have a durable cluster in DB
-        for rid in (rid_related_1, rid_related_2):
+        for rid in report_ids:
             membership = db_session.execute(
                 text("""
                     SELECT cc.cluster_id
@@ -1157,7 +1191,7 @@ class TestPhase2WorkflowActions:
                 """),
                 {"rid": rid},
             ).fetchone()
-            assert membership is not None, f"Related report {rid} should have a cluster"
+            assert membership is not None, f"Report {rid} should have a claimable cluster"
 
     def test_terminal_action_updates_reports_and_audits(
         self,

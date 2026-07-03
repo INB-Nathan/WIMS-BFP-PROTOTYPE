@@ -204,21 +204,22 @@ export function TriageInspectionModal({
   const isCluster = inspectionMode === 'cluster' && openCluster.cluster_id !== null;
   // Backend role_can_work_cluster allows REGIONAL_ENCODER, NATIONAL_VALIDATOR, SYSTEM_ADMIN
   // to claim and work clusters. The Claim button must be visible for all three.
-  const canClaim =
-    (role === 'NATIONAL_VALIDATOR' || role === 'SYSTEM_ADMIN' || role === 'REGIONAL_ENCODER') &&
-    isCluster &&
-    (openCluster as TriageClusterEntry).assigned_to === null;
+  const canWorkCluster =
+    role === 'NATIONAL_VALIDATOR' || role === 'SYSTEM_ADMIN' || role === 'REGIONAL_ENCODER';
+  const assignedTo = (openCluster as TriageClusterEntry).assigned_to;
+  const isAssignedToMe = assignedTo !== null && assignedTo === currentUsername;
+  const canClaim = canWorkCluster && isCluster && assignedTo === null;
+  const canRefreshOwnClaim = canWorkCluster && isCluster && isAssignedToMe;
 
   // Snatch: takeover a cluster claimed by another user.
   // Backend role_can_take_over_claim restricts to NATIONAL_VALIDATOR and SYSTEM_ADMIN.
   // The backend enforces the 10-minute staleness threshold — we show the button
   // and let the backend reject if the claim is still active.
-  const assignedTo = (openCluster as TriageClusterEntry).assigned_to;
   const canSnatch =
     (role === 'NATIONAL_VALIDATOR' || role === 'SYSTEM_ADMIN') &&
     isCluster &&
     assignedTo !== null &&
-    assignedTo !== currentUsername;
+    !isAssignedToMe;
 
   return (
     <div
@@ -251,6 +252,23 @@ export function TriageInspectionModal({
               className="triage-claim-bar__button"
             >
               Claim cluster #{openCluster.cluster_id}
+            </button>
+          </div>
+        )}
+
+        {canRefreshOwnClaim && (
+          <div className="triage-claim-bar">
+            <span>
+              Claimed by you. Refresh your claim before applying actions if the modal reports a
+              stale claim.
+            </span>
+            <button
+              type="button"
+              disabled={state.busy}
+              onClick={() => state.claimCluster(openCluster.cluster_id)}
+              className="triage-claim-bar__button"
+            >
+              Refresh claim #{openCluster.cluster_id}
             </button>
           </div>
         )}

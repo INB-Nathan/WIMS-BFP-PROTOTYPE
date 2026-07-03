@@ -1,3 +1,10 @@
+## [2026-07-03] fix(triage): claimable singleton reports and stale self-claim refresh
+
+- **Scope:** Unblock validator triage actions for isolated civilian reports and for clusters whose current user's claim has gone stale in an open modal.
+- **Files modified:** `src/backend/services/civilian_triage/queue_projection.py`, `src/backend/tests/integration/test_triage_queue.py`, `src/frontend/src/components/triage/TriageInspectionModal.tsx`, `src/frontend/src/components/triage/useTriageModalState.ts`.
+- **Behavior:** Queue materialization now creates a durable one-member `citizen_report_clusters` workflow record for every active unclustered report, not only spatially related reports. The triage modal now shows a **Refresh claim** action when a cluster is already assigned to the current user, allowing the existing claim endpoint to renew `updated_at` before terminal/split/merge actions.
+- **Validation:** Backend ruff format/check passed for changed triage files. Targeted integration tests were updated but could not connect locally because the test DB host `postgres` is not resolvable outside Compose.
+
 ## [2026-07-01] feat(ai): staged XAI recommended actions
 
 - **Scope:** Keep the stage-1 IDS/XAI narrative on the low-latency `qwen2.5:1.5b` path, then let system admins generate the recommended action as an explicit stage-2 action after the anomaly/evidence narrative is visible.
