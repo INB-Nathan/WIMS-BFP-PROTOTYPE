@@ -312,7 +312,9 @@ export function useTriageModalState({ openCluster, inspectionMode, callbacks }: 
         await claimTriageCluster(clusterId, reason);
         const msg = reason
           ? `Snatched cluster ${clusterId} from ${openCluster?.assigned_to ?? 'previous owner'}.`
-          : `Cluster ${clusterId} claimed.`;
+          : openCluster?.assigned_to
+            ? `Cluster ${clusterId} claim refreshed.`
+            : `Cluster ${clusterId} claimed.`;
         callbacks.onMessage(msg);
         await callbacks.onReloadQueue();
       } catch (err) {
