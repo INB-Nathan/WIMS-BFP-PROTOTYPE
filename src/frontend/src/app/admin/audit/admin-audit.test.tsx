@@ -378,4 +378,148 @@ describe('Admin Audit page', () => {
       expect(mockFetchAuditLogs).toHaveBeenCalledTimes(1);
     });
   });
+
+  describe('Keycloak auth username render transform', () => {
+    it('displays subject_username for wims.auth entry with username in new_values when user context is null', async () => {
+      mockFetchAuditLogs.mockResolvedValue({
+        items: [
+          {
+            audit_id: 10,
+            user_id: null,
+            user_name: null,
+            action_type: 'LOGIN',
+            table_affected: 'wims.auth',
+            record_id: null,
+            ip_address: null,
+            user_agent: null,
+            timestamp: '2026-06-15T10:30:00Z',
+            old_values: null,
+            new_values: { username: 'kc-user@example.com', event_type: 'LOGIN' },
+          },
+        ],
+        total: 1,
+        limit: 50,
+        offset: 0,
+      });
+
+      const user = userEvent.setup();
+      render(<AdminAuditPage />);
+
+      await waitFor(() => {
+        expect(screen.getByText('LOGIN')).toBeInTheDocument();
+      });
+
+      const row = screen.getByText('LOGIN').closest('tr');
+      expect(row).not.toBeNull();
+      await user.click(row!);
+
+      await waitFor(() => {
+        expect(screen.getByText('New Values')).toBeInTheDocument();
+      });
+
+      // The pre should contain 'subject_username' not 'username'
+      const preElements = screen.getAllByText(
+        (_content: string, element: HTMLElement | null) =>
+          element?.tagName === 'PRE' && element.textContent?.includes('subject_username') === true,
+      );
+      expect(preElements.length).toBeGreaterThan(0);
+
+      // The pre should NOT contain standalone 'username' as a key
+      const usernamePreElements = screen.queryAllByText(
+        (_content: string, element: HTMLElement | null) =>
+          element?.tagName === 'PRE' && /"username"/.test(element.textContent ?? ''),
+      );
+      expect(usernamePreElements.length).toBe(0);
+    });
+
+    it('keeps username key when table_affected is not wims.auth', async () => {
+      mockFetchAuditLogs.mockResolvedValue({
+        items: [
+          {
+            audit_id: 11,
+            user_id: null,
+            user_name: null,
+            action_type: 'CREATE_USER',
+            table_affected: 'users',
+            record_id: null,
+            ip_address: null,
+            user_agent: null,
+            timestamp: '2026-06-15T10:30:00Z',
+            old_values: null,
+            new_values: { username: 'some-user', role: 'REGIONAL_ENCODER' },
+          },
+        ],
+        total: 1,
+        limit: 50,
+        offset: 0,
+      });
+
+      const user = userEvent.setup();
+      render(<AdminAuditPage />);
+
+      await waitFor(() => {
+        expect(screen.getByText('CREATE_USER')).toBeInTheDocument();
+      });
+
+      const row = screen.getByText('CREATE_USER').closest('tr');
+      expect(row).not.toBeNull();
+      await user.click(row!);
+
+      await waitFor(() => {
+        expect(screen.getByText('New Values')).toBeInTheDocument();
+      });
+
+      // The pre should contain 'username' (not transformed)
+      const preElements = screen.getAllByText(
+        (_content: string, element: HTMLElement | null) =>
+          element?.tagName === 'PRE' && element.textContent?.includes('"username"') === true,
+      );
+      expect(preElements.length).toBeGreaterThan(0);
+    });
+
+    it('keeps username key for wims.auth when user_id is present', async () => {
+      mockFetchAuditLogs.mockResolvedValue({
+        items: [
+          {
+            audit_id: 12,
+            user_id: 'abc-def',
+            user_name: null,
+            action_type: 'LOGIN',
+            table_affected: 'wims.auth',
+            record_id: null,
+            ip_address: null,
+            user_agent: null,
+            timestamp: '2026-06-15T10:30:00Z',
+            old_values: null,
+            new_values: { username: 'kc-user@example.com', event_type: 'LOGIN' },
+          },
+        ],
+        total: 1,
+        limit: 50,
+        offset: 0,
+      });
+
+      const user = userEvent.setup();
+      render(<AdminAuditPage />);
+
+      await waitFor(() => {
+        expect(screen.getByText('LOGIN')).toBeInTheDocument();
+      });
+
+      const row = screen.getByText('LOGIN').closest('tr');
+      expect(row).not.toBeNull();
+      await user.click(row!);
+
+      await waitFor(() => {
+        expect(screen.getByText('New Values')).toBeInTheDocument();
+      });
+
+      // The pre should contain 'username' (user context available, no disambiguation needed)
+      const preElements = screen.getAllByText(
+        (_content: string, element: HTMLElement | null) =>
+          element?.tagName === 'PRE' && element.textContent?.includes('"username"') === true,
+      );
+      expect(preElements.length).toBeGreaterThan(0);
+    });
+  });
 });
