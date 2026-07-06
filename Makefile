@@ -1,4 +1,4 @@
-.PHONY: help dev dev-build down prod-up prod-nginx test test-backend test-frontend lint lint-backend lint-frontend format ci-local status
+.PHONY: help dev dev-build down down-all prod-up prod-nginx test test-backend test-frontend lint lint-backend lint-frontend format ci-local status
 
 # =============================================================================
 # WIMS-BFP Development Workflow
@@ -9,7 +9,9 @@ help:
 	@echo ""
 	@echo "  make dev           Start full stack (Docker Compose)"
 	@echo "  make dev-build     Rebuild images then start"
-	@echo "  make down          Stop all containers"
+	@echo "  make down          Stop all containers (docker compose down)
+  make down-all      Full teardown: stop + remove volumes + prune orphans
+  make down-nuke     Nuclear option: stop, remove volumes, remove images"
 	@echo "  make prod-up       Start VPS production stack with TLS"
 	@echo "  make prod-nginx    Recreate VPS nginx with TLS config"
 	@echo ""
@@ -37,6 +39,13 @@ dev-build:
 
 down:
 	cd src && docker compose down
+
+down-all: down
+	cd src && docker compose down -v --remove-orphans
+
+down-nuke:
+	cd src && docker compose down -v --remove-orphans
+	sudo docker images --filter "label=com.docker.compose.project=wims" -q | xargs -r sudo docker rmi -f 2>/dev/null; true
 
 prod-up:
 	cd src && docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.production up -d --build
