@@ -117,6 +117,7 @@ jobs:
         with:
           host: ${{ secrets.VPS_HOST }}
           username: wims
+          port: 2222
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
             set -euo pipefail
@@ -150,6 +151,7 @@ jobs:
         with:
           host: ${{ secrets.VPS_HOST }}
           username: wims
+          port: 2222
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
             cd /opt/wims-bfp/src
@@ -170,6 +172,7 @@ jobs:
         with:
           host: ${{ secrets.VPS_HOST }}
           username: wims
+          port: 2222
           key: ${{ secrets.VPS_SSH_KEY }}
           envs: DATABASE_URL,REDIS_URL,KEYCLOAK_REALM_URL,KEYCLOAK_CLIENT_ID,KEYCLOAK_AUDIENCE,WIMS_MASTER_KEY,FIREBASE_CREDENTIALS_PATH,KEYCLOAK_ADMIN_PASSWORD,KEYCLOAK_ADMIN_CLIENT_SECRET,DEPLOY_COMMIT
           timeout: 15m
