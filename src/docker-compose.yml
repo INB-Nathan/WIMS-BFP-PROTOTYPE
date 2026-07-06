@@ -17,7 +17,7 @@ networks:
 services:
   # --- Infrastructure & Databases ---
   postgres:
-    image: postgis/postgis:15-3.4-alpine
+    image: postgis/postgis:17-3.5-alpine
     container_name: wims-postgres
     command: ["postgres", "-c", "shared_buffers=2GB", "-c", "max_connections=75"]
     environment:
@@ -40,7 +40,7 @@ services:
       - "127.0.0.1:5432:5432"
 
   redis:
-    image: redis:7.2-alpine
+    image: redis:8.8-alpine
     container_name: wims-redis
     command: ["redis-server", "--maxmemory", "512mb", "--maxmemory-policy", "allkeys-lru"]
     # Pen-test follow-up 2026-06-29: pin redis to 172.18.0.5 (the IP the live
@@ -153,7 +153,7 @@ services:
 
   # --- Key Management (OpenBao) ---
   openbao:
-    image: openbao/openbao:2.2.0
+    image: openbao/openbao:2.5.5
     container_name: wims-openbao
     cap_add:
       - IPC_LOCK
@@ -175,7 +175,7 @@ services:
     entrypoint: ["bao", "server", "-config=/vault/config/openbao.hcl"]
 
   openbao-bootstrap:
-    image: openbao/openbao:2.2.0
+    image: openbao/openbao:2.5.5
     container_name: wims-openbao-bootstrap
     entrypoint: ["/bin/sh", "/vault/init/bootstrap-openbao.sh"]
     volumes:
@@ -197,7 +197,7 @@ services:
     restart: "no"
 
   ollama:
-    image: ollama/ollama:0.5.1
+    image: ollama/ollama:0.30.10
     container_name: wims-ollama
     volumes:
       - ollama_data:/root/.ollama
@@ -221,7 +221,7 @@ services:
     restart: always
 
   ollama-model-pull:
-    image: ollama/ollama:0.5.1
+    image: ollama/ollama:0.30.10
     container_name: wims-ollama-model-pull
     command: pull qwen2.5:3b
     environment:
@@ -405,7 +405,7 @@ services:
       - backend
 
   wims-suricata:
-    image: jasonish/suricata:7.0.5
+    image: jasonish/suricata:8.0.5
     container_name: wims-suricata
     restart: unless-stopped
     network_mode: "host"
@@ -447,7 +447,7 @@ services:
 
   # --- Edge Gateway ---
   nginx-gateway:
-    image: nginx:1.27.3-alpine
+    image: nginx:1.30.3-alpine
     container_name: wims-nginx-gateway
     ports:
       - "80:80"
