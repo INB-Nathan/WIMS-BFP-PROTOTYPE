@@ -44,6 +44,8 @@ import { SyncNotificationModal } from '@/components/regional/SyncNotificationMod
 import { WildlandFireBreakdown } from '@/components/regional/WildlandFireBreakdown';
 import { OfflineModeManager } from '@/components/regional/OfflineModeManager';
 import { GhostIncidentCard, GhostStatCard, GhostIncidentRow } from '@/components/ui/GhostIncidentCard';
+import { useAutoRefresh } from '@/lib/useAutoRefresh';
+import { AutoRefreshToast } from '@/components/ui/AutoRefreshToast';
 
 interface RegionalStatsPayload {
   total_incidents?: number;
@@ -380,6 +382,13 @@ export default function RegionalDashboardPage() {
     }
   };
 
+  // SSE-driven auto-refresh: fires when incidents are added or change status.
+  const { pending: autoRefreshPending, refreshing: autoRefreshing, justRefreshed: autoRefreshDone } = useAutoRefresh({
+    eventTypes: ['incident.updated', 'incident.verified', 'incident.rejected', 'incident.corrected', 'incident.pending'],
+    onRefresh: refreshAll,
+    notification: 'New incident data — refreshing…',
+  });
+
   // Pick the right data source based on view mode
   const activeByCategory = statsViewMode === 'mine'
     ? stats?.my_by_category
@@ -645,6 +654,7 @@ export default function RegionalDashboardPage() {
 
   return (
     <div className="space-y-6 pb-8" style={{ backgroundColor: 'var(--content-bg)' }}>
+      <AutoRefreshToast pending={autoRefreshPending} refreshing={autoRefreshing} justRefreshed={autoRefreshDone} />
 
       {/* ── Sync notification modal ── */}
       {syncNotification && (

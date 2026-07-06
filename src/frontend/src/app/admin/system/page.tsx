@@ -36,6 +36,8 @@ import {
 } from '@/lib/api';
 import { GhostAdminLayout, GhostMonitorSection } from '@/components/ui/GhostAdminPanel';
 import { useNetworkStatus } from '@/lib/useNetworkStatus';
+import { useAutoRefresh } from '@/lib/useAutoRefresh';
+import { AutoRefreshToast } from '@/components/ui/AutoRefreshToast';
 import { getConnectivitySnapshot, subscribeConnectivity, probeConnectivity } from '@/lib/connectivity';
 import { resetFailedOp, deleteOfflineOp } from '@/lib/offlineStore';
 import { SuricataAlertModal } from './components/SuricataAlertModal';
@@ -464,13 +466,22 @@ export default function AdminSystemPage() {
         }
     }, [role]);
 
-    // M9a: 60s grouped auto-refresh (health + system metrics + workers)
+    // M9a: 60s grouped auto-refresh (health + system metrics + workers) — kept as
+    // fallback so monitoring data refreshes even when no system events fire.
     useEffect(() => {
         if (role !== 'SYSTEM_ADMIN') return;
         loadMonitoring();
         const intervalId = setInterval(loadMonitoring, 60 * 1000);
         return () => clearInterval(intervalId);
     }, [role, loadMonitoring]);
+
+    // SSE-driven supplement: fires immediately on system events so health data
+    // doesn't lag behind the 60 s interval.
+    const { pending: autoRefreshPending, refreshing: autoRefreshing, justRefreshed: autoRefreshDone } = useAutoRefresh({
+        eventTypes: ['system.health_changed', 'system.worker_status', 'system.config_changed'],
+        onRefresh: loadMonitoring,
+        notification: 'System status updated — refreshing…',
+    });
 
     const loadSessions = async () => {
         setLoadingSessions(true);
@@ -893,6 +904,7 @@ export default function AdminSystemPage() {
 
     return (
         <div className="space-y-6">
+            <AutoRefreshToast pending={autoRefreshPending} refreshing={autoRefreshing} justRefreshed={autoRefreshDone} />
             <div>
                 <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>System Admin Hub</h1>
                 <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>Identity governance, threat telemetry, and system audit.</p>

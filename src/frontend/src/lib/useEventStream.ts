@@ -38,6 +38,12 @@ export interface EventStreamOptions {
   onOpen?: () => void;
   /** Called on connection error. */
   onError?: (error: Event) => void;
+  /**
+   * Additional named SSE event types to subscribe to beyond EVENT_CALLBACK_MAP.
+   * All matching events are routed through onEvent. Useful for dynamic subscriptions
+   * (e.g. useAutoRefresh) without adding per-event callbacks.
+   */
+  watchTypes?: string[];
 
   // ── Per-event-type callbacks ──────────────────────────────────────────
   onIncidentUpdated?: EventCallback;
@@ -49,6 +55,7 @@ export interface EventStreamOptions {
   onSecurityThreat?: EventCallback;
   onSecurityAnalysis?: EventCallback;
   onSecurityHITL?: EventCallback;
+  onCivilianReportSubmitted?: EventCallback;
 }
 
 /** Map of event_type prefixes → callback keys in EventStreamOptions */
@@ -65,6 +72,7 @@ const EVENT_CALLBACK_MAP: Record<string, keyof EventStreamOptions> = {
   'security.threat_detected': 'onSecurityThreat',
   'security.ai_analysis_complete': 'onSecurityAnalysis',
   'security.hitl_confirmed': 'onSecurityHITL',
+  'civilian.report_submitted': 'onCivilianReportSubmitted',
 };
 
 // ─── Hook ──────────────────────────────────────────────────────────────────
@@ -72,10 +80,7 @@ const EVENT_CALLBACK_MAP: Record<string, keyof EventStreamOptions> = {
 export function useEventStream(options: EventStreamOptions) {
   const {
     channels,
-    onEvent,
-    onOpen,
-    onError,
-    ...callbacks
+    watchTypes,
   } = options;
 
   const optionsRef = useRef(options);
@@ -115,6 +120,20 @@ export function useEventStream(options: EventStreamOptions) {
       });
     }
 
+    // Register extra watchTypes not already in EVENT_CALLBACK_MAP — routes through onEvent.
+    for (const eventType of (watchTypes ?? [])) {
+      if (!(eventType in EVENT_CALLBACK_MAP)) {
+        es.addEventListener(eventType, (msg: Event) => {
+          try {
+            const event: SSEEvent = JSON.parse((msg as MessageEvent).data);
+            optionsRef.current.onEvent?.(event);
+          } catch {
+            // Ignore malformed events
+          }
+        });
+      }
+    }
+
     // Fallback — catches any event types not in EVENT_CALLBACK_MAP
     es.onmessage = (msg) => {
       try {
@@ -128,7 +147,7 @@ export function useEventStream(options: EventStreamOptions) {
     return () => {
       es.close();
     };
-    // Only reconnect when channels change; callbacks use refs so they stay fresh
+    // Only reconnect when channels or watchTypes change; callbacks use refs so they stay fresh
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [channels?.join(',')]);
+  }, [channels?.join(','), watchTypes?.join(',')]);
 }

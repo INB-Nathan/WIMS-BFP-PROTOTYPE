@@ -18,6 +18,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from database import get_db
+from services.event_bus import publish_verification_event_sync
 from services.kms import get_crypto_provider
 from tasks.routing import compute_routing_task
 from utils.audit import hash_client_ip, log_system_audit, trusted_client_ip
@@ -704,6 +705,16 @@ async def submit_civilian_report(
         compute_routing_task.delay(report_id)
     except Exception as exc:
         logger.warning("Failed to enqueue routing for report_id=%s: %s", report_id, exc)
+
+    # Notify triage workers (REGIONAL_ENCODER / NATIONAL_VALIDATOR) that a new
+    # civilian report is pending review. Fire-and-forget: publish_verification_event_sync
+    # already guards its own Redis errors, so publish failures never surface a 500
+    # to the anonymous submitter.
+    publish_verification_event_sync(
+        "civilian.report_submitted",
+        report_id=report_id,
+        extra={"region_id": region_id},
+    )
 
     response = _fetch_report_response(db, report_id)
     response.tracking_token = tracking_token
