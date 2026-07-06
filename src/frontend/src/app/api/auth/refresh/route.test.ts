@@ -42,7 +42,7 @@ describe('auth refresh route', () => {
     }));
 
     const req = new NextRequest('http://localhost/api/auth/refresh', {
-      headers: { cookie: '__Host-refresh_token=refresh-token' },
+      headers: { cookie: 'refresh_token=refresh-token' },
     });
     const res = await POST(req);
 
@@ -59,11 +59,11 @@ describe('auth refresh route', () => {
     }));
 
     const req = new NextRequest('http://localhost/api/auth/refresh', {
-      headers: { cookie: '__Host-refresh_token=refresh-token' },
+      headers: { cookie: 'refresh_token=refresh-token' },
     });
     const res = await POST(req);
 
     expect(res.status).toBe(401);
-    expect(res.headers.get('set-cookie')).toContain('__Host-access_token=');
+    expect(res.headers.get('set-cookie')).toContain('access_token=');
   });
 });

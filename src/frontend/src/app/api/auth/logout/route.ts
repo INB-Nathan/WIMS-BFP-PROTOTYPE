@@ -1,16 +1,23 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
-const COOKIE_CLEAR = {
-  httpOnly: true,
-  secure: true,
-  sameSite: 'strict' as const,
-  path: '/',
-  maxAge: 0,
-};
+function clearCookieOptions(secure: boolean) {
+  return {
+    httpOnly: true,
+    secure,
+    sameSite: 'strict' as const,
+    path: '/',
+    maxAge: 0,
+  };
+}
 
-export async function POST() {
+function isHttps(req: NextRequest): boolean {
+  return req.headers.get('x-forwarded-proto') === 'https' || req.nextUrl.protocol === 'https:';
+}
+
+export async function POST(req: NextRequest) {
+  const secure = isHttps(req);
   const res = NextResponse.json({ ok: true });
-  res.cookies.set('__Host-access_token', '', COOKIE_CLEAR);
-  res.cookies.set('__Host-refresh_token', '', COOKIE_CLEAR);
+  res.cookies.set('access_token', '', clearCookieOptions(secure));
+  res.cookies.set('refresh_token', '', clearCookieOptions(secure));
   return res;
 }

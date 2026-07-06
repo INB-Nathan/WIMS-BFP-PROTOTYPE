@@ -72,7 +72,7 @@ services:
     build: ./keycloak
     image: wims-keycloak-demo-otp:local
     container_name: wims-keycloak
-    command: start-dev --import-realm --proxy-headers xforwarded
+    command: start-dev --import-realm --proxy-headers xforwarded --http-host=0.0.0.0
     # Pen-test follow-up 2026-06-29 (deploy fix): the `ipam.config.subnet`
     # added in PR #485 causes the wims_internal network to be recreated on
     # deploy. After recreation, the Docker embedded DNS does NOT consistently
@@ -94,6 +94,8 @@ services:
       KC_DB_PASSWORD: ${KC_DB_PASSWORD:?error}
       KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
       KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?error}
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?error}
       KC_HTTP_RELATIVE_PATH: /auth
       KC_PROXY: edge
       KC_PROXY_HEADERS: xforwarded
@@ -135,7 +137,7 @@ services:
       - "127.0.0.1:8080:8080"
 
   keycloak-bootstrap:
-    image: quay.io/keycloak/keycloak:24.0.0
+    image: quay.io/keycloak/keycloak:26.6.4
     container_name: wims-keycloak-bootstrap
     entrypoint: ["/bin/sh", "/opt/keycloak/bootstrap/bootstrap-master-realm.sh"]
     volumes:
@@ -144,6 +146,8 @@ services:
       KEYCLOAK_URL: http://keycloak:8080/auth
       KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
       KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?error}
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?error}
     networks:
       - wims_internal
     depends_on:
@@ -256,7 +260,7 @@ services:
       - PYTHONPATH=/app
       - REDIS_URL=redis://redis:6379/0
       - KEYCLOAK_REALM_URL=http://keycloak:8080/auth/realms/bfp
-      - KEYCLOAK_ISSUER=http://localhost:8080/auth/realms/bfp
+      - KEYCLOAK_ISSUER=http://localhost/auth/realms/bfp
       - KEYCLOAK_CLIENT_ID=wims-web
       - KEYCLOAK_AUDIENCE=wims-web
       - KEYCLOAK_ADMIN_CLIENT_ID=${KEYCLOAK_ADMIN_CLIENT_ID:-}
@@ -299,6 +303,8 @@ services:
         condition: service_healthy
       ollama-model-pull:
         condition: service_completed_successfully
+    ports:
+      - "127.0.0.1:8000:8000"
 
   celery-worker:
     build: ./backend
@@ -390,7 +396,7 @@ services:
       - NEXT_PUBLIC_OIDC_AUTHORITY=/auth/realms/bfp
       - NEXT_PUBLIC_OIDC_CLIENT_ID=wims-web
       - NEXT_PUBLIC_APP_URL=http://localhost
-      - AUTH_SERVER_URL=http://keycloak:8080/auth
+      - AUTH_SERVER_URL=http://nginx-gateway/auth
       - BACKEND_URL=http://backend:8000
       - NEXT_PUBLIC_FIREBASE_API_KEY=${NEXT_PUBLIC_FIREBASE_API_KEY:-}
       - NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=${NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN:-wims-bfp.firebaseapp.com}
@@ -403,6 +409,8 @@ services:
       - wims_internal
     depends_on:
       - backend
+    ports:
+      - "127.0.0.1:3000:3000"
 
   wims-suricata:
     image: jasonish/suricata:8.0.5

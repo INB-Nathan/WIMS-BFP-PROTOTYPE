@@ -23,15 +23,21 @@ const CLIENT_ID = process.env.NEXT_PUBLIC_OIDC_CLIENT_ID || 'wims-web';
 const ACCESS_TOKEN_COOKIE_MAX_AGE = 24 * 60 * 60; // 24h: cookie stores the token; Keycloak enforces actual expiry
 const REFRESH_TOKEN_COOKIE_MAX_AGE = 24 * 60 * 60; // 24h: same as access token cookie
 
-const COOKIE_OPTIONS = {
-  httpOnly: true,
-  secure: true,
-  sameSite: 'strict' as const,
-  path: '/',
-};
+function cookieOptions(secure: boolean) {
+  return {
+    httpOnly: true,
+    secure,
+    sameSite: 'strict' as const,
+    path: '/',
+  };
+}
+
+function isHttps(req: NextRequest): boolean {
+  return req.headers.get('x-forwarded-proto') === 'https' || req.nextUrl.protocol === 'https:';
+}
 
 export async function POST(req: NextRequest) {
-  const refreshToken = req.cookies.get('__Host-refresh_token')?.value;
+  const refreshToken = req.cookies.get('refresh_token')?.value;
   if (!refreshToken) {
     return NextResponse.json({ error: 'No refresh token' }, { status: 401 });
   }
@@ -61,20 +67,21 @@ export async function POST(req: NextRequest) {
       }
 
       const response = NextResponse.json({ error: 'Refresh token invalid or expired' }, { status: 401 });
-      response.cookies.set('__Host-access_token', '', { ...COOKIE_OPTIONS, maxAge: 0 });
-      response.cookies.set('__Host-refresh_token', '', { ...COOKIE_OPTIONS, maxAge: 0 });
+      response.cookies.set('access_token', '', { ...cookieOptions(isHttps(req)), maxAge: 0 });
+      response.cookies.set('refresh_token', '', { ...cookieOptions(isHttps(req)), maxAge: 0 });
       return response;
     }
 
     const data = await res.json();
+    const secure = isHttps(req);
     const response = NextResponse.json({ ok: true });
-    response.cookies.set('__Host-access_token', data.access_token, {
-      ...COOKIE_OPTIONS,
+    response.cookies.set('access_token', data.access_token, {
+      ...cookieOptions(secure),
       maxAge: ACCESS_TOKEN_COOKIE_MAX_AGE,
     });
     if (data.refresh_token) {
-      response.cookies.set('__Host-refresh_token', data.refresh_token, {
-        ...COOKIE_OPTIONS,
+      response.cookies.set('refresh_token', data.refresh_token, {
+        ...cookieOptions(secure),
         maxAge: REFRESH_TOKEN_COOKIE_MAX_AGE,
       });
     }
