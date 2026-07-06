@@ -227,7 +227,7 @@ export function OperationsConsole({
 
         {/* Reset Day confirmation modal */}
         {resetConfirmOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="fixed inset-0 z-[1100] flex items-center justify-center bg-black/40">
             <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl">
               <h3 className="text-lg font-black text-slate-900">Reset Day</h3>
               <p className="mt-2 text-sm text-slate-600">
@@ -260,7 +260,7 @@ export function OperationsConsole({
 
         {/* Restore modal */}
         {restoreTarget && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="fixed inset-0 z-[1100] flex items-center justify-center bg-black/40">
             <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl">
               <h3 className="text-lg font-black text-slate-900">Restore Operation</h3>
               <p className="mt-1 text-sm text-slate-600">

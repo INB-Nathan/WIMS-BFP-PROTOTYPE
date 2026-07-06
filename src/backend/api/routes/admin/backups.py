@@ -225,17 +225,8 @@ async def restore_backup(
                 f.write(chunk)
                 sha256_hash.update(chunk)
 
-        # Read first 8 bytes for header validation (use file open, NOT Path.read_bytes)
-        with open(tmp_enc, "rb") as fh:
-            header = fh.read(8)
-        if not header.startswith(b"WIMSBAO1"):
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    "Backup file header invalid: missing WIMSBAO1 magic. "
-                    "File may be corrupted or not a WIMS encrypted backup."
-                ),
-            )
+        # Do not pre-filter by header here: decrypt_backup() auto-detects
+        # both legacy env-AES-GCM backups and WIMSBAO1/OpenBao backups.
 
         # SHA-256 was already computed incrementally during streaming
         sha256_digest = sha256_hash.hexdigest()

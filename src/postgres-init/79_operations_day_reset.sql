@@ -27,7 +27,7 @@ CREATE POLICY operation_reset_batches_select ON wims.operation_reset_batches FOR
 
 DROP POLICY IF EXISTS operation_reset_batches_insert ON wims.operation_reset_batches;
 CREATE POLICY operation_reset_batches_insert ON wims.operation_reset_batches FOR INSERT
-    WITH CHECK (current_setting('wims.current_user_role', true) = 'NATIONAL_VALIDATOR');
+    WITH CHECK (wims.current_user_role() = 'NATIONAL_VALIDATOR');
 
 CREATE INDEX IF NOT EXISTS idx_operations_is_archived ON wims.operations (is_archived);
 CREATE INDEX IF NOT EXISTS idx_operations_keep_overnight ON wims.operations (keep_overnight) WHERE is_archived = FALSE;

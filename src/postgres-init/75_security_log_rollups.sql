@@ -75,7 +75,8 @@ USING (wims.current_user_role() = 'SYSTEM_ADMIN');
 -- bounds storage cost. To revert to rollup-only visibility for low-value
 -- alerts, set this to 'false' via /api/admin/system-config or directly.
 INSERT INTO wims.system_config (config_key, config_value, description) VALUES
-  ('retention.security_threat_logs_days', '1', '1 day for raw IDS alert logs; weekly/monthly views use rollups'),
+  ('retention.security_threat_logs_days', '1', '1 day fallback for raw IDS alert logs; weekly/monthly views use rollups'),
+  ('retention.security_threat_logs_hours', '8', '8 hours for raw IDS alert logs; weekly/monthly views use rollups'),
   ('retention.security_rollups_hourly_days', '7', '7 days for hourly IDS alert rollups'),
   ('retention.security_rollups_daily_days', '90', '90 days for daily IDS alert rollups'),
   ('siem.raw_dedup_window_minutes', '5', 'Deduplicate raw SIEM alerts by source/SID/severity/classification within this window'),

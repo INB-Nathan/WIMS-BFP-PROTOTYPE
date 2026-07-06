@@ -84,8 +84,11 @@ def _log_prune(
 
 def _prune_security_threat_logs(db) -> None:
     """Hard-delete security_threat_logs older than retention."""
-    config_key = "retention.security_threat_logs_days"
-    days = _get_retention_days(db, config_key)
+    config_key = "retention.security_threat_logs_hours"
+    try:
+        hours = max(1, int(get_config(db, config_key, "")))
+    except (ValueError, TypeError):
+        hours = _get_retention_days(db, "retention.security_threat_logs_days") * 24
 
     # Clear dependent references first. Raw SIEM logs are short-lived; fire incidents
     # and breach notifications must not block retention pruning.
@@ -94,9 +97,9 @@ def _prune_security_threat_logs(db) -> None:
             DELETE FROM wims.breach_notifications b
             USING wims.security_threat_logs l
             WHERE b.threat_log_id = l.log_id
-              AND l.timestamp < now() - (:days || ' days')::INTERVAL
+              AND l.timestamp < now() - make_interval(hours => :hours)
         """),
-        {"days": str(days)},
+        {"hours": hours},
     )
     db.execute(
         text("""
@@ -104,20 +107,20 @@ def _prune_security_threat_logs(db) -> None:
             SET security_alert_id = NULL
             FROM wims.security_threat_logs l
             WHERE fi.security_alert_id = l.log_id
-              AND l.timestamp < now() - (:days || ' days')::INTERVAL
+              AND l.timestamp < now() - make_interval(hours => :hours)
         """),
-        {"days": str(days)},
+        {"hours": hours},
     )
 
     result = db.execute(
         text("""
             DELETE FROM wims.security_threat_logs
-            WHERE timestamp < now() - (:days || ' days')::INTERVAL
+            WHERE timestamp < now() - make_interval(hours => :hours)
         """),
-        {"days": str(days)},
+        {"hours": hours},
     )
     _log_prune(
-        db, "wims.security_threat_logs", result.rowcount or 0, "hard_delete", days, config_key
+        db, "wims.security_threat_logs", result.rowcount or 0, "hard_delete", hours, config_key
     )
 
 
@@ -369,7 +372,7 @@ try:
         "data-retention-daily",
         {
             "task": "tasks.data_retention.run_data_retention",
-            "schedule": crontab(hour=3, minute=0),
+            "schedule": crontab(minute=0),
         },
     )
 except (ImportError, Exception):

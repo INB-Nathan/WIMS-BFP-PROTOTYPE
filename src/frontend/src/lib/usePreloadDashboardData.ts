@@ -49,8 +49,8 @@ export function usePreloadDashboardData(): void {
       return;
     }
 
-    // ── National analyst / validator: preload charts + stats + operational map ──
-    if (role === 'NATIONAL_ANALYST' || role === 'NATIONAL_VALIDATOR') {
+    // ── National analyst: preload analyst-only charts ──
+    if (role === 'NATIONAL_ANALYST') {
       void import('@/lib/api').then((api) => {
         const filters = {};
         void api.fetchHeatmapDataOfflineAware(filters);
@@ -58,7 +58,13 @@ export function usePreloadDashboardData(): void {
         void api.fetchTypeDistributionOfflineAware(filters);
         void api.fetchResponseTimeByRegionOfflineAware(filters);
         void api.fetchTopNOfflineAware({ metric: 'incidents', dimension: 'municipality', ...filters });
-        // Preload validator operational map with default viewport
+      });
+      return;
+    }
+
+    // ── National validator: preload validator-only map + stats ──
+    if (role === 'NATIONAL_VALIDATOR') {
+      void import('@/lib/api').then((api) => {
         void api.fetchOperationalMapOfflineAware({
           sw: [4.5, 116.5] as [number, number],
           ne: [21.5, 127] as [number, number],

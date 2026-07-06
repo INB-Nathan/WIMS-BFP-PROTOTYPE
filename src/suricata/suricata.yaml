@@ -710,7 +710,7 @@ af-packet:
   # plaintext HTTP between Nginx and the backend, making all http.uri/body rules effective.
   # Verify the bridge name on the VPS with: ip link show | grep -E "docker|br-"
   # If Docker uses a custom bridge (e.g. br-<net_id>), replace docker0 below.
-  - interface: docker0
+  - interface: br-2a20c00ab746
     cluster-id: 98
     cluster-type: cluster_flow
     defrag: yes

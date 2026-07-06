@@ -239,6 +239,8 @@ services:
   backend:
     build: ./backend
     container_name: wims-backend
+    # Temporary VPS hotfix: single worker avoids concurrent startup DDL deadlock.
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--limit-concurrency", "200", "--timeout-keep-alive", "5"]
     # Pen-test follow-up 2026-06-29 (deploy fix): see keycloak comment above
     # for rationale. Same Docker DNS unreliability after wims_internal
     # network recreation. Inject the 4 hostnames the backend connects to
