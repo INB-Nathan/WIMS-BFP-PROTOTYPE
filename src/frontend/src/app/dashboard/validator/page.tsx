@@ -513,7 +513,7 @@ export default function ValidatorDashboard() {
 
   // SSE-driven auto-refresh: fires when incidents change on the server.
   const { pending: autoRefreshPending, refreshing: autoRefreshing, justRefreshed: autoRefreshDone } = useAutoRefresh({
-    eventTypes: ['incident.updated', 'incident.verified', 'incident.rejected', 'incident.corrected'],
+    eventTypes: ['incident.pending', 'incident.updated', 'incident.verified', 'incident.rejected', 'incident.corrected'],
     onRefresh: fetchQueue,
     notification: 'New validation data — refreshing…',
   });
