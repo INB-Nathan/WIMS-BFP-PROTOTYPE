@@ -301,10 +301,9 @@ describe('Breach Notifications Page', () => {
 
     it('renders NPC contact card with config values', async () => {
         render(<BreachNotificationsPage />);
-        await waitFor(() => {
-            expect(screen.getByTestId('npc-contact-card')).toBeInTheDocument();
-        });
-        expect(screen.getByTestId('npc-name-display')).toHaveTextContent('Atty. Reyes');
+        // Use findByTestId to wait for async NPC data to load (card is always present,
+        // but display elements only appear after npcLoading becomes false)
+        expect(await screen.findByTestId('npc-name-display')).toHaveTextContent('Atty. Reyes');
         expect(screen.getByTestId('npc-phone-display')).toHaveTextContent('+63 2 8234-2228');
         expect(screen.getByTestId('npc-office-phone-display')).toHaveTextContent('+63 2 8234-1111');
     });
@@ -385,10 +384,8 @@ describe('Breach Notifications Page', () => {
         mockFetchAdminConfig.mockResolvedValue([]);
         mockFetchBreaches.mockResolvedValue([mockBreachActive]);
         render(<BreachNotificationsPage />);
-        await waitFor(() => {
-            expect(screen.getByTestId('npc-contact-card')).toBeInTheDocument();
-        });
-        expect(screen.getByTestId('npc-name-display')).toHaveTextContent('Not configured');
+        // Wait for async NPC data to load before asserting display values
+        expect(await screen.findByTestId('npc-name-display')).toHaveTextContent('Not configured');
         expect(screen.getByTestId('npc-phone-display')).toHaveTextContent('Not configured');
     });
 });
