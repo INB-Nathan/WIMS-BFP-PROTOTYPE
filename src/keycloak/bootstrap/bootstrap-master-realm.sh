@@ -63,14 +63,16 @@ if "${KCADM}" config credentials \
 fi
 
 # kcadm.sh password grant failed — likely KC 26 temp admin.
-# Log a warning and exit cleanly.
+# This is a known KC 26 bootstrap limitation — the initial admin user
+# cannot use direct access grants. It does not affect normal operation.
 # Default security-admin-console redirect URIs ("/admin/master/console/*")
 # are sufficient for local development.
 # Production deployments should bootstrap via kcadm.sh with a permanent admin user.
-echo "WARNING: Could not authenticate to Keycloak admin API (KC 26 temp admin restriction).
-The master realm security-admin-console client was NOT patched with
-custom redirect URIs. Default redirect URIs are used.
-This is acceptable for local development.
-For production, use a permanent admin user with:
-  kcadm.sh config credentials --server ${KEYCLOAK_URL} --realm master --user PERMANENT_ADMIN --password ..." >&2
+echo "NOTICE: KC 26 bootstrap admin cannot use password grants (known restriction).
+Master realm security-admin-console was NOT patched with custom redirect URIs.
+Default redirect URIs are used — sufficient for local development.
+
+To silence this notice in production, create a permanent master-realm admin:
+  kcadm.sh config credentials --server http://localhost:8080/auth \
+    --realm master --user PERMANENT_ADMIN --password ..."
 exit 0

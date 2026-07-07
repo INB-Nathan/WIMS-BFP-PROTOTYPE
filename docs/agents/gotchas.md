@@ -24,3 +24,5 @@ Each is a real mistake a sub-agent made.
 15. **Validate CI before merging.** Running local lint/tests isn't enough — GitHub CI runs `npm run lint`, `ruff check`, `ruff format --check`, `pytest`, and `vitest` in a fresh environment. Run the exact CI commands locally first, or you'll get red merge gates.
 
 16. **Run ruff before every commit.** E402: don't place code between import blocks. `ruff check .` and `ruff format --check .` are cheap; skipping them pushes red.
+
+17. **Target `master`, not `main`.** This repo has a stale orphan branch named `main` that is far behind `master`. Opening a PR against `main` shows 100+ unrelated commits and cannot be merged. If a PR shows far more commits than the branch has, check the base branch — it was probably opened against `main` by mistake. Always verify `gh pr view <N> --json baseRefName` before reviewing or merging. If found, close the duplicate and use the correct PR targeting `master`.

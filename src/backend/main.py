@@ -1318,6 +1318,12 @@ async def get_me(
                     "assigned_region_id": assigned_region_id,
                 }
 
+        if keycloak_sub is None:
+            raise HTTPException(
+                status_code=403,
+                detail="User not found in WIMS and token missing sub — cannot provision account",
+            )
+
         role = _resolve_role_from_token(token_payload)
         if role is None:
             raise HTTPException(

@@ -381,6 +381,12 @@ async def get_current_wims_user(
             raise HTTPException(status_code=500, detail="Authentication system error")
 
         if row_by_username is None:
+            if keycloak_sub is None:
+                raise HTTPException(
+                    status_code=403,
+                    detail="User not found in WIMS and token missing sub — cannot provision account",
+                )
+
             # ── JIT provisioning ───────────────────────────────────────
             # User authenticated with Keycloak but has no row in wims.users.
             # Auto-create a user row from token claims so UUID drift between
@@ -533,7 +539,11 @@ async def get_current_wims_user(
 
         else:
             existing_keycloak_id = row_by_username[2]
-            if existing_keycloak_id is not None and str(existing_keycloak_id) != keycloak_sub:
+            if (
+                keycloak_sub is not None
+                and existing_keycloak_id is not None
+                and str(existing_keycloak_id) != keycloak_sub
+            ):
                 # UUID drift — update to current Keycloak identity (JIT repair)
                 logger.warning(
                     f"Identity drift for {preferred_username}: "
