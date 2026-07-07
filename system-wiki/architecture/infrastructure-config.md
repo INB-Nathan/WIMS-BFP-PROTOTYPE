@@ -44,7 +44,7 @@ status: draft
 
 **Host port exposure:** Only `nginx-gateway` intentionally binds public interfaces (`0.0.0.0:80` and `0.0.0.0:443`). Database and support/admin surfaces are bound to host loopback only: Postgres `127.0.0.1:5432`, Redis `127.0.0.1:6379`, MailHog `127.0.0.1:1025`/`8025`, and direct Keycloak `127.0.0.1:8080`. Browser and OIDC traffic should reach Keycloak only through nginx at `/auth/`.
 
-**Host firewall:** UFW is enabled on the VPS with default deny incoming, allow outgoing, and explicit inbound allows only for SSH `22/tcp`, HTTP `80/tcp`, and HTTPS `443/tcp` on IPv4/IPv6.
+**Host firewall:** UFW is enabled on the VPS with default deny incoming, allow outgoing, and explicit inbound allows only for SSH `2222/tcp`, HTTP `80/tcp`, and HTTPS `443/tcp` on IPv4/IPv6.
 
 **Key env vars (backend):**
 
