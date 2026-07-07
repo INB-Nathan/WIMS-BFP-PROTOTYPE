@@ -71,6 +71,10 @@ export function AutoRefreshToast({
   useEffect(() => {
     if (activeState !== null) {
       if (hideTimer.current !== null) clearTimeout(hideTimer.current);
+      // Synchronous update is intentional: display content and mount flag must
+      // change atomically so the fade-in renders with the correct label.
+      // React 18 batches both into one commit.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setDisplayState(activeState);
       setMounted(true);
     } else if (mounted) {
