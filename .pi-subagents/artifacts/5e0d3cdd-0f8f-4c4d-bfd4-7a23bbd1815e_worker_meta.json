@@ -1,0 +1,28 @@
+{
+  "runId": "5e0d3cdd-0f8f-4c4d-bfd4-7a23bbd1815e",
+  "agent": "worker",
+  "task": "You are a delegated subagent running from a fork of the parent session. Treat the inherited conversation as reference-only context, not a live thread to continue. Do not continue or answer prior messages as if they are waiting for a reply. Your sole job is to execute the task below and return a focused result for that task using your tools.\n\nTask:\nCreate the file `src/backend/tests/test_nginx_bot_blocker.py` for the WIMS-BFP project at /home/computa/Projects/WIMS-BFP/WIMS-BFP-PROTOTYPE.\n\nThis is a contract test file that verifies nginx bad-bot blocker integration for issue #517. The bot-blocker files are vendored under `src/nginx/bot-blocker/` with this structure:\n- `conf.d/globalblacklist.conf` (main http-scope include, ~541KB)\n- `conf.d/wims-botblocker-settings.conf` (WIMS-specific zone/settings)\n- `bots.d/blockbots.conf`, `bots.d/ddos.conf` (server-block includes)\n- `bots.d/blacklist-user-agents.conf`, `bots.d/blacklist-ips.conf`, `bots.d/bad-referrer-words.conf`, `bots.d/custom-bad-referrers.conf`, `bots.d/whitelist-ips.conf`, `bots.d/whitelist-domains.conf`\n\nThe three nginx configs are at `src/nginx/nginx.conf`, `src/nginx/nginx.local.conf`, `src/nginx/nginx.ci.conf`.\nThe docker-compose file is at `src/docker-compose.yml`.\n\nReference the existing test_nginx_forwarded_headers.py for the parametrization pattern (parametrize over all 3 configs).\n\nCreate these tests:\n\n1. **test_nginx_globalblacklist_include** — For each of the 3 configs, assert that the http block includes `/etc/nginx/bot-blocker/conf.d/globalblacklist.conf`\n\n2. **test_nginx_blockbots_ddos_in_every_server** — For each config, assert that EVERY server block contains both `include /etc/nginx/bot-blocker/bots.d/blockbots.conf;` and `include /etc/nginx/bot-blocker/bots.d/ddos.conf;`. The `/health` location and HTTP redirect server blocks are exempt.\n\n3. **test_docker_compose_bot_blocker_volume_mount** — Parse `src/docker-compose.yml` and assert the nginx-gateway service mounts `./nginx/bot-blocker:/etc/nginx/bot-blocker:ro`\n\n4. **test_globalblacklist_zone_names_no_collision** — Read `globalblacklist.conf` and assert NO `limit_conn_zone`/`limit_req_zone` directive collides with existing WIMS zones (`addr`, `general_api`, `public_api`, `civilian_api`, `keycloak_api`, `reset_credentials`). Bot-prefixed zones are safe.\n\n5. **test_bot_blocker_support_files_exist** — Assert all required support files exist under `src/nginx/bot-blocker/`:\n   - `conf.d/globalblacklist.conf`\n   - `conf.d/wims-botblocker-settings.conf`  \n   - `bots.d/blockbots.conf`\n   - `bots.d/ddos.conf`\n   - `bots.d/blacklist-user-agents.conf`\n   - `bots.d/blacklist-ips.conf`\n   - `bots.d/bad-referrer-words.conf`\n   - `bots.d/custom-bad-referrers.conf`\n   - `bots.d/whitelist-ips.conf`\n   - `bots.d/whitelist-domains.conf`\n\n6. **test_bot_blocker_flood_zone_defined** — Assert that `wims-botblocker-settings.conf` defines `limit_req_zone` with `zone=flood`\n\nUse the same parametrization pattern as test_nginx_forwarded_headers.py (parametrize over all 3 configs). Use `assert`, not pytest special assertions where avoidable.\n\nIMPORTANT: Do NOT try to read the actual globalblacklist.conf in tests 1-3 (it's 541KB). Just check with `in` / `in conf` for the include directives.\n\nFor test 4, read globalblacklist.conf but only scan for `limit_conn_zone` and `limit_req_zone` lines — don't load the full 541KB into memory unless needed.\n\nPlease report the exact file content you write as the output.\n\n## Acceptance Contract\nAcceptance level: reviewed\nCompletion is not accepted from prose alone. End with a structured acceptance report.\n\nCriteria:\n- criterion-1: Implement the requested change without widening scope\n- criterion-2: Return evidence sufficient for an independent acceptance review\n\nRequired evidence: changed-files, tests-added, commands-run, validation-output, residual-risks, no-staged-files\n\nReview gate: required by reviewer.\n\nFinish with a fenced JSON block tagged `acceptance-report` in this shape:\nUse empty arrays when no items apply; array fields contain strings unless object entries are shown.\n```acceptance-report\n{\n  \"criteriaSatisfied\": [\n    {\n      \"id\": \"criterion-1\",\n      \"status\": \"satisfied\",\n      \"evidence\": \"specific proof\"\n    }\n  ],\n  \"changedFiles\": [\n    \"src/file.ts\"\n  ],\n  \"testsAddedOrUpdated\": [\n    \"test/file.test.ts\"\n  ],\n  \"commandsRun\": [\n    {\n      \"command\": \"command\",\n      \"result\": \"passed\",\n      \"summary\": \"short result\"\n    }\n  ],\n  \"validationOutput\": [\n    \"validation output or concise summary\"\n  ],\n  \"residualRisks\": [\n    \"none\"\n  ],\n  \"noStagedFiles\": true,\n  \"diffSummary\": \"short description of the diff\",\n  \"reviewFindings\": [\n    \"blocker: file.ts:12 - issue found, or no blockers\"\n  ],\n  \"manualNotes\": \"anything else the parent should know\"\n}\n```",
+  "exitCode": 0,
+  "model": "deepseek/deepseek-v4-flash:high",
+  "attemptedModels": [
+    "deepseek/deepseek-v4-flash:high"
+  ],
+  "modelAttempts": [
+    {
+      "model": "deepseek/deepseek-v4-flash:high",
+      "success": true,
+      "exitCode": 0,
+      "usage": {
+        "input": 69894,
+        "output": 13348,
+        "cacheRead": 1393152,
+        "cacheWrite": 0,
+        "cost": 0.017423425600000004,
+        "turns": 21
+      }
+    }
+  ],
+  "transcriptPath": "/home/computa/Projects/WIMS-BFP/WIMS-BFP-PROTOTYPE/.pi-subagents/artifacts/5e0d3cdd-0f8f-4c4d-bfd4-7a23bbd1815e_worker_transcript.jsonl",
+  "skills": [],
+  "timestamp": 1783600295979
+}
