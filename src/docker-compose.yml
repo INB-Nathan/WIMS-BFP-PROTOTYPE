@@ -71,8 +71,8 @@ services:
       - "127.0.0.1:8025:8025"
 
   keycloak:
+    image: ${KEYCLOAK_IMAGE:-wims-keycloak-demo-otp:local}
     build: ./keycloak
-    image: wims-keycloak-demo-otp:local
     container_name: wims-keycloak
     command: start-dev --import-realm --proxy-headers xforwarded --http-host=0.0.0.0
     # Pen-test follow-up 2026-06-29 (deploy fix): the `ipam.config.subnet`
@@ -243,6 +243,7 @@ services:
 
   # --- Applications ---
   backend:
+    image: ${BACKEND_IMAGE:-wims-backend:local}
     build: ./backend
     container_name: wims-backend
     # Temporary VPS hotfix: single worker avoids concurrent startup DDL deadlock.
@@ -309,6 +310,7 @@ services:
       - "127.0.0.1:8000:8000"
 
   celery-worker:
+    image: ${BACKEND_IMAGE:-wims-backend:local}
     build: ./backend
     container_name: wims-celery-worker
     command: celery -A main.celery_app worker --beat --loglevel=info
@@ -374,6 +376,7 @@ services:
         condition: service_completed_successfully
 
   frontend:
+    image: ${FRONTEND_IMAGE:-wims-frontend:local}
     build:
       context: ./frontend
       args:
