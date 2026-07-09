@@ -7,6 +7,7 @@ Revision ID: 0002
 Revises: 0001
 Create Date: 2026-07-09
 """
+
 from __future__ import annotations
 
 from typing import Sequence, Union
@@ -79,8 +80,7 @@ def _ensure_no_update_ivh_rule() -> None:
 def _ensure_verified_requires_data_hash() -> None:
     """RP-20: VERIFIED incident must carry a data_hash."""
     op.execute(
-        "ALTER TABLE wims.fire_incidents "
-        "DROP CONSTRAINT IF EXISTS verified_requires_data_hash"
+        "ALTER TABLE wims.fire_incidents DROP CONSTRAINT IF EXISTS verified_requires_data_hash"
     )
     op.execute(
         """
@@ -290,12 +290,17 @@ def downgrade() -> None:
     """
     op.execute("DROP RULE IF EXISTS no_update_verified ON wims.fire_incidents")
     op.execute("DROP RULE IF EXISTS no_update_ivh ON wims.incident_verification_history")
-    op.execute("ALTER TABLE wims.fire_incidents DROP CONSTRAINT IF EXISTS verified_requires_data_hash")
+    op.execute(
+        "ALTER TABLE wims.fire_incidents DROP CONSTRAINT IF EXISTS verified_requires_data_hash"
+    )
 
     for policy in (
-        "ref_regions_select", "ref_regions_write",
-        "ref_provinces_select", "ref_provinces_write",
-        "ref_cities_select", "ref_cities_write",
+        "ref_regions_select",
+        "ref_regions_write",
+        "ref_provinces_select",
+        "ref_provinces_write",
+        "ref_cities_select",
+        "ref_cities_write",
         "users_self_or_admin_select",
     ):
         op.execute(f"DROP POLICY IF EXISTS {policy} ON wims.users")
@@ -304,8 +309,13 @@ def downgrade() -> None:
         op.execute(f"DROP POLICY IF EXISTS {policy} ON wims.ref_cities")
 
     for policy in (
-        "aif_national_analyst_read", "aif_regional_read", "aif_validator_read",
-        "aif_system_admin_all", "aif_staff_write", "aif_staff_insert",
-        "aif_staff_update", "aif_staff_delete",
+        "aif_national_analyst_read",
+        "aif_regional_read",
+        "aif_validator_read",
+        "aif_system_admin_all",
+        "aif_staff_write",
+        "aif_staff_insert",
+        "aif_staff_update",
+        "aif_staff_delete",
     ):
         op.execute(f"DROP POLICY IF EXISTS {policy} ON wims.analytics_incident_facts")

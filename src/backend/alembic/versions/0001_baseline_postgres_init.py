@@ -4,6 +4,7 @@ Revision ID: 0001
 Revises:
 Create Date: 2026-07-09
 """
+
 from __future__ import annotations
 
 import logging
@@ -34,12 +35,6 @@ _REQUIRED_TABLES = [
     "wims.system_config",
 ]
 
-# SQLAlchemy statement separator — we split on this for per-statement
-# execution.  Files with explicit BEGIN/COMMIT are run as-is since PG
-# ignores nested BEGIN inside AUTOCOMMIT mode when there is no outer
-# transaction.
-_STATEMENT_SEPARATOR: str = ";"
-
 
 def _schema_exists(connection) -> bool:
     """Check whether core WIMS tables exist on the target database.
@@ -52,9 +47,7 @@ def _schema_exists(connection) -> bool:
     for table in _REQUIRED_TABLES:
         schema, tbl = table.split(".")
         result = connection.execute(
-            text(
-                "SELECT to_regclass(:schema || '.' || :tbl) IS NOT NULL"
-            ),
+            text("SELECT to_regclass(:schema || '.' || :tbl) IS NOT NULL"),
             {"schema": schema, "tbl": tbl},
         ).scalar()
         if result:
@@ -81,9 +74,7 @@ def _table_exists(connection, table: str) -> bool:
     schema, tbl = table.split(".")
     return bool(
         connection.execute(
-            text(
-                "SELECT to_regclass(:schema || '.' || :tbl) IS NOT NULL"
-            ),
+            text("SELECT to_regclass(:schema || '.' || :tbl) IS NOT NULL"),
             {"schema": schema, "tbl": tbl},
         ).scalar()
     )
@@ -143,17 +134,10 @@ def upgrade() -> None:
     sql_files = [f for f in sql_files if f.name not in _EXCLUDED_FILES]
 
     logger.info(
-        "Bootstrapping fresh database from %d SQL files in %s "
-        "(excluded: %s)",
+        "Bootstrapping fresh database from %d SQL files in %s (excluded: %s)",
         len(sql_files),
         sql_dir,
         ", ".join(sorted(_EXCLUDED_FILES)),
-    )
-
-    # Switch to AUTOCOMMIT so each SQL file's BEGIN/COMMIT works without
-    # nesting inside Alembic's transaction.
-    conn_proxy = connection.execution_options(
-        isolation_level="AUTOCOMMIT"
     )
 
     applied: list[str] = []
@@ -165,7 +149,9 @@ def upgrade() -> None:
                 continue
 
             logger.info("  Applying: %s", sql_file.name)
-            conn_proxy.execute(text(sql))
+            # Execute within Alembic's transactional context.
+            # PostgreSQL handles DDL inside transactions, so no autocommit needed.
+            op.execute(text(sql))
             applied.append(sql_file.name)
         except Exception as exc:
             logger.warning(
@@ -193,15 +179,10 @@ def downgrade() -> None:
     """
     connection = op.get_bind()
     if _schema_exists(connection):
-        logger.info(
-            "Baseline downgrade: existing database — no-op (baseline "
-            "made no changes)."
-        )
+        logger.info("Baseline downgrade: existing database — no-op (baseline made no changes).")
         return
 
-    logger.warning(
-        "Baseline downgrade on fresh database — dropping WIMS schema."
-    )
+    logger.warning("Baseline downgrade on fresh database — dropping WIMS schema.")
     connection.execute(text("DROP SCHEMA IF EXISTS wims CASCADE"))
     connection.execute(text("DROP SCHEMA IF EXISTS wims_private CASCADE"))
     logger.info("WIMS schemas dropped — baseline reverted.")
