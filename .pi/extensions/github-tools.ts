@@ -44,16 +44,16 @@ async function execGh(
   }
 }
 
-async function getDefaultRepo(pi: ExtensionAPI, cwd: string): Promise<GhResult> {
+async function getDefaultRepo(pi: ExtensionAPI, cwd: string): Promise<string | { error: string }> {
   const result = await pi.exec("gh", ["repo", "view", "--json", "nameWithOwner"], { cwd, timeout: 5_000 });
   if (result.code !== 0) {
-    return { ok: false, error: "Not in a GitHub repository — use --repo flag" };
+    return { error: "Not in a GitHub repository — use --repo flag" };
   }
   try {
     const data = JSON.parse(result.stdout) as { nameWithOwner: string };
-    return { ok: true, stdout: data.nameWithOwner };
+    return data.nameWithOwner;
   } catch {
-    return { ok: false, error: "Failed to parse gh repo view output" };
+    return { error: "Failed to parse gh repo view output" };
   }
 }
 
