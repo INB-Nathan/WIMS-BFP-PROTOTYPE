@@ -58,7 +58,8 @@ jobs:
 
     services:
       postgres:
-        image: postgis/postgis:17-3.5-alpine
+        # Pinned to PG 15 — matches VPS production schema.
+        image: postgis/postgis:15-3.4-alpine
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -77,7 +78,7 @@ jobs:
 
       - name: Pre-pull service images with retry
         run: |
-          for image in "postgis/postgis:17-3.5-alpine"; do
+          for image in "postgis/postgis:15-3.4-alpine"; do
             echo "Pulling $image..."
             for attempt in 1 2 3 4 5; do
               if docker pull "$image" 2>&1; then
@@ -169,7 +170,8 @@ jobs:
 
     services:
       postgres:
-        image: postgis/postgis:17-3.5-alpine
+        # Pinned to PG 15 — matches VPS production schema.
+        image: postgis/postgis:15-3.4-alpine
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -198,7 +200,7 @@ jobs:
 
       - name: Pre-pull service images with retry
         run: |
-          for image in "postgis/postgis:17-3.5-alpine" "redis:8.8-alpine"; do
+          for image in "postgis/postgis:15-3.4-alpine" "redis:8.8-alpine"; do
             echo "Pulling $image..."
             for attempt in 1 2 3 4 5; do
               if docker pull "$image" 2>&1; then

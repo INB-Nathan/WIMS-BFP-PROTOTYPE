@@ -17,7 +17,9 @@ networks:
 services:
   # --- Infrastructure & Databases ---
   postgres:
-    image: postgis/postgis:17-3.5-alpine
+    # Pinned to PG 15 — PG 17 cannot read an existing PG 15 data volume.
+    # See commit 0b90346d / PR #535.
+    image: postgis/postgis:15-3.4-alpine
     container_name: wims-postgres
     command: ["postgres", "-c", "shared_buffers=2GB", "-c", "max_connections=75"]
     environment:

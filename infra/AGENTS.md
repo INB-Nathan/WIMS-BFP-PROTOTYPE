@@ -4,7 +4,7 @@
 
 | Service | Directory | Purpose |
 |---------|-----------|---------|
-| `postgres` | — | PostgreSQL 16 + PostGIS |
+| `postgres` | — | PostgreSQL 15 + PostGIS 3.4 |
 | `redis` | — | Celery broker, rate limiting, session blacklist |
 | `mailhog` | — | SMTP capture for dev (not for production) |
 | `keycloak` | `keycloak/` | Auth server with WIMS-BFP realm |

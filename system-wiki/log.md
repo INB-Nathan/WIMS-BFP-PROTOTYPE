@@ -1,3 +1,33 @@
+## [2026-07-09] fix: pin postgis to PG 15 after PG 17 broke VPS deploy
+
+- **Scope:** Deploy from master (PR #530 merge) failed because `postgis/postgis:17-3.5-alpine` couldn't read the existing PG 15 data volume. Postgres refused to start with "database files are incompatible with server".
+- **Fix:** Pinned postgis back to `postgis/postgis:15-3.4-alpine` in:
+  - `src/docker-compose.yml` (production)
+  - `.github/workflows/deploy.yml` (CI test service)
+  - `.github/workflows/ci.yml` (all 4 references)
+  - Added inline comments explaining the PG 15 pin to prevent future deps bumps from breaking it
+- **Also discovered during debugging:** The `.ssl` symlink used by `docker-compose.override.yml` gets destroyed when Docker Compose recreates the nginx container. This only affected manual debugging (override file), not the production deploy flow which mounts `/etc/letsencrypt` directly via `LETSENCRYPT_DIR=/etc/letsencrypt` in `.env.production`.
+- **VPS restore:** Stopped blocking rollup INSERT queries to let schema patches complete in the entrypoint, recreated .ssl symlink, restarted nginx. All 6 deploy checks pass.
+- **Other image bumps from chore(deps):** Redis 7→8, OpenBao 2.2→2.5, Suricata 7→8, Ollama 0.5→0.30 — all compatible with existing data.
+- **PR #535** opened to master with the PG 15 pin.
+
+## [2026-07-09] fix: add startup handler wrapper entrypoint for VPS lifespan hang
+
+- **Scope:** Fix VPS backend startup hang (uvicorn 0.50.0 / Python 3.12 ASGI lifespan hang — 'Waiting for application startup' never completes). PR #527 deploy failure diagnosis and fix.
+- **Root cause:** uvicorn lifespan protocol probe hangs indefinitely when the app has @app.on_event("startup") handlers but no lifespan context manager. Exact trigger after PR #527 merge is unknown (uvicorn version, Python 3.12, or dependency interaction).
+- **Files new:** `src/backend/entrypoint.sh` — wrapper that explicitly runs startup handlers before uvicorn, then exec's uvicorn with --lifespan off.
+- **Files modified:**
+  - `src/backend/Dockerfile` — +ENTRYPOINT, COPY entrypoint.sh, --lifespan off in CMD
+  - `src/docker-compose.yml` — --lifespan off in backend command
+- **Behavior:** `apply_schema_patches()` and `_resync_blocklist_on_boot()` run in the entrypoint before uvicorn starts. Celery and other commands pass through without running handlers. SKIP_STARTUP_HANDLERS=1 bypasses for debugging.
+- **VPS:** Backend Up 17h with --lifespan off, all 6 deploy checks passing. Nginx was temporarily broken during debugging (.ssl symlink lost on container recreate) — restored.
+- **Review:** 2 parallel reviewers flagged that --lifespan off silently skips startup handlers. Oracle recommended Option B (wrapper entrypoint) which was implemented and committed.
+- **CI:** PR #530 targeting master, 6 checks in progress, MERGEABLE.
+- **Commits (chore/update-non-keycloak-docker-images):**
+  - e03bfd26 — fix: add startup handler wrapper entrypoint for VPS lifespan hang
+  - 733d8050 — fix: add --lifespan off to uvicorn to prevent startup hang
+  - c56485a4 — fix: guard auth flow against KC 26 lightweight tokens missing sub claim
+
 ## [2026-07-07] fix: await async NPC data load in breach-list tests
 
 - **Scope:** Fix CI failure on PR #530; close duplicate PR #531 (wrong base branch).
