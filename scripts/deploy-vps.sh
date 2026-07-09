@@ -167,6 +167,10 @@ compose stop backend celery-worker wims-suricata || true
 echo "Applying Alembic migrations..."
 compose run --rm --no-deps backend alembic upgrade head
 
+# Restart app services stopped for migration.
+echo "Restarting app services after migration..."
+compose start backend celery-worker || true
+
 # ---------------------------------------------------------------------------
 # Reload nginx DNS cache
 # ---------------------------------------------------------------------------
@@ -181,7 +185,7 @@ echo "Waiting for backend to be ready..."
 sleep 15
 BACKEND_READY=0
 for i in $(seq 1 60); do
-  if docker exec wims-backend python -c "import httpx; httpx.get('http://localhost:8000/health', timeout=5).raise_for_status()" > /dev/null 2>&1; then
+  if curl -fsS http://localhost:8000/health > /dev/null 2>&1; then
     echo "Backend /health check passed"
     BACKEND_READY=1
     break
