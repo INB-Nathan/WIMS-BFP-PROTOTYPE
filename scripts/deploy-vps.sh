@@ -180,21 +180,25 @@ sleep 3
 echo "Waiting for backend to be ready..."
 sleep 15
 BACKEND_READY=0
-for i in $(seq 1 45); do
+for i in $(seq 1 60); do
   if docker exec wims-backend python -c "import httpx; httpx.get('http://localhost:8000/health', timeout=5).raise_for_status()" > /dev/null 2>&1; then
     echo "Backend /health check passed"
     BACKEND_READY=1
     break
   fi
-  echo "Attempt $i/45: backend not ready yet..."
-  sleep 2
+  echo "Attempt $i/60: backend not ready yet..."
+  sleep 3
 done
 
 if [ "$BACKEND_READY" = "0" ]; then
-  echo "Backend health check failed — initiating rollback"
-  docker tag src-backend-rollback:latest src-backend:latest 2>/dev/null || true
-  compose up -d backend
-  echo "Rollback complete"
+  echo "Backend health check failed after 60 attempts"
+  # Rollback: restart old tag
+  if docker image inspect backend-image-rollback:latest >/dev/null 2>&1; then
+    echo "Rolling back to previous image..."
+    BACKEND_IMAGE=backend-image-rollback:latest compose up -d backend
+  else
+    echo "No rollback image found — backend may need manual intervention"
+  fi
   exit 1
 fi
 

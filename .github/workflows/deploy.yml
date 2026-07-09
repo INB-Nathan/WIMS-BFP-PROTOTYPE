@@ -164,7 +164,7 @@ jobs:
             PREV_IMAGE=$(compose images -q backend | head -n 1)
             if [ -n "$PREV_IMAGE" ]; then
               echo "Tagging previous backend image for rollback: $PREV_IMAGE"
-              docker tag "$PREV_IMAGE" src-backend-rollback:latest
+              docker tag "$PREV_IMAGE" backend-image-rollback:latest
             else
               echo "No existing backend image found — skipping rollback tag"
             fi
