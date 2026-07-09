@@ -23,11 +23,14 @@ _SKIP="${SKIP_MIGRATION_CHECK:-0}"
 if [ "$1" = "uvicorn" ] && [ "$_SKIP" != "1" ]; then
     echo "[entrypoint] === Checking Alembic migration status ==="
     # Verify the database is at the latest migration before starting.
-    # alembic check returns 0 when current == head.
-    if ! alembic check 2>/dev/null; then
-        CURRENT=$(alembic current 2>/dev/null | head -1)
-        HEAD=$(alembic heads 2>/dev/null | head -1)
-        echo "[entrypoint] WARNING: Database may not be at latest migration"
+    # We use 'alembic current' and 'alembic heads' directly instead of
+    # 'alembic check' because the latter can return non-zero for reasons
+    # unrelated to version mismatch (e.g., model metadata drift in
+    # non-autogenerate workflows).
+    CURRENT=$(alembic current 2>/dev/null | head -1 | awk '{print $1}')
+    HEAD=$(alembic heads 2>/dev/null | head -1 | awk '{print $1}')
+    if [ "$CURRENT" != "$HEAD" ]; then
+        echo "[entrypoint] WARNING: Database not at latest migration"
         echo "[entrypoint]   Current: ${CURRENT:-unknown}"
         echo "[entrypoint]   Head:    ${HEAD:-unknown}"
         if [ "${SKIP_MIGRATION_CHECK:-0}" != "1" ]; then
@@ -36,7 +39,7 @@ if [ "$1" = "uvicorn" ] && [ "$_SKIP" != "1" ]; then
         fi
         echo "[entrypoint] SKIP_MIGRATION_CHECK=1 set — bypassing migration check"
     else
-        echo "[entrypoint] Alembic migrations are up to date"
+        echo "[entrypoint] Alembic migrations are up to date ($CURRENT)"
     fi
 
     echo "[entrypoint] === Resyncing blocklist from Postgres to Redis ==="
