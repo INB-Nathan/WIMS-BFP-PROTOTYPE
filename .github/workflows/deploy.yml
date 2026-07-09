@@ -82,16 +82,11 @@ jobs:
             sleep 1
           done
 
-      - name: Initialize test database
+      - name: Apply Alembic migrations
         run: |
-          export PGPASSWORD=postgres
-          find "$GITHUB_WORKSPACE/src/postgres-init" -maxdepth 1 -type f -name '*.sql' -print0 \
-            | LC_ALL=C sort -z \
-            | while IFS= read -r -d '' script; do
-                echo "Applying: ${script#$GITHUB_WORKSPACE/}"
-                psql -v ON_ERROR_STOP=1 -h localhost -p 5432 -U postgres -d wims_test \
-                  -f "$script"
-              done
+          cd src/backend && alembic upgrade head
+        env:
+          DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/wims_test"
 
       - name: Run backend tests
         run: pytest -v --tb=short --ignore=tests/test_rate_limiting.py --ignore=tests/test_suricata_ingestion.py --ignore=tests/integration/test_wims_initial_schema_bootstrap.py --ignore=tests/integration/test_auth_otp_policy.py --ignore=tests/integration/test_database_schema.py --ignore=tests/integration/test_rls_policy_enforcement.py --ignore=tests/integration/test_sql_quality_audit.py
@@ -306,15 +301,13 @@ jobs:
               sleep 1
             done
 
-            # ─── Apply new database migrations (idempotent — all use IF NOT EXISTS) ───
-            echo "Applying database migrations..."
-            for script in $(ls -v /opt/wims-bfp/src/postgres-init/*.sql 2>/dev/null); do
-              script_name=$(basename "$script")
-              echo "  Running: $script_name"
-              compose exec -T postgres psql -U postgres -d wims -v ON_ERROR_STOP=1 -f "/docker-entrypoint-initdb.d/$script_name" || {
-                echo "Migration failed: $script_name — continuing"
-              }
-            done
+            # ─── Apply Alembic migrations ──────────────────────────────────────
+            # Stop app services to prevent lock contention with DDL operations.
+            echo "Stopping app services for migration..."
+            compose stop backend celery-worker wims-suricata || true
+
+            echo "Applying Alembic migrations..."
+            compose run --rm --no-deps backend alembic upgrade head
 
             # ─── Reload nginx to refresh container DNS caches ───────────────
             # Run this BEFORE the post-deploy health check.  When containers are
