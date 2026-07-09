@@ -468,6 +468,7 @@ services:
       - "8090:80"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/bot-blocker:/etc/nginx/bot-blocker:ro
       # TLS certificates are production-only — mount via docker-compose.prod.yml or deployment override
     networks:
       - wims_internal

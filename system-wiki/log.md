@@ -1,3 +1,39 @@
+## [2026-07-09] feat(infra): nginx bad-bot blocker at edge (issue #517)
+
+- **Scope:** Add vendored nginx-ultimate-bad-bot-blocker rules to nginx-gateway
+  to block known bad bots, scanners, and referrer spam at the edge, reducing
+  Suricata alert noise from background internet background radiation.
+- **Plan:** Approach A from handoff — vendor minimal generated upstream files
+  under `src/nginx/bot-blocker/` and mount as a compose volume.
+- **New files:**
+  - `src/nginx/bot-blocker/conf.d/globalblacklist.conf` — upstream generated
+    map/geo blocklists (696 bad UAs, 7113 bad referrers, bad IPs) + bot-prefixed
+    rate-limit zones (~541 KB, MIT license, version V4.2026.07.6037)
+  - `src/nginx/bot-blocker/conf.d/wims-botblocker-settings.conf` — defines the
+    `flood` zone required by upstream ddos.conf (not defined by WIMS or upstream)
+  - `src/nginx/bot-blocker/bots.d/` — 8 support files (blockbots, ddos,
+    blacklist-user-agents, blacklist-ips, bad-referrer-words, custom-bad-referrers,
+    whitelist-ips, whitelist-domains) + LICENSE, README.md
+  - `src/backend/tests/test_nginx_bot_blocker.py` — 10 contract tests
+- **Files modified:**
+  - `src/nginx/nginx.conf` — http-scope globalblacklist + wims-botblocker-settings
+    includes; server-scope blockbots + ddos includes in localhost and HTTPS server blocks
+  - `src/nginx/nginx.local.conf` — same pattern in HTTP and TLS server blocks
+  - `src/nginx/nginx.ci.conf` — same pattern in single CI server block
+  - `src/docker-compose.yml` — mount `./nginx/bot-blocker:/etc/nginx/bot-blocker:ro`
+    into nginx-gateway (inherited by all compose variants)
+- **Zone collision analysis:** Upstream defines bot-prefixed zones (`bot2_*`,
+  `bot4_*`) — no collision with WIMS zones. Variables like `$bad_bot`,
+  `$bad_referer`, `$bad_words`, `$validate_client`, `$ratelimited` are not
+  used by WIMS. The `addr` zone exists in WIMS and is referenced by ddos.conf
+  (compatible). The `flood` zone is defined in wims-botblocker-settings.conf.
+- **Validation:** `cd src/backend && pytest tests/test_nginx_bot_blocker.py` —
+  10/10 passed. `tests/test_nginx_forwarded_headers.py` — 12/12 passed.
+- **Pre-existing failures (unrelated):** 2 tests in test_infra_config.py
+  (keycloak image version mismatch, local config TLS carve-out).
+- **Review:** Subagent-driven dev with researcher for upstream file fetch +
+  worker for contract test file. Handoff-based plan followed.
+
 ## [2026-07-09] fix: pin postgis to PG 15 after PG 17 broke VPS deploy
 
 - **Scope:** Deploy from master (PR #530 merge) failed because `postgis/postgis:17-3.5-alpine` couldn't read the existing PG 15 data volume. Postgres refused to start with "database files are incompatible with server".
@@ -288,3 +324,34 @@ Removed the AI incident narrative feature (PR #104 / #69) — backend-only featu
 - **Remaining PoC 1 debris** (uncommitted): celery_config.py, tasks/__init__.py still
   reference `tasks.github_integration`; untracked test_github_integration.py on disk.
   Needs cleanup when convenient.
+
+## 2026-07-09 — Alembic migration infra + GHCR SHA deploys (PRs #536, #537, #538)
+
+### Completed
+- **PR #536** (`feat/alembic-migrations`): Alembic infrastructure + startup DDL migration
+  - `alembic.ini`, `env.py`, `script.py.mako`, `requirements.txt` (alembic>=1.13)
+  - Migration 0001: bootstraps fresh DB from postgres-init SQL files (no-op on existing)
+  - Migration 0002: consolidates all startup DDL (rules, RLS, constraints, roles)
+  - CI: replaces SQL replay loops with `alembic upgrade head` in migrations + backend jobs
+  - Deploy: Alembic migration step with app services stopped (prevents lock contention)
+  - `apply_schema_patches()` kept as `@app.on_event("startup")` (idempotent; needed because
+    3 SQL files fail via `text()` bind-param handling but succeed via `exec_driver_sql`)
+- **PR #537** (`feat/ghcr-sha-deploys`): GHCR SHA immutable image deploys
+  - `docker-compose.yml`: `image: ${BACKEND_IMAGE:-wims-backend:local}` pattern for
+    backend, celery-worker, frontend, keycloak
+  - `deploy.yml`: pull GHCR `:latest` images + `docker compose up --no-build`
+- **PR #538** (`feat/consolidate-deploy`): Deploy consolidation
+  - Deploy concurrency (`group: deploy-vps`, `cancel-in-progress: false`)
+  - `scripts/deploy-vps.sh`: extracted deploy script for local testing/maintainability
+
+### Gotchas
+- PG 17 cannot read PG 15 data directory — pinned to `postgis/postgis:15-3.4-alpine`
+- `apply_schema_patches()` must stay as startup event: 3 SQL files (38, 66, 70) fail
+  via Alembic `op.execute(text(sql))` due to `:` bind-param handling, but succeed via
+  `exec_driver_sql()`. The startup event re-applies these. Long-term fix: convert these
+  SQL files to proper Alembic migrations with escaped `:` literals.
+- Backend CI job has `working-directory: src/backend` — migration step must use plain
+  `alembic upgrade head`, not `cd src/backend && alembic upgrade head`
+- Test `test_267_unarchive_with_duplicate_client_id` depends on startup DDL running
+  before the TestClient (2 TestClients in the test; second one skips startup via
+  `_schema_patches_attempted` guard)

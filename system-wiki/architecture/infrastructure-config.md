@@ -110,6 +110,27 @@ Changing `.env.production` does not update database roles already stored in the 
 
 **Real-IP trusted proxy range:** `nginx.conf`, `nginx.local.conf`, and `nginx.ci.conf` trust only `172.18.0.0/24` (the configured `wims_internal` subnet) plus `127.0.0.1` for `real_ip_header X-Forwarded-For`. Keep this range aligned with the Compose subnet; do not broaden it back to `172.18.0.0/16` unless the bridge subnet is widened too.
 
+**Bad-bot blocker at edge (issue #517):** All three nginx configs include a vendored
+[nginx-ultimate-bad-bot-blocker](https://github.com/mitchellkrogza/nginx-ultimate-bad-bot-blocker)
+ruleset (MIT license, version V4.2026.07.6037) that blocks known bad user agents,
+bad referrers, and malicious IPs at the edge before they reach application
+endpoints. The ruleset is vendored under `src/nginx/bot-blocker/` and mounted
+into the nginx-gateway container via `src/docker-compose.yml`:
+`./nginx/bot-blocker:/etc/nginx/bot-blocker:ro`.
+
+**Include structure:**
+- `http {}` scope: `conf.d/globalblacklist.conf` (generated map/geo blocklists +
+  bot-prefixed rate-limit zones) and `conf.d/wims-botblocker-settings.conf`
+  (defines the `flood` zone required by ddos.conf).
+- Each app-serving `server {}` block: `bots.d/blockbots.conf` and
+  `bots.d/ddos.conf` (enforce the checks with `return 444` and DDoS rate limiting).
+
+The HTTP→HTTPS redirect-only server block is exempt from server-scope includes
+(no application endpoints to protect).
+
+**False-positive unblock workflow:** See `src/nginx/bot-blocker/README.md` for
+whitelisting procedures (IP, UA, or Super Whitelist bypass).
+
 **Ollama model provisioning:** `ollama-model-pull` is a one-shot service that runs `ollama pull qwen2.5:3b` through the image's existing `ollama` entrypoint. Its Compose command is therefore `pull qwen2.5:3b`, not `ollama pull ...`. Backend startup waits for successful model provisioning.
 
 **Ollama VPS resource cap:** The current Contabo production VPS has 8 vCPUs / 23 GiB RAM. `docker-compose.yml` and `docker-compose.prod.yml` cap Ollama at `cpus: '4'` / `memory: 6gb` for `qwen2.5:3b`. This reserves enough headroom for Qwen2.5-3B inference while leaving CPU and memory for Postgres, Keycloak, backend, Celery, Suricata, Redis, nginx, and the host OS cache. Older 2-vCPU / 8 GB VPS overrides must not be used on the Contabo host because they under-allocate the model and database services.

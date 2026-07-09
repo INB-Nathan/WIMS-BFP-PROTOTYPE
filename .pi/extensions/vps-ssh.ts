@@ -221,34 +221,38 @@ export default function (pi: ExtensionAPI): void {
       ctx.ui.setStatus("vps", "Running deploy health checks...");
 
       const script = `
-        set -euo pipefail
+        set -uo pipefail
+        failures=0
 
-        echo "=== Backend /health ==="
-        docker exec wims-backend python -c "import httpx; httpx.get('http://localhost:8000/health', timeout=5).raise_for_status()" && echo "PASS" || echo "FAIL"
+        check() {
+          local name="$1"
+          shift
+          echo "=== $name ==="
+          if "$@"; then
+            echo "PASS"
+          else
+            echo "FAIL"
+            failures=$((failures + 1))
+          fi
+        }
 
-        echo "=== Nginx gateway /health ==="
-        curl -fsS https://wimsbfp.tech/health && echo " PASS" || echo " FAIL"
-
-        echo "=== Keycloak discovery ==="
-        curl -fsS https://wimsbfp.tech/auth/realms/bfp/.well-known/openid-configuration >/dev/null && echo "PASS" || echo "FAIL"
-
-        echo "=== Frontend route ==="
-        curl -fsS https://wimsbfp.tech/login >/dev/null && echo "PASS" || echo "FAIL"
-
-        echo "=== Public API route ==="
-        curl -fsS https://wimsbfp.tech/api/public/emergency-services >/dev/null && echo "PASS" || echo "FAIL"
-
-        echo "=== Ollama model ==="
-        docker exec wims-ollama ollama list | grep -q 'qwen2.5:1.5b' && echo "PASS" || echo "FAIL"
+        check "Backend /health" curl -fsS -o /dev/null http://localhost:8000/health
+        check "Nginx gateway /health" curl -fsS -o /dev/null https://wimsbfp.tech/health
+        check "Keycloak discovery" curl -fsS -o /dev/null https://wimsbfp.tech/auth/realms/bfp/.well-known/openid-configuration
+        check "Frontend route" curl -fsS -o /dev/null https://wimsbfp.tech/login
+        check "Public API route" curl -fsS -o /dev/null https://wimsbfp.tech/api/public/emergency-services
+        check "Ollama model" sh -c "docker exec wims-ollama ollama list | grep -q 'qwen2.5:1.5b'"
 
         echo "=== System resources ==="
         echo "CPU:"
-        grep 'model name' /proc/cpuinfo | head -1
+        grep 'model name' /proc/cpuinfo | head -1 || true
         echo "Cores: $(nproc)"
         echo "RAM:"
-        free -h | grep Mem
+        free -h | grep Mem || true
         echo "Disk:"
-        df -h / | tail -1
+        df -h / | tail -1 || true
+        echo "Failures: $failures"
+        exit 0
       `;
 
       const result = await ssh(pi, script, 60_000);
@@ -273,12 +277,9 @@ export default function (pi: ExtensionAPI): void {
         }
         if (line.trim() === "PASS") results[currentCheck] = "✅ pass";
         else if (line.trim() === "FAIL") results[currentCheck] = "❌ FAIL";
-        else if (currentCheck && results[currentCheck] === undefined && !line.startsWith("===")) {
-          results[currentCheck] = line;
-        }
       }
 
-      const allPass = Object.values(results).every(v => v === "✅ pass");
+      const allPass = Object.values(results).length > 0 && Object.values(results).every(v => v === "✅ pass");
       return {
         content: [{ type: "text", text: result.stdout }],
         details: {

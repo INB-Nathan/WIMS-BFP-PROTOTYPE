@@ -1,0 +1,125 @@
+{
+  "skill_name": "wims-route",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I want to change how civilian reports are triaged — which files do I need to touch?",
+      "expected_output": "Routes to the Civilian reporting & triage subsystem: system-wiki/subsystems/civilian-reporting-phase2.md, civilian.py, citizen_reports tables, triage UI",
+      "should_trigger": true
+    },
+    {
+      "id": 2,
+      "prompt": "I need to implement GitHub issue #42 — the acceptance criteria are clear",
+      "expected_output": "Routes to /issue-implement with instructions to read AGENTS.md and subsystem context",
+      "should_trigger": true
+    },
+    {
+      "id": 3,
+      "prompt": "There's a regression bug between last week's deploy and today — intermittent RLS context loss",
+      "expected_output": "Routes to bug diagnosis flow: establish feedback loop, check gotchas (RLS after commit pattern), fix with regression test, then ci-preflight",
+      "should_trigger": true
+    },
+    {
+      "id": 4,
+      "prompt": "The AFOR import is failing for wildland fire workbooks",
+      "expected_output": "Routes to Regional AFOR & incident lifecycle subsystem: regional.py, AFOR parser, regional dashboard",
+      "should_trigger": true
+    },
+    {
+      "id": 5,
+      "prompt": "I'm about to push — need to run the pre-flight checks",
+      "expected_output": "Routes to /ci-preflight — five CI gates",
+      "should_trigger": true
+    },
+    {
+      "id": 6,
+      "prompt": "I just made a non-trivial change to the triage workflow — need to update docs",
+      "expected_output": "Routes to /wiki-update for system-wiki update",
+      "should_trigger": true
+    },
+    {
+      "id": 7,
+      "prompt": "This session is getting long — I need to hand off to a fresh one",
+      "expected_output": "Routes to /handoff for cross-session continuation",
+      "should_trigger": true
+    },
+    {
+      "id": 8,
+      "prompt": "I want to learn how RLS policies work in this codebase",
+      "expected_output": "Routes to /teacher or the agent routing guide for auth/RBAC/RLS subsystem",
+      "should_trigger": true
+    },
+    {
+      "id": 9,
+      "prompt": "Can you review my diff for over-engineering before I commit?",
+      "expected_output": "Routes to /ponytail-review for an over-engineering-focused pass",
+      "should_trigger": true
+    },
+    {
+      "id": 10,
+      "prompt": "I need to review my current changes for correctness and architecture risk",
+      "expected_output": "Routes to /review-wims — three-axis review (spec fidelity, architecture, risk)",
+      "should_trigger": true
+    },
+    {
+      "id": 11,
+      "prompt": "I need to add a new analytics query for incident trends by region",
+      "expected_output": "Routes to Analytics & reporting subsystem: analytics.py, materialized views, analyst dashboard",
+      "should_trigger": true
+    },
+    {
+      "id": 12,
+      "prompt": "We need to rotate the WIMS_MASTER_KEY for PII encryption",
+      "expected_output": "Routes to Auth/RBAC/RLS/security subsystem: crypto.py, security baseline docs. Caution about PII encryption constraints.",
+      "should_trigger": true
+    },
+    {
+      "id": 13,
+      "prompt": "What architecture constraints does this repo enforce?",
+      "expected_output": "Answers from the architecture constraints reference: RLS, PII encryption, audit, PostGIS, offline-sync",
+      "should_trigger": true
+    },
+    {
+      "id": 14,
+      "prompt": "Write a Python function to parse CSV files",
+      "expected_output": "Should NOT trigger — standalone coding task, not a WIMS routing question",
+      "should_trigger": false
+    },
+    {
+      "id": 15,
+      "prompt": "The admin hub is not showing recent audit logs",
+      "expected_output": "Routes to Admin & system management subsystem: admin.py, system admin hub",
+      "should_trigger": true
+    },
+    {
+      "id": 16,
+      "prompt": "Explain how AES-256-GCM works",
+      "expected_output": "Should NOT trigger — general cryptography knowledge, not a WIMS routing question",
+      "should_trigger": false
+    },
+    {
+      "id": 17,
+      "prompt": "Rate limiting on the public DMZ endpoint seems too aggressive",
+      "expected_output": "Routes to Public DMZ subsystem: public_dmz.py, rate limiting in security baseline",
+      "should_trigger": true
+    },
+    {
+      "id": 18,
+      "prompt": "Run the three-axis review chain on this PR",
+      "expected_output": "Routes to /review-pipeline for thorough subagent review",
+      "should_trigger": true
+    },
+    {
+      "id": 19,
+      "prompt": "What's for lunch?",
+      "expected_output": "Should NOT trigger — completely unrelated to the repo",
+      "should_trigger": false
+    },
+    {
+      "id": 20,
+      "prompt": "Docker compose keeps failing on postgres bootstrap",
+      "expected_output": "Routes to Infrastructure/Docker/CI subsystem: docker-compose files, 74 SQL bootstrap files, ci-preflight",
+      "should_trigger": true
+    }
+  ]
+}
