@@ -98,16 +98,11 @@ jobs:
             sleep 1
           done
 
-      - name: Apply init scripts in lexical order
+      - name: Apply Alembic migrations
         run: |
-          export PGPASSWORD=postgres
-          find "$GITHUB_WORKSPACE/src/postgres-init" -maxdepth 1 -type f -name '*.sql' -print0 \
-            | LC_ALL=C sort -z \
-            | while IFS= read -r -d '' script; do
-                echo "Applying: ${script#$GITHUB_WORKSPACE/}"
-                psql -v ON_ERROR_STOP=1 -h localhost -p 5432 -U postgres -d wims_test \
-                  -f "$script"
-              done
+          cd src/backend && alembic upgrade head
+        env:
+          DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/wims_test"
 
       - name: Verify schema objects exist
         run: |
@@ -240,14 +235,9 @@ jobs:
 
       - name: Initialize test database
         run: |
-          export PGPASSWORD=postgres
-          find "$GITHUB_WORKSPACE/src/postgres-init" -maxdepth 1 -type f -name '*.sql' -print0 \
-            | LC_ALL=C sort -z \
-            | while IFS= read -r -d '' script; do
-                echo "Applying: ${script#$GITHUB_WORKSPACE/}"
-                psql -v ON_ERROR_STOP=1 -h localhost -p 5432 -U postgres -d wims_test \
-                  -f "$script"
-              done
+          cd src/backend && alembic upgrade head
+        env:
+          DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/wims_test"
 
       - name: Run tests
         run: pytest -v --tb=short --ignore=tests/test_rate_limiting.py --ignore=tests/test_suricata_ingestion.py --ignore=tests/test_infra_config.py --ignore=tests/integration/test_wims_initial_schema_bootstrap.py --ignore=tests/integration/test_auth_otp_policy.py --ignore=tests/integration/test_database_schema.py --ignore=tests/integration/test_rls_policy_enforcement.py --ignore=tests/integration/test_sql_quality_audit.py
