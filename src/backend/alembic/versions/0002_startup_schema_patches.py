@@ -205,8 +205,8 @@ def _ensure_analytics_facts_rls() -> None:
         """
         CREATE POLICY aif_regional_read ON wims.analytics_incident_facts
             FOR SELECT USING (
-                wims.current_user_role() IN ('REGIONAL_ENCODER', 'NATIONAL_VALIDATOR')
-                AND incident_region_id = wims.current_user_region_id()
+                wims.current_user_role() = 'REGIONAL_ENCODER'
+                AND region_id = wims.current_user_region_id()
             )
         """
     )
@@ -215,10 +215,7 @@ def _ensure_analytics_facts_rls() -> None:
         CREATE POLICY aif_validator_read ON wims.analytics_incident_facts
             FOR SELECT USING (
                 wims.current_user_role() = 'NATIONAL_VALIDATOR'
-                AND (
-                    incident_region_id = wims.current_user_region_id()
-                    OR incident_region_id IS NULL
-                )
+                AND region_id = wims.current_user_region_id()
             )
         """
     )

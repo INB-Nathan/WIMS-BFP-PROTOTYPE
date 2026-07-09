@@ -242,8 +242,7 @@ jobs:
           done
 
       - name: Initialize test database
-        run: |
-          cd src/backend && alembic upgrade head
+        run: alembic upgrade head
         env:
           DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/wims_test"
 
