@@ -124,7 +124,7 @@ BUILD_ATTEMPT=0
 while [ $BUILD_ATTEMPT -lt $MAX_RETRIES ]; do
   BUILD_ATTEMPT=$((BUILD_ATTEMPT + 1))
   cleanup_stale_compose_renames
-  if compose up -d --no-build --wait --wait-timeout 600 2>&1; then
+  if compose up -d --wait --wait-timeout 600 2>&1; then
     echo "Compose stack is up (attempt $BUILD_ATTEMPT)"
     break
   fi
