@@ -96,6 +96,15 @@ compose exec -T postgres psql -U postgres -d wims -c "SELECT 1;" >/dev/null || {
 }
 
 # ---------------------------------------------------------------------------
+# Authenticate to GHCR for pulling pre-built images
+# ---------------------------------------------------------------------------
+if [ -n "${GHCR_TOKEN:-}" ]; then
+  echo "$GHCR_TOKEN" | docker login ghcr.io -u x1n4te --password-stdin
+else
+  echo "Warning: GHCR_TOKEN not set — GHCR pulls will fail; falling back to local builds"
+fi
+
+# ---------------------------------------------------------------------------
 # Set GHCR image tags (PR 3)
 # ---------------------------------------------------------------------------
 export BACKEND_IMAGE="${BACKEND_IMAGE:-ghcr.io/x1n4te/wims-backend:latest}"
@@ -124,7 +133,7 @@ BUILD_ATTEMPT=0
 while [ $BUILD_ATTEMPT -lt $MAX_RETRIES ]; do
   BUILD_ATTEMPT=$((BUILD_ATTEMPT + 1))
   cleanup_stale_compose_renames
-  if compose up -d --wait --wait-timeout 600 2>&1; then
+  if compose up -d --no-build --wait --wait-timeout 600 2>&1; then
     echo "Compose stack is up (attempt $BUILD_ATTEMPT)"
     break
   fi
