@@ -19,7 +19,7 @@ jobs:
       WIMS_MASTER_KEY: ${{ secrets.WIMS_MASTER_KEY }}
     services:
       postgres:
-        image: postgis/postgis:17-3.5-alpine
+        image: postgis/postgis:15-3.4-alpine
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
