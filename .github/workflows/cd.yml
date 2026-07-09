@@ -6,7 +6,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/wims
+  IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}
 
 # Only one deploy at a time
 concurrency:
@@ -50,7 +50,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.IMAGE_PREFIX }}-${{ matrix.image }}
+          images: ${{ env.IMAGE_PREFIX }}/${{ matrix.image }}
           tags: |
             type=sha,prefix=
             type=raw,value=latest
@@ -94,5 +94,5 @@ jobs:
           echo "**Triggered by:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Images published to GHCR:" >> $GITHUB_STEP_SUMMARY
-          echo "- \`${{ env.IMAGE_PREFIX }}-backend:latest\`" >> $GITHUB_STEP_SUMMARY
-          echo "- \`${{ env.IMAGE_PREFIX }}-frontend:latest\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ env.IMAGE_PREFIX }}/wims-backend:latest\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ env.IMAGE_PREFIX }}/wims-frontend:latest\`" >> $GITHUB_STEP_SUMMARY
