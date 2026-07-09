@@ -98,6 +98,14 @@ jobs:
             sleep 1
           done
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install backend deps (includes alembic)
+        run: pip install -r src/backend/requirements.txt
+
       - name: Apply Alembic migrations
         run: |
           cd src/backend && alembic upgrade head
