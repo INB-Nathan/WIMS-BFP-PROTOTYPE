@@ -304,6 +304,34 @@ class KeycloakAuthenticator:
 authenticator = KeycloakAuthenticator()
 
 
+async def optional_auth(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+) -> dict | None:
+    """Return WIMS user dict when auth cookie is valid; return None when missing/invalid.
+
+    Unlike get_current_user / get_current_wims_user which raise 401/403,
+    this dependency silently returns None so civilian routes can branch on
+    auth detection without requiring authentication.
+
+    Usage:
+        async def my_endpoint(
+            user: Annotated[dict | None, Depends(optional_auth)] = None,
+        ):
+            is_registered = user is not None
+    """
+    token = request.cookies.get("access_token")
+    if not token:
+        return None
+    try:
+        token_payload = await authenticator.validate_token(token)
+        return await get_current_wims_user(request, token_payload, db)
+    except HTTPException as exc:
+        if exc.status_code == 401:
+            return None
+        raise
+
+
 async def get_current_user(request: Request):
     """
     Extract and validate the access_token from HttpOnly cookies only.
