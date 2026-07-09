@@ -311,7 +311,7 @@ async def get_current_user(request: Request):
     sole token transport (XSS-resistant). CSRF is mitigated by SameSite=Strict,
     __Host- cookie prefix, and Origin/Referer middleware.
     """
-    token = request.cookies.get("__Host-access_token")
+    token = request.cookies.get("access_token")
     if not token:
         raise HTTPException(status_code=401, detail="Authentication credentials missing")
 
@@ -337,29 +337,33 @@ async def get_current_wims_user(
     should use get_db_with_rls() which depends on this function directly.
     """
     keycloak_sub = token_payload.get("sub")
-    if not keycloak_sub:
-        raise HTTPException(status_code=401, detail="Invalid token: missing sub")
+    preferred_username = token_payload.get("preferred_username")
 
-    # Validate keycloak_sub is UUID-format BEFORE hitting the database
-    try:
-        uuid.UUID(keycloak_sub)
-    except ValueError:
-        logger.warning(f"Invalid keycloak_sub format: {keycloak_sub}")
-        raise HTTPException(status_code=401, detail="Invalid token: malformed sub")
+    # KC 26 lightweight access tokens may omit sub. Try keycloak_id lookup
+    # when sub is present, otherwise fall through to username lookup.
+    if keycloak_sub:
+        try:
+            uuid.UUID(keycloak_sub)
+        except ValueError:
+            logger.warning(f"Invalid keycloak_sub format: {keycloak_sub}")
+            raise HTTPException(status_code=401, detail="Invalid token: malformed sub")
 
-    try:
-        row = db.execute(
-            text(
-                "SELECT user_id, role, username FROM wims.users WHERE keycloak_id = :kid AND is_active = TRUE"
-            ),
-            {"kid": keycloak_sub},
-        ).fetchone()
-    except DataError as e:
-        logger.error(f"DB error validating keycloak_id {keycloak_sub}: {e}")
-        raise HTTPException(status_code=500, detail="Authentication system error")
+        try:
+            row = db.execute(
+                text(
+                    "SELECT user_id, role, username FROM wims.users WHERE keycloak_id = :kid AND is_active = TRUE"
+                ),
+                {"kid": keycloak_sub},
+            ).fetchone()
+        except DataError as e:
+            logger.error(f"DB error validating keycloak_id {keycloak_sub}: {e}")
+            raise HTTPException(status_code=500, detail="Authentication system error")
+    else:
+        row = None
 
     if row is None:
-        preferred_username = token_payload.get("preferred_username")
+        if not preferred_username:
+            raise HTTPException(status_code=403, detail="User not found in WIMS")
         if not preferred_username:
             raise HTTPException(status_code=403, detail="User not found in WIMS")
 
@@ -377,6 +381,12 @@ async def get_current_wims_user(
             raise HTTPException(status_code=500, detail="Authentication system error")
 
         if row_by_username is None:
+            if keycloak_sub is None:
+                raise HTTPException(
+                    status_code=403,
+                    detail="User not found in WIMS and token missing sub — cannot provision account",
+                )
+
             # ── JIT provisioning ───────────────────────────────────────
             # User authenticated with Keycloak but has no row in wims.users.
             # Auto-create a user row from token claims so UUID drift between
@@ -529,7 +539,11 @@ async def get_current_wims_user(
 
         else:
             existing_keycloak_id = row_by_username[2]
-            if existing_keycloak_id is not None and str(existing_keycloak_id) != keycloak_sub:
+            if (
+                keycloak_sub is not None
+                and existing_keycloak_id is not None
+                and str(existing_keycloak_id) != keycloak_sub
+            ):
                 # UUID drift — update to current Keycloak identity (JIT repair)
                 logger.warning(
                     f"Identity drift for {preferred_username}: "

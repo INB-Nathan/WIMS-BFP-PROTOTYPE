@@ -30,12 +30,18 @@ function trustedClientIp(req: NextRequest): string | null {
 const ACCESS_TOKEN_COOKIE_MAX_AGE = 24 * 60 * 60; // 24h: cookie stores the token; Keycloak enforces actual expiry
 const REFRESH_TOKEN_COOKIE_MAX_AGE = 24 * 60 * 60; // 24h: same as access token cookie
 
-const COOKIE_OPTIONS = {
-  httpOnly: true,
-  secure: true,
-  sameSite: 'strict' as const,
-  path: '/',
-};
+function cookieOptions(secure: boolean) {
+  return {
+    httpOnly: true,
+    secure,
+    sameSite: 'strict' as const,
+    path: '/',
+  };
+}
+
+function isHttps(req: NextRequest): boolean {
+  return req.headers.get('x-forwarded-proto') === 'https' || req.nextUrl.protocol === 'https:';
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -44,15 +50,16 @@ export async function POST(req: NextRequest) {
 
     // Accept access_token from client-side signinCallback() flow
     if (access_token) {
+      const secure = isHttps(req);
       const response = NextResponse.json({ user_id: 'ok' });
-      response.cookies.set('__Host-access_token', access_token, {
-        ...COOKIE_OPTIONS,
+      response.cookies.set('access_token', access_token, {
+        ...cookieOptions(secure),
         maxAge: ACCESS_TOKEN_COOKIE_MAX_AGE,
       });
       const { refresh_token: refreshToken } = body as { refresh_token?: string };
       if (refreshToken) {
-        response.cookies.set('__Host-refresh_token', refreshToken, {
-          ...COOKIE_OPTIONS,
+        response.cookies.set('refresh_token', refreshToken, {
+          ...cookieOptions(secure),
           maxAge: REFRESH_TOKEN_COOKIE_MAX_AGE,
         });
       }
@@ -99,14 +106,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const secure = isHttps(req);
     const response = NextResponse.json({ user_id: data.user_id });
-    response.cookies.set('__Host-access_token', token, {
-      ...COOKIE_OPTIONS,
+    response.cookies.set('access_token', token, {
+      ...cookieOptions(secure),
       maxAge: ACCESS_TOKEN_COOKIE_MAX_AGE,
     });
     if (data.refresh_token) {
-      response.cookies.set('__Host-refresh_token', data.refresh_token, {
-        ...COOKIE_OPTIONS,
+      response.cookies.set('refresh_token', data.refresh_token, {
+        ...cookieOptions(secure),
         maxAge: REFRESH_TOKEN_COOKIE_MAX_AGE,
       });
     }

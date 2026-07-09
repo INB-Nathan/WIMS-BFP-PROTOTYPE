@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
@@ -17,12 +17,15 @@ RUN pip install --no-cache-dir --upgrade pip && \
 
 COPY . .
 COPY wait-for-db.sh /app/wait-for-db.sh
-RUN chmod +x /app/wait-for-db.sh && chown -R appuser:appuser /app && \
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/wait-for-db.sh /app/entrypoint.sh && chown -R appuser:appuser /app && \
     mkdir -p /app/storage/exports && chown -R appuser:appuser /app/storage
 
 USER appuser
 
 EXPOSE 8000
 
+ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", \
-     "--workers", "3", "--limit-concurrency", "200", "--timeout-keep-alive", "5"]
+     "--workers", "3", "--limit-concurrency", "200", "--timeout-keep-alive", "5", \
+     "--lifespan", "off"]

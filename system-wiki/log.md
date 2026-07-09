@@ -1,3 +1,13 @@
+## [2026-07-07] fix: await async NPC data load in breach-list tests
+
+- **Scope:** Fix CI failure on PR #530; close duplicate PR #531 (wrong base branch).
+- **Files modified:** `src/frontend/src/app/admin/breach/__tests__/breach-list.test.tsx` (5 insertions, 8 deletions).
+- **Files added (gotcha):** `docs/agents/gotchas.md` — entry #17: "Target `master`, not `main`".
+- **Behavior:** Two breach-list tests used `waitFor` + `getByTestId` on `npc-contact-card`, which renders immediately in the loading state. Replaced with `findByTestId('npc-name-display')` which properly awaits the async NPC data load.
+- **PR #531 closed as duplicate** — it was opened against `main` (stale orphan branch) instead of `master`, showing 100 unrelated commits. PR #530 has the same 3 commits targeting `master` cleanly.
+- **CI:** All checks pass on PR #530 (Frontend, Backend, Security Audit, Validate Migrations, Docker Build, Security Scan, Merge Gate — all SUCCESS).
+- **Gotcha added:** Entry #17 warns about the `main` vs `master` trap.
+
 ## [2026-07-03] feat(operations): day reset archive board
 
 - **Scope:** Add validator-controlled Operations Board day reset, one-night carryover, archive viewing, and restore support.

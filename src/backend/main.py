@@ -1281,22 +1281,49 @@ async def get_me(
 ):
     """Protected route that returns merged JWT + wims.users payload. JIT-provisions user if not in wims.users."""
     keycloak_sub = token_payload.get("sub")
-    if not keycloak_sub:
-        raise HTTPException(status_code=401, detail="Invalid token: missing sub")
-
-    preferred_username = token_payload.get("preferred_username") or keycloak_sub or "unknown"
+    preferred_username = token_payload.get("preferred_username") or "unknown"
     username = preferred_username[:50]
 
-    row = db.execute(
-        text("""
-            SELECT user_id, username, role, assigned_region_id
-            FROM wims.users
-            WHERE keycloak_id = CAST(:kid AS uuid) AND is_active = TRUE
-        """),
-        {"kid": keycloak_sub},
-    ).fetchone()
+    # Try lookup by sub first (lightweight tokens in KC 26 may omit sub)
+    if keycloak_sub:
+        row = db.execute(
+            text("""
+                SELECT user_id, username, role, assigned_region_id
+                FROM wims.users
+                WHERE keycloak_id = CAST(:kid AS uuid) AND is_active = TRUE
+            """),
+            {"kid": keycloak_sub},
+        ).fetchone()
+    else:
+        row = None
 
     if row is None:
+        # Lightweight token fallback: try username lookup when sub is missing
+        if not keycloak_sub and preferred_username != "unknown":
+            username_row = db.execute(
+                text("""
+                    SELECT user_id, username, role, assigned_region_id
+                    FROM wims.users
+                    WHERE username = :uname AND is_active = TRUE
+                """),
+                {"uname": preferred_username},
+            ).fetchone()
+            if username_row:
+                user_id, username, role, assigned_region_id = username_row
+                return {
+                    "email": token_payload.get("email") or preferred_username or "",
+                    "user_id": user_id,
+                    "username": username,
+                    "role": role,
+                    "assigned_region_id": assigned_region_id,
+                }
+
+        if keycloak_sub is None:
+            raise HTTPException(
+                status_code=403,
+                detail="User not found in WIMS and token missing sub — cannot provision account",
+            )
+
         role = _resolve_role_from_token(token_payload)
         if role is None:
             raise HTTPException(
