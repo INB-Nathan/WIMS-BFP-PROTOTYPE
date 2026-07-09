@@ -258,7 +258,6 @@ def _apply_postgres_init_sql_patch(db: Session, filename: str, label: str) -> No
     logger.info("Schema patch applied: %s", label)
 
 
-@app.on_event("startup")
 def apply_schema_patches() -> None:
     """Idempotent schema patches for containers that predate specific init migrations.
 
