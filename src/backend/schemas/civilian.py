@@ -5,7 +5,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+import math
 
 
 CitizenCategory = Literal["STRUCTURAL", "NON_STRUCTURAL", "TRANSPORTATION", "UNSURE"]
@@ -206,3 +208,80 @@ class ReportClusterResponse(BaseModel):
     stale: bool = False
     degraded: bool = False
     areas: list[ReportClusterArea]
+
+
+class BrowserGPSFields(BaseModel):
+    """Optional browser GPS fields for photo upload.
+
+    All-or-none validation: if any field is provided, all four are required.
+    """
+
+    browser_gps_lat: float | None = None
+    browser_gps_lon: float | None = None
+    browser_gps_accuracy: float | None = None
+    browser_gps_captured_at: datetime | None = None
+
+    @field_validator("browser_gps_lat")
+    @classmethod
+    def _check_lat_range(cls, v: float | None) -> float | None:
+        if v is not None and not (-90 <= v <= 90):
+            raise ValueError("browser_gps_lat must be in [-90, 90]")
+        return v
+
+    @field_validator("browser_gps_lon")
+    @classmethod
+    def _check_lon_range(cls, v: float | None) -> float | None:
+        if v is not None and not (-180 <= v <= 180):
+            raise ValueError("browser_gps_lon must be in [-180, 180]")
+        return v
+
+    @field_validator("browser_gps_accuracy")
+    @classmethod
+    def _check_accuracy(cls, v: float | None) -> float | None:
+        if v is not None:
+            if math.isnan(v) or math.isinf(v):
+                raise ValueError("browser_gps_accuracy must be finite")
+            if v < 0:
+                raise ValueError("browser_gps_accuracy must be >= 0")
+        return v
+
+    @field_validator("browser_gps_captured_at")
+    @classmethod
+    def _check_timestamp(cls, v: datetime | None) -> datetime | None:
+        if v is not None:
+            if v.tzinfo is None:
+                raise ValueError("browser_gps_captured_at must be timezone-aware")
+        return v
+
+    @model_validator(mode="before")
+    @classmethod
+    def check_all_or_none(cls, values: dict) -> dict:
+        """Validate all-or-none: if any GPS field is set, all four must be set."""
+        present = sum(
+            1
+            for f in (
+                "browser_gps_lat",
+                "browser_gps_lon",
+                "browser_gps_accuracy",
+                "browser_gps_captured_at",
+            )
+            if values.get(f) is not None
+        )
+        if present not in (0, 4):
+            raise ValueError("Browser GPS fields must be all-or-none: provide all four or none")
+        return values
+
+
+class PhotoUploadResponse(BaseModel):
+    """Response body for successful photo upload (201)."""
+
+    photo_id: str
+    report_id: int
+    file_size_bytes: int
+    mime_type: str
+    image_width: int
+    image_height: int
+    exif_gps_status: str
+    browser_gps_status: str
+    gps_consensus: str | None = None
+    photo_reported_distance_m: float | None = None

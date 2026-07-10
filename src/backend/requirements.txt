@@ -31,3 +31,4 @@ docker>=7.0.0
 croniter>=2.0.0
 freezegun>=1.5.0  # for time-pinned assertions on Retry-After formula (PR #446 P1-7)
 geoip2>=4.8.0
+Pillow==12.2.0

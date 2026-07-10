@@ -1,8 +1,8 @@
 # WIMS-BFP System Wiki Index
 
-Last updated: 2026-06-21
+Last updated: 2026-07-10
 Total synthesis pages: 34
-Last changes: Diagnosed and fixed the admin system monitoring Vitest race by waiting for the loaded worker-empty state instead of the static section heading; updated admin hub notes.
+Last changes: Documented the civilian contributor Phase 2 post-submit photo pipeline, `wims.report_photos` schema/RLS/encryption model, API route, frontend integration, and reconciliation task.
 Purpose: project-local knowledgebase for agents routing themselves to relevant WIMS-BFP context.
 
 ## Start Here

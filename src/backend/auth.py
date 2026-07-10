@@ -3,7 +3,7 @@ import time
 import uuid
 import logging
 import asyncio
-from typing import Annotated, Optional, Dict, Any
+from typing import Annotated, Optional, Dict, Any, Generator
 from jose import jwt, jwk, JWTError
 import httpx
 from fastapi import Request, HTTPException, Depends
@@ -314,6 +314,9 @@ async def optional_auth(
     this dependency silently returns None so civilian routes can branch on
     auth detection without requiring authentication.
 
+    Treats authentication-resolution 401 and 403 as anonymous. Preserves 500/503
+    identity-provider/database failures so they propagate as server errors.
+
     Usage:
         async def my_endpoint(
             user: Annotated[dict | None, Depends(optional_auth)] = None,
@@ -327,7 +330,7 @@ async def optional_auth(
         token_payload = await authenticator.validate_token(token)
         return await get_current_wims_user(request, token_payload, db)
     except HTTPException as exc:
-        if exc.status_code == 401:
+        if exc.status_code in (401, 403):
             return None
         raise
 
@@ -595,6 +598,39 @@ async def get_current_wims_user(
     }
 
     return user_dict
+
+
+def get_photo_db(
+    user: Annotated[dict | None, Depends(optional_auth)],
+) -> Generator[Session, None, None]:
+    """Return a non-superuser session with RLS context for civilian photo operations.
+
+    This dependency is photo-specific and must NOT replace get_db/get_db_with_rls
+    for other routes. It uses ``_SessionLocal`` (non-superuser ``wims_app_user``)
+    so FORCE ROW LEVEL SECURITY on ``wims.report_photos`` is enforced.
+
+    - Anonymous requests: ``wims.current_user_id`` is NOT set; the RLS helper
+      ``wims.current_user_role()`` returns ``'ANONYMOUS'``.
+    - Registered requests: ``set_rls_context(db, user["user_id"])`` sets the GUC
+      so ``wims.current_user_role()`` returns the user's role.
+
+    Usage in civilian photo route::
+
+        @router.post("/reports/{report_id}/photos")
+        def upload_report_photo(
+            report_id: int,
+            db: Annotated[Session, Depends(get_photo_db)],
+            user: Annotated[dict | None, Depends(optional_auth)],
+        ):
+    """
+    db = _SessionLocal()
+    try:
+        db.execute(text("SET LOCAL app.audit_source = 'app'"))
+        if user is not None:
+            set_rls_context(db, user["user_id"])
+        yield db
+    finally:
+        db.close()
 
 
 def get_db_with_rls(

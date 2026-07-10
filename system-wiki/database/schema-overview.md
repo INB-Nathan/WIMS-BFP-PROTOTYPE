@@ -1,7 +1,7 @@
 ---
 title: Database Schema Overview
 created: 2026-05-14
-updated: 2026-06-22
+updated: 2026-07-10
 type: database
 tags: [wims-bfp, database, schema, rls, audit-log, implementation-map, startup-self-heal]
 sources: [raw/codebase/codebase-snapshot-2026-05-14.md, src/postgres-init]
@@ -30,6 +30,7 @@ As of 2026-06-19, eligible schema-only SQL files are executed directly from `src
 - `61_check_constraints.sql`
 - `62_audit_correlation_columns.sql`
 - `63_ivh_ip_address.sql`
+- `82_civilian_report_photos.sql` — civilian photo table, RLS, and encryption metadata columns
 
 **Kept inline** (mixed schema + seed data, RLS rewrites, or rule/policy patches):
 - `21_all_regions.sql` — province_district/city_municipality columns only; file also seeds regions/provinces/cities and assigns users
@@ -48,6 +49,7 @@ As of 2026-06-19, eligible schema-only SQL files are executed directly from `src
 | `wims.fire_incidents` | `04_import_incidents.sql` |
 | `wims.citizen_reports` | `05_citizen_reports.sql` |
 | `wims.citizen_report_followups` | `59_citizen_report_followups.sql` |
+| `wims.report_photos` | `82_civilian_report_photos.sql` |
 | `wims.operations` | `51_operations.sql`; map fields in `52_operations_map.sql`; archive/reset flags in `79_operations_day_reset.sql` |
 | `wims.operation_citizen_reports` | `51_operations.sql`; one-report-per-operation uniqueness in `71_operation_report_unique.sql` |
 | `wims.operation_reset_batches` | `79_operations_day_reset.sql` |
@@ -81,6 +83,7 @@ As of 2026-06-19, eligible schema-only SQL files are executed directly from `src
 - Analytics: `wims.analytics_incident_facts`, materialized view SQL, export/scheduled report tables. Migration `28_analytics_geography_denorm.sql` adds denormalized `municipality_name` and `province_name` fields for analyst filters/top-N views, plus export task/file metadata on `analytics_export_log`. Scheduled reports remain deferred outside the National Analyst dashboard phase.
 - Security: `wims.security_threat_logs`, `wims.system_audit_trails`, `wims.ip_blocklist`, public keys.
 - Civilian reporting: `wims.citizen_reports` stores device-UUID-owned reports. The `location` column is a PostGIS `geography` type — when extracting latitude/longitude via `ST_Y`/`ST_X`, the column must be cast to `geometry`: `ST_Y(location::geometry)` or `ST_X(location::geometry)`. The Phase 2 update flow uses `GET /api/civilian/reports?device_id=` to enumerate a device's owned reports before allowing an append.
+- Civilian photo evidence: `wims.report_photos` stores one post-submit attachment per anonymous report (up to five for registered contributors), with original, sanitized, and sensitive-metadata artifacts independently encrypted and AAD-bound to the photo UUID and variant. The table is `FORCE ROW LEVEL SECURITY`; anonymous inserts are device-owned, registered inserts are contributor-owned, and there is no public photo-read endpoint in Phase 2. Artifact paths are rooted under `CIVILIAN_PHOTO_STORAGE_DIR` and final-file reconciliation quarantines unreferenced artifacts rather than deleting them.
 - Operations board: `wims.operations` stores validator-maintained active and archived fire operations. `keep_overnight` is a one-reset carryover flag; daily/manual resets write `wims.operation_reset_batches` and soft-archive non-kept rows via `is_archived`/`archived_at` metadata.
 
 ## DB-Enforced vs App-Enforced Invariants

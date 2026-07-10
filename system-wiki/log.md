@@ -1,3 +1,10 @@
+## [2026-07-10] feat(civilian): complete Phase 2 photo-pipeline handoff validation
+
+- **Scope:** Fixed `PhotoUpload` preview lifecycle: removed the effect-driven preview state that triggered `react-hooks/set-state-in-effect`, corrected the undefined preview guard, and assigns the object URL to the preview image from the file-change effect while revoking it on replacement/unmount.
+- **Documentation:** Updated the civilian subsystem, backend route map, database schema overview, security baseline, frontend route map, and index with the `wims.report_photos` table, RLS boundary, encrypted artifact model, post-submit endpoint, and Celery reconciliation task.
+- **Validation:** Focused civilian photo/page/API tests — 50/50 passed; full frontend Vitest — 1163/1163 passed across 103 files; frontend lint — 0 errors and 37 warnings; production build succeeded with existing Next metadata/workspace warnings.
+- **Environment limitation:** Full backend pytest was not run to completion locally because integration fixtures require the Compose PostgreSQL/Redis service names; the run encountered `postgres` DNS failures and was aborted. Run the backend gate in PR/Compose CI as requested.
+
 ## [2026-07-09] feat(infra): nginx bad-bot blocker at edge (issue #517)
 
 - **Scope:** Add vendored nginx-ultimate-bad-bot-blocker rules to nginx-gateway
