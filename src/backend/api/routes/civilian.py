@@ -5,6 +5,7 @@ import json
 import logging
 import math
 import os
+import secrets
 import threading
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
@@ -16,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from services.kms import get_crypto_provider
+from tasks.routing import compute_routing_task
 from utils.audit import hash_client_ip, log_system_audit, trusted_client_ip
 from utils.crypto import SecurityProviderError
 from utils.public_abuse import rate_limit_public
@@ -46,6 +48,8 @@ from schemas.civilian import (
     ReportClusterResponse,
     ReportClusterArea,
 )
+
+logger = logging.getLogger("wims.civilian")
 
 router = APIRouter(prefix="/api/civilian", tags=["civilian"])
 
@@ -292,6 +296,10 @@ def _response_from_row(row) -> CivilianReportResponse:
         previous_report_id=row.previous_report_id,
         nearest_station_name=row.nearest_station_name,
         nearest_station_phone=row.nearest_station_phone,
+        routing_distance_m=getattr(row, "routing_distance_m", None),
+        routing_duration_s=getattr(row, "routing_duration_s", None),
+        routing_data_source=getattr(row, "routing_data_source", None),
+        photo_count=getattr(row, "photo_count", 0) or 0,
         link_count=row.link_count or 0,
         created_at=row.created_at,
     )
@@ -351,7 +359,10 @@ def _fetch_report_response(
                    cr.witness_key_version,
                    fs.station_name AS nearest_station_name,
                    fs.phone AS nearest_station_phone,
-                   cl.status AS related_cluster_status
+                   cl.status AS related_cluster_status,
+                   cr.routing_distance_m,
+                   cr.routing_duration_s,
+                   cr.routing_data_source
             FROM wims.citizen_reports cr
             LEFT JOIN wims.ref_fire_stations fs ON fs.station_id = cr.nearest_station_id
             LEFT JOIN wims.citizen_report_cluster_members cm ON cm.report_id = cr.report_id
@@ -532,7 +543,126 @@ def submit_civilian_report(
             status_code=500, detail="Failed to record civilian report audit trail"
         ) from exc
 
-    return _fetch_report_response(db, report_id)
+    # ── Generate tracking token for public sharing ────────────────────────
+    tracking_token = secrets.token_hex(32)
+    token_hash = hashlib.sha256(tracking_token.encode("utf-8")).hexdigest()
+    try:
+        db.execute(
+            text("""
+                INSERT INTO wims.report_tracking_tokens (report_id, token_hash, token_type)
+                VALUES (:rid, :token_hash, 'public')
+            """),
+            {"rid": report_id, "token_hash": token_hash},
+        )
+        db.commit()
+    except Exception as exc:
+        logger.warning("Failed to create tracking token for report_id=%s: %s", report_id, exc)
+
+    # ── Enqueue async routing computation ────────────────────────────────
+    try:
+        compute_routing_task.delay(report_id)
+    except Exception as exc:
+        logger.warning("Failed to enqueue routing for report_id=%s: %s", report_id, exc)
+
+    response = _fetch_report_response(db, report_id)
+    response.tracking_token = tracking_token
+    response.tracking_url = f"/tracking/v2/{report_id}/{tracking_token}"
+    return response
+
+
+@router.get(
+    "/reports/{report_id}/track/{tracking_token}",
+    response_model=CivilianReportResponse,
+)
+def get_civilian_report_by_tracking_token(
+    report_id: int,
+    tracking_token: str,
+    db: Annotated[Session, Depends(get_db)],
+) -> CivilianReportResponse:
+    """Read-only tracking page API. Validates tracking token and returns
+    Tier 1 report data (status, station info, coarse routing, photo count).
+
+    Returns neutral 404 for invalid, expired, revoked, or mismatched tokens.
+    """
+    token_hash = hashlib.sha256(tracking_token.encode("utf-8")).hexdigest()
+
+    # Use SECURITY DEFINER function to bypass RLS on report_tracking_tokens
+    is_valid = db.execute(
+        text("SELECT wims.validate_tracking_token(:rid, :token_hash)"),
+        {"rid": report_id, "token_hash": token_hash},
+    ).scalar()
+
+    if not is_valid:
+        # Neutral 404 — do not reveal whether the report exists or the token is wrong
+        raise HTTPException(status_code=404, detail="Report not found")
+
+    # Fetch limited Tier 1 report data
+    row = db.execute(
+        text("""
+            SELECT cr.report_id,
+                   ST_Y(cr.location::geometry) AS lat,
+                   ST_X(cr.location::geometry) AS lon,
+                   cr.category,
+                   cr.sub_category,
+                   cr.reporting_context,
+                   cr.safety_status,
+                   cr.trust_score,
+                   cr.status,
+                   cr.status_explanation,
+                   cr.link_count,
+                   cr.previous_report_id,
+                   cr.created_at,
+                   cr.routing_distance_m,
+                   cr.routing_duration_s,
+                   cr.routing_data_source,
+                   fs.station_name AS nearest_station_name,
+                   fs.phone AS nearest_station_phone,
+                   cl.status AS related_cluster_status
+            FROM wims.citizen_reports cr
+            LEFT JOIN wims.ref_fire_stations fs ON fs.station_id = cr.nearest_station_id
+            LEFT JOIN wims.citizen_report_cluster_members cm ON cm.report_id = cr.report_id
+            LEFT JOIN wims.citizen_report_clusters cl ON cl.cluster_id = cm.cluster_id
+            WHERE cr.report_id = :rid
+            ORDER BY cl.updated_at DESC NULLS LAST, cl.created_at DESC NULLS LAST
+            LIMIT 1
+        """),
+        {"rid": report_id},
+    ).fetchone()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Report not found")
+
+    status_val = row.status
+    rejection_guidance = REJECTION_GUIDANCE.get(status_val)
+    guidance = rejection_guidance or STATUS_GUIDANCE.get(status_val)
+
+    return CivilianReportResponse(
+        report_id=row.report_id,
+        latitude=float(row.lat),
+        longitude=float(row.lon),
+        category=row.category,
+        sub_category=row.sub_category,
+        reporting_context=row.reporting_context,
+        safety_status=row.safety_status,
+        witness_name=None,  # Tier 1: no PII
+        witness_phone=None,  # Tier 1: no PII
+        trust_score=row.trust_score,
+        status=status_val,
+        status_explanation=row.status_explanation,
+        guidance=guidance,
+        escalation_guidance=rejection_guidance,
+        related_cluster_status=row.related_cluster_status,
+        previous_report_id=None,  # Tier 1: hide chaining info
+        nearest_station_name=row.nearest_station_name,
+        nearest_station_phone=row.nearest_station_phone,
+        routing_distance_m=getattr(row, "routing_distance_m", None),
+        routing_duration_s=getattr(row, "routing_duration_s", None),
+        routing_data_source=getattr(row, "routing_data_source", None),
+        photo_count=0,  # Phase 2: compute from report_photos
+        submitter_type="anonymous",  # Tracking token is unauthenticated
+        link_count=row.link_count or 0,
+        created_at=row.created_at,
+    )
 
 
 @router.post("/reports/duplicate-suggestions", response_model=DuplicateSuggestionResponse)

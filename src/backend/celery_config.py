@@ -5,6 +5,9 @@ import os
 from celery import Celery
 from celery.schedules import crontab
 
+
+SCHEDULE_CHECK_INTERVAL = int(os.environ.get("SCHEDULE_CHECK_INTERVAL", 300))
+
 MV_REFRESH_INTERVAL = int(os.environ.get("CELERY_MV_REFRESH_INTERVAL", 3600 * 6))
 SCHEDULE_CHECK_INTERVAL = int(os.environ.get("SCHEDULE_CHECK_INTERVAL", 300))
 
@@ -51,6 +54,20 @@ celery_app.conf.update(
     result_serializer="json",
     timezone="UTC",
     enable_utc=True,
+    imports=(
+        "tasks.analytics_refresh",
+        "tasks.civilian_reports",
+        "tasks.drafts",
+        "tasks.exports",
+        "tasks.ip_blocklist",
+        "tasks.kms_rotation",
+        "tasks.monitoring",
+        "tasks.notifications",
+        "tasks.routing",
+        "tasks.scheduled_backup",
+        "tasks.scheduled_reports",
+        "tasks.suricata",
+    ),
     # Refresh interval in seconds. Default: 6 hours.
     # Override via CELERY_MV_REFRESH_INTERVAL env var.
     CELERY_MV_REFRESH_INTERVAL=MV_REFRESH_INTERVAL,

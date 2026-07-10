@@ -72,5 +72,9 @@ system-wiki/.obsidian/
 
 # Worktrees (project-local, ignored)
 .worktrees/
+.pi-subagents/
 .pi/sessions/
 .pi/npm/
+.pi/
+src/keycloak/
+# Untracked artifacts

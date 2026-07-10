@@ -169,6 +169,8 @@ _SQL_FILE_SCHEMA_PATCHES = {
     "63_ivh_ip_address.sql",
     "63_fire_incidents_insert_audit_trigger.sql",
     "64_consent_log_ip_hash.sql",
+    "80_civilian_contributor_tables.sql",
+    "81_civilian_routing_columns.sql",
 }
 
 
@@ -664,6 +666,76 @@ def apply_schema_patches() -> None:
         except Exception as exc:
             logger.warning("RP-06 data_hash backfill failed (non-fatal): %s", exc)
             db.rollback()
+
+    except Exception as exc:
+        logger.warning("Schema patch failed (non-fatal, will retry on next restart): %s", exc)
+        db.rollback()
+
+    # ── Phase 0: Civilian contributor RLS amendment ─────────────────────
+    # Tighten citizen_reports_select so ANONYMOUS cannot read rows with
+    # contributor_user_id IS NOT NULL (prevents unauth access to registered
+    # contributor reports).
+    try:
+        db.execute(
+            text("""
+                DROP POLICY IF EXISTS citizen_reports_select ON wims.citizen_reports;
+                CREATE POLICY citizen_reports_select
+                ON wims.citizen_reports FOR SELECT USING (
+                    wims.current_user_role() IN ('SYSTEM_ADMIN', 'NATIONAL_ANALYST', 'NATIONAL_VALIDATOR')
+                    OR (wims.current_user_role() = 'ANONYMOUS' AND contributor_user_id IS NULL)
+                );
+            """)
+        )
+        db.commit()
+        logger.info(
+            "Schema patch applied: citizen_reports_select RLS tightened for contributor_user_id"
+        )
+    except Exception as exc:
+        logger.warning("Schema patch (citizen_reports_select RLS) failed (non-fatal): %s", exc)
+        db.rollback()
+
+    # ── Phase 0: Tracking token validation SECURITY DEFINER function ────
+    # Required by the anonymous tracking endpoint which has no GUC set.
+    try:
+        db.execute(
+            text("""
+                CREATE OR REPLACE FUNCTION wims.validate_tracking_token(
+                    p_report_id INTEGER,
+                    p_token_hash TEXT
+                )
+                RETURNS BOOLEAN
+                LANGUAGE sql
+                STABLE
+                SECURITY DEFINER
+                SET search_path = wims, pg_temp
+                AS $$
+                    SELECT EXISTS (
+                        SELECT 1
+                        FROM wims.report_tracking_tokens
+                        WHERE report_id = p_report_id
+                          AND token_hash = p_token_hash
+                          AND is_active = TRUE
+                          AND revoked_at IS NULL
+                          AND (expires_at IS NULL OR expires_at > now())
+                    );
+                $$;
+            """)
+        )
+        db.execute(
+            text("REVOKE ALL ON FUNCTION wims.validate_tracking_token(INTEGER, TEXT) FROM PUBLIC")
+        )
+        db.execute(
+            text(
+                "GRANT EXECUTE ON FUNCTION wims.validate_tracking_token(INTEGER, TEXT) TO wims_app"
+            )
+        )
+        db.commit()
+        logger.info("Schema patch applied: wims.validate_tracking_token SECURITY DEFINER function")
+    except Exception as exc:
+        logger.warning(
+            "Schema patch (validate_tracking_token function) failed (non-fatal): %s", exc
+        )
+        db.rollback()
     finally:
         db.close()
         with _schema_patches_lock:
