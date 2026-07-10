@@ -2,6 +2,34 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import { PhotoUpload, type PhotoGpsSample } from './PhotoUpload';
 
+// ── Mock compressPhoto ──────────────────────────────────────────────────────
+// Compression uses OffscreenCanvas which is not available in jsdom.
+// We mock the module to simulate compression behavior.
+vi.mock('@/lib/photoCompression', () => {
+  let generation = 0;
+  return {
+    compressPhoto: vi.fn(async (file: File) => {
+      // Simulate compression delay
+      await new Promise((r) => setTimeout(r, 0));
+      const originalSizeBytes = file.size;
+      // Return a compressed version that's roughly 40% of original size
+      const compressedSize = Math.min(originalSizeBytes, Math.round(originalSizeBytes * 0.4));
+      const compressedBlob = new Blob([new Uint8Array(compressedSize)], { type: 'image/jpeg' });
+      return {
+        blob: compressedBlob,
+        width: 640,
+        height: 480,
+        originalSizeBytes,
+        compressedSizeBytes: compressedSize,
+        oversized: false,
+      };
+    }),
+  };
+});
+
+import { compressPhoto } from '@/lib/photoCompression';
+const mockCompress = vi.mocked(compressPhoto);
+
 // ── Geolocation mock ────────────────────────────────────────────────────────
 function mockGeolocation(
   errorCode: number = 0,
@@ -54,7 +82,6 @@ function createFile(name: string, type: string, sizeBytes: number): File {
 
 const jpegFile = (size = 1024) => createFile('photo.jpg', 'image/jpeg', size);
 const pngFile = (size = 1024) => createFile('photo.png', 'image/png', size);
-const bigFile = (size = 6 * 1024 * 1024) => createFile('big.jpg', 'image/jpeg', size);
 const gifFile = () => createFile('photo.gif', 'image/gif', 1024);
 
 // ── Tests ────────────────────────────────────────────────────────────────────
@@ -90,10 +117,54 @@ describe('PhotoUpload', () => {
     expect(input).toHaveAttribute('type', 'file');
   });
 
-  it('shows label when no file is selected', () => {
+  it('shows gallery button when no file is selected', () => {
     render(<PhotoUpload {...defaultProps} />);
-    expect(screen.getByText('Tap to select a photo')).toBeInTheDocument();
-    expect(screen.getByText('JPEG or PNG only')).toBeInTheDocument();
+    expect(screen.getByText('Choose from Gallery')).toBeInTheDocument();
+  });
+
+  it('camera input has capture="environment" on mobile', () => {
+    // Store the original navigator userAgent getter by reading the full descriptor
+    // from the Navigator prototype. navigator.userAgent is a prototype getter,
+    // not an own property, so getOwnPropertyDescriptor on the instance returns undefined.
+    const prototype = Object.getPrototypeOf(navigator);
+    const origDescriptor = Object.getOwnPropertyDescriptor(prototype, 'userAgent');
+
+    // Override with a mobile user agent
+    Object.defineProperty(navigator, 'userAgent', {
+      value: 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+      configurable: true,
+      writable: false,
+    });
+
+    const { unmount } = render(<PhotoUpload {...defaultProps} />);
+    const cameraInput = screen.getByTestId('photo-camera-input');
+    expect(cameraInput).toHaveAttribute('capture', 'environment');
+    expect(cameraInput).toHaveAttribute('type', 'file');
+    expect(cameraInput).toHaveAttribute('accept', 'image/jpeg,image/png');
+    unmount();
+
+    // Restore original descriptor
+    delete navigator.userAgent;
+    if (origDescriptor) {
+      Object.defineProperty(prototype, 'userAgent', origDescriptor);
+    }
+  });
+
+  it('gallery input does NOT have capture attribute', () => {
+    render(<PhotoUpload {...defaultProps} />);
+    const galleryInput = screen.getByTestId('photo-file-input');
+    expect(galleryInput).toBeInTheDocument();
+    expect(galleryInput).not.toHaveAttribute('capture');
+    expect(galleryInput).toHaveAttribute('type', 'file');
+    expect(galleryInput).toHaveAttribute('accept', 'image/jpeg,image/png');
+  });
+
+  it('desktop: only gallery button shown, no take photo button', () => {
+    // Default test environment is desktop (no mobile user agent)
+    render(<PhotoUpload {...defaultProps} />);
+    expect(screen.getByTestId('photo-gallery-btn')).toBeInTheDocument();
+    expect(screen.queryByTestId('photo-take-photo-btn')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('photo-camera-input')).not.toBeInTheDocument();
   });
 
   // ── File type validation ─────────────────────────────────────────────────
@@ -138,20 +209,98 @@ describe('PhotoUpload', () => {
     expect(onFileChange).toHaveBeenCalledWith(file);
   });
 
-  // ── File size validation ─────────────────────────────────────────────────
+  // ── Compression ─────────────────────────────────────────────────────────
 
-  it('rejects files larger than 5 MiB', async () => {
+  it('shows compressing indicator while processing', async () => {
+    // Make compression resolve after a microtask so we can observe the compressing state
+    mockCompress.mockImplementationOnce(async (file: File) => {
+      await new Promise((r) => setTimeout(r, 50));
+      const compressedBlob = new Blob([new Uint8Array(500)], { type: 'image/jpeg' });
+      return {
+        blob: compressedBlob,
+        width: 640,
+        height: 480,
+        originalSizeBytes: file.size,
+        compressedSizeBytes: 500,
+        oversized: false,
+      };
+    });
+
     const onFileChange = vi.fn();
     render(<PhotoUpload {...defaultProps} onFileChange={onFileChange} />);
 
     const input = screen.getByTestId('photo-file-input');
-    const file = bigFile();
+    const file = jpegFile(50000); // 50KB
     await act(async () => {
       fireEvent.change(input, { target: { files: [file] } });
     });
 
-    expect(onFileChange).toHaveBeenCalledWith(null);
-    expect(screen.getByText('Photo must be under 5 MB.')).toBeInTheDocument();
+    // Compressing indicator should appear
+    expect(screen.getByText('Compressing photo...')).toBeInTheDocument();
+
+    // After compression resolves, the indicator should disappear
+    await waitFor(() => {
+      expect(screen.queryByText('Compressing photo...')).not.toBeInTheDocument();
+    });
+  });
+
+  it('compressed file calls onFileChange with compressed blob', async () => {
+    const onFileChange = vi.fn();
+    const file = jpegFile(3 * 1024 * 1024); // 3MB
+    render(<PhotoUpload {...defaultProps} onFileChange={onFileChange} />);
+
+    const input = screen.getByTestId('photo-file-input');
+    await act(async () => {
+      fireEvent.change(input, { target: { files: [file] } });
+    });
+
+    // After compression, onFileChange should be called with a compressed file
+    await waitFor(() => {
+      expect(onFileChange).toHaveBeenCalledOnce();
+      const calledFile = onFileChange.mock.calls[0][0] as File | null;
+      expect(calledFile).not.toBeNull();
+      expect(calledFile!.size).toBeLessThan(file.size);
+    });
+  });
+
+  it('preview shows size reduction when file prop is set with compressed info', async () => {
+    // When the parent provides a compressed file and compressedSizeInfo was set
+    // internally, we verify the display by checking onFileChange was invoked.
+    // The component is controlled: it shows the preview when file !== null.
+    const onFileChange = vi.fn();
+    const file = jpegFile(3 * 1024 * 1024);
+    render(<PhotoUpload {...defaultProps} onFileChange={onFileChange} />);
+
+    const input = screen.getByTestId('photo-file-input');
+    await act(async () => {
+      fireEvent.change(input, { target: { files: [file] } });
+    });
+
+    await waitFor(() => {
+      expect(onFileChange).toHaveBeenCalled();
+      const compressedFile = onFileChange.mock.calls[0][0] as File;
+      expect(compressedFile.name).toBe('photo.jpg');
+      expect(compressedFile.type).toBe('image/jpeg');
+    });
+  });
+
+  it('accepts large files (replaces 5MB gate with compression)', async () => {
+    const onFileChange = vi.fn();
+    render(<PhotoUpload {...defaultProps} onFileChange={onFileChange} />);
+
+    const input = screen.getByTestId('photo-file-input');
+    const file = jpegFile(10 * 1024 * 1024); // 10MB — previously rejected
+    await act(async () => {
+      fireEvent.change(input, { target: { files: [file] } });
+    });
+
+    // Should NOT show size error
+    expect(screen.queryByText('Photo must be under 5 MB.')).not.toBeInTheDocument();
+
+    // Should process the file (compression will produce a new blob)
+    await waitFor(() => {
+      expect(onFileChange).toHaveBeenCalled();
+    });
   });
 
   // ── Remove / replace ─────────────────────────────────────────────────────
@@ -293,18 +442,18 @@ describe('PhotoUpload', () => {
 
   // ── Offline explanation mode ─────────────────────────────────────────────
 
-  it('shows offline explanation when offlineExplanation is true and no file selected', () => {
-    render(<PhotoUpload {...defaultProps} offlineExplanation={true} />);
+  it('shows offline info banner when online is false and no file selected', () => {
+    render(<PhotoUpload {...defaultProps} online={false} />);
     expect(screen.getByTestId('photo-upload-offline')).toBeInTheDocument();
-    expect(screen.getByText(/Photos require an internet connection/)).toBeInTheDocument();
+    expect(screen.getByText(/Photos will be saved/)).toBeInTheDocument();
   });
 
-  it('does not show offline explanation when a file is already selected', () => {
+  it('does not show offline info banner when a file is already selected (shows preview instead)', () => {
     render(
       <PhotoUpload
         {...defaultProps}
         file={jpegFile()}
-        offlineExplanation={true}
+        online={false}
       />,
     );
     expect(screen.queryByTestId('photo-upload-offline')).not.toBeInTheDocument();

@@ -22,9 +22,10 @@ if (!globalThis.crypto) {
 
 // ─── Constants matching offlineStore.ts ──────────────────────────────────────
 const DB_NAME = 'wims-bfp-db';
-// Bumped 5 → 6 in Task 1 to introduce REFERENCE_STORE; keep this in sync with
-// the production constant so the raw-record read path uses the same version.
-const DB_VERSION = 6;
+// Bumped 6 → 7 in Phase D to introduce offline photo queue + photo link store;
+// keep this in sync with the production constant so the raw-record read path
+// uses the same version.
+const DB_VERSION = 7;
 const STORE_NAME = 'incident-queue';
 
 // ─── Local type for raw IndexedDB records (not exported from offlineStore.ts) ─

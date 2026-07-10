@@ -16,7 +16,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNetworkStatus } from './useNetworkStatus';
 import { syncPublicOfflineOps, type PublicSyncResult, type PublicSyncedIncidentSummary } from './syncEngine';
-import { getPendingPublicOpsCount } from './offlineStore';
+import { getPendingPublicOpsCount, getPendingPhotoCount } from './offlineStore';
 import { toast } from 'sonner';
 
 export type { PublicSyncedIncidentSummary };
@@ -54,6 +54,7 @@ export function usePublicAutoSync(): PublicAutoSyncState {
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
   const [pendingCount, setPendingCount] = useState(0);
   const [failedCount, setFailedCount] = useState(0);
+  const [pendingPhotoCount, setPendingPhotoCount] = useState(0);
   const syncMutex = useRef(false);
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasMountSynced = useRef(false);
@@ -64,7 +65,9 @@ export function usePublicAutoSync(): PublicAutoSyncState {
     const deviceId = getDeviceId();
     if (!deviceId) return;
     const count = await getPendingPublicOpsCount(deviceId);
-    setPendingCount(count);
+    const photoCount = await getPendingPhotoCount(deviceId);
+    setPendingCount(count + photoCount);
+    setPendingPhotoCount(photoCount);
   }, []);
 
   const promptForNotifications = useCallback(async (): Promise<void> => {
@@ -121,22 +124,34 @@ export function usePublicAutoSync(): PublicAutoSyncState {
 
         setFailedCount(result.failed);
 
+        // Build photo sync summary
+        let photoMsg = '';
+        if (result.photoSynced > 0) {
+          photoMsg += `, ${result.photoSynced} photo${result.photoSynced === 1 ? '' : 's'} uploaded`;
+        }
+        if (result.photoFailed > 0) {
+          photoMsg += `, ${result.photoFailed} photo${result.photoFailed === 1 ? '' : 's'} failed`;
+        }
+        if (result.photoKeyLost > 0) {
+          photoMsg += `, ${result.photoKeyLost} photo${result.photoKeyLost === 1 ? '' : 's'} unrecoverable`;
+        }
+
         if (result.synced > 0 && result.failed === 0) {
           toast.success(
-            `Synced ${result.synced} ${result.synced === 1 ? 'report' : 'reports'}`,
+            `Synced ${result.synced} ${result.synced === 1 ? 'report' : 'reports'}${photoMsg}`,
             { duration: 4000 },
           );
           fireDesktopNotification(result.syncedIncidents);
         } else if (result.synced > 0 && result.failed > 0) {
           toast.warning(
-            `Synced ${result.synced}, ${result.failed} failed — will retry`,
+            `Synced ${result.synced}, ${result.failed} failed${photoMsg} — will retry`,
           );
           // Part-success with failures: still fire the desktop notification
           // for the successful part, and prompt for notifications if not done.
           fireDesktopNotification(result.syncedIncidents);
           void promptForNotifications();
         } else if (result.failed > 0) {
-          toast.error(`${result.failed} ${result.failed === 1 ? 'report' : 'reports'} failed to sync`);
+          toast.error(`${result.failed} ${result.failed === 1 ? 'report' : 'reports'} failed to sync${photoMsg}`);
           void promptForNotifications();
         }
       } finally {
@@ -195,16 +210,17 @@ export function usePublicAutoSync(): PublicAutoSyncState {
   }, [isReconnecting]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // On-mount sync: handles the re-login-less case where reconnect event never fires
+  // Triggers on both pending reports and pending photos
   useEffect(() => {
     if (hasMountSynced.current) return;
     if (!isOnline) return;
     const deviceId = getDeviceId();
     if (!deviceId) return;
-    if (pendingCount === 0) return;
+    if (pendingCount === 0 && pendingPhotoCount === 0) return;
     hasMountSynced.current = true;
     const t = setTimeout(() => { doSync(); }, MOUNT_SYNC_DELAY_MS);
     return () => clearTimeout(t);
-  }, [isOnline, pendingCount, doSync]);
+  }, [isOnline, pendingCount, pendingPhotoCount, doSync]);
 
   // On mount: refresh pending count
   useEffect(() => {

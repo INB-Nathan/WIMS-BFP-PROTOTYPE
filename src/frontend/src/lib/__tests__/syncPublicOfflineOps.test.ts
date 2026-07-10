@@ -25,6 +25,7 @@ vi.mock('../offlineStore', () => ({
   getLinkedPublicOp: vi.fn(),
   purgeSyncedPublicOps: vi.fn(),
   getPublicOp: vi.fn(),
+  getPendingPhotosForSync: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock('../connectivity', () => ({
@@ -40,6 +41,7 @@ const {
   getLinkedPublicOp,
   purgeSyncedPublicOps,
   getPublicOp,
+  getPendingPhotosForSync,
 } = await import('../offlineStore');
 const { markConnectivityOffline, isReachable } = await import('../connectivity');
 const { syncPublicOfflineOps } = await import('../syncEngine');
@@ -221,6 +223,9 @@ describe('syncPublicOfflineOps — error handling', () => {
       failed: 0,
       errors: [],
       syncedIncidents: [],
+      photoSynced: 0,
+      photoFailed: 0,
+      photoKeyLost: 0,
     });
     expect(fetchSpy).not.toHaveBeenCalled();
   });

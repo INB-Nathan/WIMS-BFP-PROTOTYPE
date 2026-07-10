@@ -26,7 +26,7 @@ if (!globalThis.crypto) {
 }
 
 const DB_NAME = 'wims-bfp-db';
-const DB_VERSION = 6;
+const DB_VERSION = 7;
 const CACHE_STORE = 'cachedIncidents';
 const READ_CACHE_STORE = 'analytics-cache';
 const REFERENCE_STORE = 'reference-cache';

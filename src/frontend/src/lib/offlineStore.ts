@@ -3,7 +3,7 @@ import { validateOfflinePayload } from './validation/offlineIncident';
 import { clearOfflineModeEnabled } from './offlineModeFlags';
 
 const DB_NAME = 'wims-bfp-db';
-const DB_VERSION = 6;
+const DB_VERSION = 7;
 const STORE_NAME = 'incident-queue';      // legacy — Phase 1A compat
 const KEY_STORE = 'crypto-keys';
 const OPS_STORE = 'offlineOps';           // Phase 1B+
@@ -11,6 +11,8 @@ const CACHE_STORE = 'cachedIncidents';    // Phase 1D+
 const READ_CACHE_STORE = 'analytics-cache'; // PR #272 + Task 1 generic encrypted read cache
 const REFERENCE_STORE = 'reference-cache'; // Task 1 — unencrypted, per-user, long-TTL reference data
 const PUBLIC_OPS_STORE = 'publicOfflineOps'; // v5 — civilian anonymous offline submission queue
+const OFFLINE_PHOTOS_STORE = 'offlinePhotos'; // v7 — encrypted civilian photos
+const PHOTO_LINK_STORE = 'photoLinks';         // v7 — parentLocalId → serverReportId mapping
 
 // Back-compat default TTL for records predating the per-record ttlMs schema
 // (pushback P3). Longest-TTL-on-read ensures pre-v3 records are not wrongly
@@ -144,7 +146,7 @@ export interface CachedIncidentDecrypted extends Omit<CachedIncident, 'data'> {
 
 // ─── DB initialisation ────────────────────────────────────────────────────
 
-async function getDB(): Promise<IDBPDatabase> {
+export async function getDB(): Promise<IDBPDatabase> {
     return openDB(DB_NAME, DB_VERSION, {
         upgrade(db, oldVersion) {
             // v2: original stores
@@ -197,6 +199,18 @@ async function getDB(): Promise<IDBPDatabase> {
                 if (!db.objectStoreNames.contains(REFERENCE_STORE)) {
                     const referenceStore = db.createObjectStore(REFERENCE_STORE, { keyPath: 'key' });
                     referenceStore.createIndex('by_cachedAt', 'cachedAt');
+                }
+            }
+            // v7: offline photo queue + photo link store for civilian offline photos.
+            // Stores encrypted photo blobs and durable parentLocalId→serverReportId mappings.
+            if (oldVersion < 7) {
+                if (!db.objectStoreNames.contains(OFFLINE_PHOTOS_STORE)) {
+                    const photoStore = db.createObjectStore(OFFLINE_PHOTOS_STORE, { keyPath: 'id' });
+                    photoStore.createIndex('by_device_pending', ['deviceId', 'parentServerReportId']);
+                    photoStore.createIndex('by_parent_local', 'parentLocalId');
+                }
+                if (!db.objectStoreNames.contains(PHOTO_LINK_STORE)) {
+                    db.createObjectStore(PHOTO_LINK_STORE, { keyPath: 'parentLocalId' });
                 }
             }
         },
@@ -1637,4 +1651,211 @@ export async function getPendingPublicOpsCount(deviceId: string): Promise<number
     const db = await getDB();
     const all: PublicOfflineOp[] = await db.getAllFromIndex(PUBLIC_OPS_STORE, 'by_deviceId', deviceId);
     return all.filter((op) => op.status === 'pending' || op.status === 'retryable').length;
+}
+
+// ─── Offline Photo Store Types (v7) ─────────────────────────────────────────
+
+export interface OfflinePhotoGps {
+  latitude: number;
+  longitude: number;
+  accuracy: number;
+  capturedAt: string;
+}
+
+export interface OfflinePhotoExif {
+  latitude: number;
+  longitude: number;
+  altitude: number | null;
+  timestamp: string | null;
+}
+
+export interface OfflinePhotoRecord {
+  id: string;                          // UUID — primary key, used as client_photo_id
+  encryptedBlob: ArrayBuffer;          // AES-256-GCM encrypted bytes
+  encryptionIv: string;                // base64 IV
+  filename: string;
+  mimeType: string;
+  fileSizeBytes: number;
+  width: number;
+  height: number;
+  parentLocalId: string | null;        // UUID linking to queued report's localId
+  parentServerReportId: number | null; // server report_id, populated after sync
+  deviceId: string;
+  browserGps: OfflinePhotoGps | null;
+  exifGps: OfflinePhotoExif | null;
+  createdAt: string;
+  retryCount: number;
+  lastAttemptAt: number | null;
+  permanentFailure: boolean;
+}
+
+export interface OfflinePhotoLink {
+  parentLocalId: string;
+  serverReportId: number;
+  createdAt: string;
+}
+
+// ─── Offline Photo Store API (v7) ───────────────────────────────────────────
+
+/**
+ * Queue an offline photo — stores the record (including encrypted blob) in
+ * OFFLINE_PHOTOS_STORE. The caller is responsible for encrypting the blob
+ * before calling this; IndexedDB supports structured-clone of ArrayBuffer.
+ */
+export async function queueOfflinePhoto(record: OfflinePhotoRecord): Promise<void> {
+    const db = await getDB();
+    await db.put(OFFLINE_PHOTOS_STORE, record);
+}
+
+/**
+ * Get photos pending sync for a device: non-null parentServerReportId, no
+ * permanentFailure. Returns both photos with null parentServerReportId (waiting
+ * for report link) and those with a resolved report id ready to upload.
+ */
+export async function getPendingPhotosForSync(deviceId: string): Promise<OfflinePhotoRecord[]> {
+    const db = await getDB();
+    // Get all photos for this device — the compound index includes deviceId as
+    // first key, so this is an efficient prefix query.
+    const all: OfflinePhotoRecord[] = await db.getAll(OFFLINE_PHOTOS_STORE);
+    return all.filter(
+        (p) => p.deviceId === deviceId && !p.permanentFailure && p.parentServerReportId !== null
+    );
+}
+
+/**
+ * Get photos by parentLocalId.
+ */
+export async function getPhotosByParentLocalId(parentLocalId: string): Promise<OfflinePhotoRecord[]> {
+    const db = await getDB();
+    return db.getAllFromIndex(OFFLINE_PHOTOS_STORE, 'by_parent_local', parentLocalId);
+}
+
+/**
+ * Store a photo link record in PHOTO_LINK_STORE (parentLocalId → serverReportId).
+ */
+export async function storePhotoLink(parentLocalId: string, serverReportId: number): Promise<void> {
+    const db = await getDB();
+    const record: OfflinePhotoLink = {
+        parentLocalId,
+        serverReportId,
+        createdAt: new Date().toISOString(),
+    };
+    await db.put(PHOTO_LINK_STORE, record);
+}
+
+/**
+ * Batch query PHOTO_LINK_STORE for multiple parentLocalIds.
+ */
+export async function getPhotoLinksByParentLocalIds(parentLocalIds: string[]): Promise<Map<string, number>> {
+    const db = await getDB();
+    const result = new Map<string, number>();
+    for (const localId of parentLocalIds) {
+        const link: OfflinePhotoLink | undefined = await db.get(PHOTO_LINK_STORE, localId);
+        if (link) {
+            result.set(localId, link.serverReportId);
+        }
+    }
+    return result;
+}
+
+/**
+ * Update a photo record's parentServerReportId after sync resolves the report.
+ */
+export async function updatePhotoReportLink(photoId: string, serverReportId: number): Promise<void> {
+    const db = await getDB();
+    const tx = db.transaction(OFFLINE_PHOTOS_STORE, 'readwrite');
+    const store = tx.objectStore(OFFLINE_PHOTOS_STORE);
+    const record: OfflinePhotoRecord | undefined = await store.get(photoId);
+    if (record) {
+        record.parentServerReportId = serverReportId;
+        await store.put(record);
+    }
+    await tx.done;
+}
+
+/**
+ * Mark a photo as uploaded (delete from store on success).
+ */
+export async function markPhotoUploaded(photoId: string): Promise<void> {
+    const db = await getDB();
+    await db.delete(OFFLINE_PHOTOS_STORE, photoId);
+}
+
+/**
+ * Mark a photo as permanently failed (e.g. crypto key lost, unretryable error).
+ */
+export async function markPhotoPermanentFailure(photoId: string): Promise<void> {
+    const db = await getDB();
+    const tx = db.transaction(OFFLINE_PHOTOS_STORE, 'readwrite');
+    const store = tx.objectStore(OFFLINE_PHOTOS_STORE);
+    const record: OfflinePhotoRecord | undefined = await store.get(photoId);
+    if (record) {
+        record.permanentFailure = true;
+        await store.put(record);
+    }
+    await tx.done;
+}
+
+/**
+ * Get pending photo count for a device.
+ */
+export async function getPendingPhotoCount(deviceId: string): Promise<number> {
+    const photos = await getPendingPhotosForSync(deviceId);
+    return photos.length;
+}
+
+/**
+ * Discard orphaned photos for a specific parentLocalId (e.g. report submission
+ * failed with a non-retryable 422). Removes all photos linked to that localId.
+ */
+export async function discardOrphanedPhotos(parentLocalId: string): Promise<void> {
+    const db = await getDB();
+    const photos = await db.getAllFromIndex(OFFLINE_PHOTOS_STORE, 'by_parent_local', parentLocalId);
+    const tx = db.transaction(OFFLINE_PHOTOS_STORE, 'readwrite');
+    const store = tx.objectStore(OFFLINE_PHOTOS_STORE);
+    for (const photo of photos) {
+        await store.delete(photo.id);
+    }
+    await tx.done;
+}
+
+/**
+ * User-initiated removal of a single pending photo.
+ */
+export async function removePendingPhoto(photoId: string): Promise<void> {
+    const db = await getDB();
+    await db.delete(OFFLINE_PHOTOS_STORE, photoId);
+}
+
+/**
+ * Clean up expired photos (>7 days old). Called on mount for storage hygiene.
+ */
+export async function cleanupExpiredPhotos(): Promise<void> {
+    const db = await getDB();
+    const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    const all: OfflinePhotoRecord[] = await db.getAll(OFFLINE_PHOTOS_STORE);
+    const tx = db.transaction(OFFLINE_PHOTOS_STORE, 'readwrite');
+    const store = tx.objectStore(OFFLINE_PHOTOS_STORE);
+    for (const photo of all) {
+        const createdAt = new Date(photo.createdAt).getTime();
+        if (createdAt < sevenDaysAgo) {
+            await store.delete(photo.id);
+        }
+    }
+    await tx.done;
+}
+
+/**
+ * Rebuild synced server IDs map from PHOTO_LINK_STORE on mount.
+ * Used by crash recovery: after a crash, scan the link store to find which
+ * parentLocalIds have resolved serverReportIds.
+ */
+export async function rebuildSyncedServerIds(): Promise<Map<string, number>> {
+    const db = await getDB();
+    const all: OfflinePhotoLink[] = await db.getAll(PHOTO_LINK_STORE);
+    const map = new Map<string, number>();
+    for (const link of all) {
+        map.set(link.parentLocalId, link.serverReportId);
+    }
+    return map;
 }

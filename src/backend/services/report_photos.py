@@ -267,6 +267,11 @@ def upload_and_attach_photo(
     browser_gps_accuracy: float | None,
     browser_gps_captured_at: datetime | None,
     registered_user: dict | None,
+    exif_gps_lat: float | None = None,
+    exif_gps_lon: float | None = None,
+    exif_gps_altitude: float | None = None,
+    exif_datetime_original: datetime | None = None,
+    client_photo_id: uuid.UUID | None = None,
 ) -> PhotoUploadResponse:
     """Upload, validate, encrypt, and attach a photo to a civilian report.
 
@@ -283,9 +288,14 @@ def upload_and_attach_photo(
         device_id: Device ID for anonymous ownership (required for anonymous).
         browser_gps_*: Optional browser GPS fields (all-or-none).
         registered_user: Authenticated user dict or None for anonymous.
+        client_photo_id: Client-generated UUID for idempotent retry.
+            When provided, uses INSERT ... ON CONFLICT DO NOTHING RETURNING
+            so the caller can detect duplicate uploads without a follow-up
+            SELECT (which would fail under ANONYMOUS RLS on report_photos).
 
     Returns:
-        PhotoUploadResponse on success.
+        PhotoUploadResponse on success (duplicate=True if client_photo_id
+        matched an existing row).
 
     Raises:
         HTTPException on validation failure, ownership mismatch, terminal
@@ -356,6 +366,54 @@ def upload_and_attach_photo(
         extracted = extract_exif(content)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail="Unsafe image metadata") from exc
+
+    # ── 4a. Determine EXIF data source provenance ──────────────────────────
+    # The client may submit EXIF data that was extracted before compression.
+    # The server also independently extracts EXIF from the binary. When both
+    # are available, server extraction is authoritative and overwrites client
+    # values. The exif_data_source column tracks the provenance.
+    #
+    # We determine the "photo GPS" (gps from the image, used for distance
+    # computation and consensus) here — before the PostGIS distances — so
+    # the correct coordinates are used throughout.
+    server_exif_available = extracted.gps_present or extracted.datetime_original is not None
+    client_exif_available = exif_gps_lat is not None and exif_gps_lon is not None
+
+    if server_exif_available:
+        exif_data_source = "server_extracted"
+        final_exif_lat = extracted.gps.latitude if extracted.gps else exif_gps_lat
+        final_exif_lon = extracted.gps.longitude if extracted.gps else exif_gps_lon
+        final_exif_altitude = (
+            extracted.gps.altitude
+            if (extracted.gps and extracted.gps.altitude is not None)
+            else exif_gps_altitude
+        )
+        final_exif_dt = (
+            extracted.datetime_original if extracted.datetime_original else exif_datetime_original
+        )
+        # Use server-extracted GPS as the photo GPS for distance/consensus
+        photo_gps = extracted.gps
+    elif client_exif_available:
+        exif_data_source = "client_extracted"
+        final_exif_lat = exif_gps_lat
+        final_exif_lon = exif_gps_lon
+        final_exif_altitude = exif_gps_altitude
+        final_exif_dt = exif_datetime_original
+        # Build a minimal GPS-like object for PostGIS distance + consensus
+        from types import SimpleNamespace as _SimpleNS
+
+        photo_gps = _SimpleNS(
+            latitude=exif_gps_lat,
+            longitude=exif_gps_lon,
+            altitude=exif_gps_altitude,
+        )
+    else:
+        exif_data_source = None
+        final_exif_lat = None
+        final_exif_lon = None
+        final_exif_altitude = None
+        final_exif_dt = None
+        photo_gps = extracted.gps  # may be None
 
     # ── 5. Sanitize (deterministic re-encode, fail-closed) ─────────────────
     try:
@@ -490,8 +548,8 @@ def upload_and_attach_photo(
         source_distance_m = None
         photo_reported_m = None
 
-        if extracted.gps:
-            exif_wkt = f"SRID=4326;POINT({extracted.gps.longitude} {extracted.gps.latitude})"
+        if photo_gps:
+            exif_wkt = f"SRID=4326;POINT({photo_gps.longitude} {photo_gps.latitude})"
             exif_to_report_m = db.execute(
                 text(
                     "SELECT ST_Distance(ST_GeogFromText(:p1)::geography, ST_GeogFromText(:p2)::geography)"
@@ -510,7 +568,7 @@ def upload_and_attach_photo(
             ).scalar()
             if photo_reported_m is None:
                 photo_reported_m = browser_to_report_m
-            if extracted.gps:
+            if photo_gps:
                 source_distance_m = db.execute(
                     text(
                         "SELECT ST_Distance(ST_GeogFromText(:p1)::geography, ST_GeogFromText(:p2)::geography)"
@@ -518,9 +576,10 @@ def upload_and_attach_photo(
                     {"p1": exif_wkt, "p2": browser_wkt},
                 ).scalar()
 
-        # Consensus classification
+        # Consensus classification — uses photo_gps (server-extracted or
+        # client-supplied) as primary, falls back to extracted.gps.
         consensus = compute_gps_consensus(
-            extracted.gps,
+            photo_gps if (server_exif_available or client_exif_available) else extracted.gps,
             browser_gps_lat if browser_gps_present else None,
             browser_gps_lon if browser_gps_present else None,
             browser_gps_accuracy if browser_gps_present else None,
@@ -551,72 +610,120 @@ def upload_and_attach_photo(
         # report_photos_insert WITH CHECK policy.  Catch this and convert
         # to a neutral 404 (same as owner mismatch). Other DB failures
         # remain 500.
+        # ── 12a. Atomic INSERT with optional idempotency ─────────────────
+        # When client_photo_id is provided, use ON CONFLICT DO NOTHING RETURNING
+        # so the caller can detect duplicates without a follow-up SELECT
+        # (which would fail under ANONYMOUS RLS on report_photos).
+        # The partial unique index only fires when client_photo_id IS NOT NULL,
+        # so legacy uploads without one are unaffected.
         try:
-            db.execute(
-                text("""
-                    INSERT INTO wims.report_photos (
-                        photo_id, report_id, uploader_user_id, uploader_device_id,
-                        media_type, file_extension, image_width, image_height, file_size_bytes,
-                        original_storage_path, original_file_size_bytes, original_sha256,
-                        orig_encryption_iv, orig_key_version, orig_crypto_provider, orig_kms_key_name,
-                        sanitized_storage_path, sanitized_file_size_bytes, sanitized_sha256,
-                        sanitized_encryption_iv, sanitized_key_version, sanitized_crypto_provider, sanitized_kms_key_name,
-                        sensitive_metadata_blob_enc,
-                        metadata_encryption_iv, metadata_key_version, metadata_crypto_provider, metadata_kms_key_name,
-                        exif_gps_status, browser_gps_status, gps_consensus,
-                        exif_to_report_distance_m, browser_to_report_distance_m,
-                        photo_reported_distance_m
-                    ) VALUES (
-                        :photo_id, :report_id, :uploader_user_id, :uploader_device_id,
-                        :media_type, :file_extension, :image_width, :image_height, :file_size_bytes,
-                        :original_storage_path, :original_file_size_bytes, :original_sha256,
-                        :orig_encryption_iv, :orig_key_version, :orig_crypto_provider, :orig_kms_key_name,
-                        :sanitized_storage_path, :sanitized_file_size_bytes, :sanitized_sha256,
-                        :sanitized_encryption_iv, :sanitized_key_version, :sanitized_crypto_provider, :sanitized_kms_key_name,
-                        :sensitive_metadata_blob_enc,
-                        :metadata_encryption_iv, :metadata_key_version, :metadata_crypto_provider, :metadata_kms_key_name,
-                        :exif_gps_status, :browser_gps_status, :gps_consensus,
-                        :exif_to_report_distance_m, :browser_to_report_distance_m,
-                        :photo_reported_distance_m
-                    )
-                """),
-                {
-                    "photo_id": photo_id,
-                    "report_id": report_id,
-                    "uploader_user_id": uploader_id,
-                    "uploader_device_id": None if is_registered else anonymous_device_uuid,
-                    "media_type": expected_mime,
-                    "file_extension": ext,
-                    "image_width": sanitized.width,
-                    "image_height": sanitized.height,
-                    "file_size_bytes": len(content),
-                    "original_storage_path": orig_path,
-                    "original_file_size_bytes": len(content),
-                    "original_sha256": original_sha256,
-                    "orig_encryption_iv": orig_enc_meta["encryption_iv"],
-                    "orig_key_version": orig_enc_meta["key_version"],
-                    "orig_crypto_provider": orig_enc_meta["crypto_provider"],
-                    "orig_kms_key_name": orig_enc_meta["kms_key_name"],
-                    "sanitized_storage_path": sanitized_path,
-                    "sanitized_file_size_bytes": len(sanitized.data),
-                    "sanitized_sha256": sanitized_sha256,
-                    "sanitized_encryption_iv": sanitized_enc_meta["encryption_iv"],
-                    "sanitized_key_version": sanitized_enc_meta["key_version"],
-                    "sanitized_crypto_provider": sanitized_enc_meta["crypto_provider"],
-                    "sanitized_kms_key_name": sanitized_enc_meta["kms_key_name"],
-                    "sensitive_metadata_blob_enc": ct_b64,
-                    "metadata_encryption_iv": metadata_enc_meta["encryption_iv"],
-                    "metadata_key_version": metadata_enc_meta["key_version"],
-                    "metadata_crypto_provider": metadata_enc_meta["crypto_provider"],
-                    "metadata_kms_key_name": metadata_enc_meta["kms_key_name"],
-                    "exif_gps_status": exif_gps_status,
-                    "browser_gps_status": browser_gps_status,
-                    "gps_consensus": consensus,
-                    "exif_to_report_distance_m": exif_dist_float,
-                    "browser_to_report_distance_m": browser_dist_float,
-                    "photo_reported_distance_m": photo_dist_float,
-                },
+            insert_sql = text(
+                """
+                INSERT INTO wims.report_photos (
+                    photo_id, report_id, uploader_user_id, uploader_device_id,
+                    media_type, file_extension, image_width, image_height, file_size_bytes,
+                    original_storage_path, original_file_size_bytes, original_sha256,
+                    orig_encryption_iv, orig_key_version, orig_crypto_provider, orig_kms_key_name,
+                    sanitized_storage_path, sanitized_file_size_bytes, sanitized_sha256,
+                    sanitized_encryption_iv, sanitized_key_version, sanitized_crypto_provider, sanitized_kms_key_name,
+                    sensitive_metadata_blob_enc,
+                    metadata_encryption_iv, metadata_key_version, metadata_crypto_provider, metadata_kms_key_name,
+                    exif_gps_status, browser_gps_status, gps_consensus,
+                    exif_to_report_distance_m, browser_to_report_distance_m,
+                    photo_reported_distance_m,
+                    exif_gps_lat, exif_gps_lon, exif_gps_altitude, exif_datetime_original, exif_data_source
+                    {', client_photo_id' if client_photo_id else ''}
+                ) VALUES (
+                    :photo_id, :report_id, :uploader_user_id, :uploader_device_id,
+                    :media_type, :file_extension, :image_width, :image_height, :file_size_bytes,
+                    :original_storage_path, :original_file_size_bytes, :original_sha256,
+                    :orig_encryption_iv, :orig_key_version, :orig_crypto_provider, :orig_kms_key_name,
+                    :sanitized_storage_path, :sanitized_file_size_bytes, :sanitized_sha256,
+                    :sanitized_encryption_iv, :sanitized_key_version, :sanitized_crypto_provider, :sanitized_kms_key_name,
+                    :sensitive_metadata_blob_enc,
+                    :metadata_encryption_iv, :metadata_key_version, :metadata_crypto_provider, :metadata_kms_key_name,
+                    :exif_gps_status, :browser_gps_status, :gps_consensus,
+                    :exif_to_report_distance_m, :browser_to_report_distance_m,
+                    :photo_reported_distance_m,
+                    :exif_gps_lat_val, :exif_gps_lon_val, :exif_gps_altitude_val, :exif_dt_val, :exif_data_source
+                    {', :client_photo_id' if client_photo_id else ''}
+                )
+                """
+                + (
+                    "ON CONFLICT (client_photo_id) WHERE client_photo_id IS NOT NULL DO NOTHING RETURNING photo_id"
+                    if client_photo_id
+                    else ""
+                )
             )
+
+            insert_params = {
+                "photo_id": photo_id,
+                "report_id": report_id,
+                "uploader_user_id": uploader_id,
+                "uploader_device_id": None if is_registered else anonymous_device_uuid,
+                "media_type": expected_mime,
+                "file_extension": ext,
+                "image_width": sanitized.width,
+                "image_height": sanitized.height,
+                "file_size_bytes": len(content),
+                "original_storage_path": orig_path,
+                "original_file_size_bytes": len(content),
+                "original_sha256": original_sha256,
+                "orig_encryption_iv": orig_enc_meta["encryption_iv"],
+                "orig_key_version": orig_enc_meta["key_version"],
+                "orig_crypto_provider": orig_enc_meta["crypto_provider"],
+                "orig_kms_key_name": orig_enc_meta["kms_key_name"],
+                "sanitized_storage_path": sanitized_path,
+                "sanitized_file_size_bytes": len(sanitized.data),
+                "sanitized_sha256": sanitized_sha256,
+                "sanitized_encryption_iv": sanitized_enc_meta["encryption_iv"],
+                "sanitized_key_version": sanitized_enc_meta["key_version"],
+                "sanitized_crypto_provider": sanitized_enc_meta["crypto_provider"],
+                "sanitized_kms_key_name": sanitized_enc_meta["kms_key_name"],
+                "sensitive_metadata_blob_enc": ct_b64,
+                "metadata_encryption_iv": metadata_enc_meta["encryption_iv"],
+                "metadata_key_version": metadata_enc_meta["key_version"],
+                "metadata_crypto_provider": metadata_enc_meta["crypto_provider"],
+                "metadata_kms_key_name": metadata_enc_meta["kms_key_name"],
+                "exif_gps_status": exif_gps_status,
+                "browser_gps_status": browser_gps_status,
+                "gps_consensus": consensus,
+                "exif_to_report_distance_m": exif_dist_float,
+                "browser_to_report_distance_m": browser_dist_float,
+                "photo_reported_distance_m": photo_dist_float,
+                "exif_gps_lat_val": final_exif_lat,
+                "exif_gps_lon_val": final_exif_lon,
+                "exif_gps_altitude_val": final_exif_altitude,
+                "exif_dt_val": final_exif_dt,
+                "exif_data_source": exif_data_source,
+            }
+            if client_photo_id:
+                insert_params["client_photo_id"] = client_photo_id
+
+            if client_photo_id:
+                photo_id_val = db.execute(insert_sql, insert_params).scalar()
+                if photo_id_val is None:
+                    # Duplicate — INSERT did nothing, RETURNING returned NULL.
+                    # Skip commit/audit/cleanup and return early.
+                    # The caller trusts the UUID entropy (122 bits).
+                    # Delete the temp file artifacts since they were not persisted.
+                    _cleanup_files(uploaded_paths, storage_dir)
+                    return PhotoUploadResponse(
+                        photo_id=None,
+                        report_id=report_id,
+                        file_size_bytes=0,
+                        mime_type=expected_mime,
+                        image_width=0,
+                        image_height=0,
+                        exif_gps_status="unavailable",
+                        browser_gps_status="unavailable",
+                        gps_consensus=None,
+                        photo_reported_distance_m=None,
+                        duplicate=True,
+                    )
+                # photo_id_val is the same as our generated photo_id
+            else:
+                db.execute(insert_sql, insert_params)
         except DBAPIError as db_exc:
             # SQLSTATE 42501 = insufficient_privilege (RLS policy violation).
             # psycopg2 exposes pgcode; psycopg3 exposes sqlstate.
@@ -683,6 +790,7 @@ def upload_and_attach_photo(
         browser_gps_status=browser_gps_status,
         gps_consensus=consensus,
         photo_reported_distance_m=photo_dist_float,
+        duplicate=False,
     )
 
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -8,11 +8,15 @@ import { MapPicker } from '@/components/MapPicker';
 import { PublicFireMap } from '@/components/PublicFireMap';
 import { fetchCivilianDuplicateSuggestions, submitCivilianReportV2, appendCivilianReport, fetchReportStatus, uploadCivilianReportPhoto } from '@/lib/api';
 import { PhotoUpload } from '@/components/civilian/PhotoUpload';
+import type { ExifGpsData } from '@/lib/photoExif';
 import {
   submitCivilianReportOfflineAware,
   appendCivilianReportOfflineAware,
   checkReviewEligibility,
 } from '@/lib/api/offlineCivilian';
+import { queueOfflinePhoto, getPendingPhotoCount, discardOrphanedPhotos, storePhotoLink, updatePhotoReportLink, getPhotosByParentLocalId, cleanupExpiredPhotos, rebuildSyncedServerIds } from '@/lib/offlineStore';
+import { encryptPhotoBlob } from '@/lib/offlinePhotoKey';
+import type { OfflinePhotoGps, OfflinePhotoExif } from '@/lib/offlineStore';
 import { usePublicAutoSync } from '@/lib/usePublicAutoSync';
 import { useNetworkStatus } from '@/lib/useNetworkStatus';
 import type { CivilianCategory, CivilianDuplicateSuggestion, CivilianReportTrackingResponse, CivilianReportV2Payload, ReportingContext, SafetyStatus } from '@/lib/api';
@@ -510,6 +514,9 @@ export default function ReportPage() {
     accuracy: number;
     capturedAt: string;
   } | null>(null);
+  const [photoExif, setPhotoExif] = useState<ExifGpsData | null>(null);
+  const [pendingPhotoCount, setPendingPhotoCount] = useState(0);
+  const parentLocalIdRef = useRef<string | null>(null);
   const [photoStatus, setPhotoStatus] = useState<'idle' | 'uploading' | 'uploaded' | 'failed'>('idle');
   const [photoError, setPhotoError] = useState<string | null>(null);
 
@@ -523,6 +530,52 @@ export default function ReportPage() {
   // so they don't have to manually click "Try again" on every offline
   // submission.
   const { isOnline } = useNetworkStatus();
+
+  // ── Pre-allocate parentLocalId for crash recovery linking ──────────────
+  useEffect(() => {
+    parentLocalIdRef.current = crypto.randomUUID();
+    void cleanupExpiredPhotos();
+
+    // ── Crash recovery on mount ──────────────────────────────────────
+    // After a crash, the PHOTO_LINK_STORE may have link records that were
+    // written before the crash but not applied to photo records. Rebuild
+    // the syncedServerIds map and update any photos with null
+    // parentServerReportId that have matching link records.
+    const deviceId = getDeviceId();
+    if (deviceId) {
+      rebuildSyncedServerIds().then(async (serverIds) => {
+        if (serverIds.size === 0) return;
+        // For each link record, find photos with that parentLocalId
+        // and null parentServerReportId, then update them
+        const localIds = [...serverIds.keys()];
+        for (const parentLocalId of localIds) {
+          const serverReportId = serverIds.get(parentLocalId);
+          if (!serverReportId) continue;
+          const photos = await getPhotosByParentLocalId(parentLocalId);
+          for (const photo of photos) {
+            if (photo.parentServerReportId === null) {
+              await updatePhotoReportLink(photo.id, serverReportId);
+            }
+          }
+        }
+        // Refresh the pending photo count
+        const count = await getPendingPhotoCount(deviceId);
+        setPendingPhotoCount(count);
+      }).catch(() => {
+        // Crash recovery failure — non-blocking, photos will sync later
+      });
+    }
+  }, []);
+
+  // ── Refresh pending photo count ────────────────────────────────────────
+  const refreshPhotoCount = useCallback(async () => {
+    const dId = getDeviceId();
+    if (!dId) return;
+    const count = await getPendingPhotoCount(dId);
+    setPendingPhotoCount(count);
+  }, []);
+
+  useEffect(() => { void refreshPhotoCount(); }, [refreshPhotoCount]);
 
   // ── Auto-retry on reconnect ─────────────────────────────────────────────
   // When the user lands on a "stuck" screen because they were offline (review
@@ -951,6 +1004,36 @@ export default function ReportPage() {
         setQueuedLocalId(result.localId);
         setStep('queued_offline');
         setSubmitting(false);
+
+        // ── Queue photo offline ────────────────────────────────────────
+        if (photoFile) {
+          encryptPhotoBlob(photoFile, deviceId, result.localId).then(async ({ encrypted, iv: encryptionIv }) => {
+            await queueOfflinePhoto({
+              id: crypto.randomUUID(),
+              encryptedBlob: encrypted,
+              encryptionIv,
+              filename: 'photo.jpg',
+              mimeType: 'image/jpeg',
+              fileSizeBytes: photoFile.size,
+              width: 0,
+              height: 0,
+              parentLocalId: result.localId,
+              parentServerReportId: null,
+              deviceId,
+              browserGps: photoGps,
+              exifGps: photoExif,
+              createdAt: new Date().toISOString(),
+              retryCount: 0,
+              lastAttemptAt: null,
+              permanentFailure: false,
+            });
+            const updatedCount = await getPendingPhotoCount(deviceId);
+            setPendingPhotoCount(updatedCount);
+          }).catch(() => {
+            // Encryption failure — photo cannot be queued offline
+          });
+        }
+
         return;
       }
       setSubmittedResponse(result.response);
@@ -965,6 +1048,7 @@ export default function ReportPage() {
           photoFile,
           deviceId,
           photoGps ?? undefined,
+          photoExif ?? undefined,
         ).then(() => {
           setPhotoStatus('uploaded');
           setPhotoError(null);
@@ -1017,6 +1101,7 @@ export default function ReportPage() {
         photoFile,
         deviceId,
         photoGps ?? undefined,
+        photoExif ?? undefined,
       );
       setPhotoStatus('uploaded');
       setPhotoError(null);
@@ -2147,10 +2232,12 @@ export default function ReportPage() {
                   onFileChange={setPhotoFile}
                   gps={photoGps}
                   onGpsChange={setPhotoGps}
+                  onExifChange={setPhotoExif}
                   disabled={!isOnline || submitting || photoStatus === 'uploading'}
                   photoStatus={photoStatus}
                   photoError={photoError}
-                  offlineExplanation={!isOnline && !photoFile}
+                  online={isOnline}
+                  pendingCount={pendingPhotoCount}
                 />
 
               </div>

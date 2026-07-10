@@ -172,6 +172,9 @@ _SQL_FILE_SCHEMA_PATCHES = {
     "80_civilian_contributor_tables.sql",
     "81_civilian_routing_columns.sql",
     "82_civilian_report_photos.sql",
+    "83_photo_exif_metadata.sql",
+    "84_photo_idempotency_key.sql",
+    "85_citizen_report_idempotency.sql",
 }
 
 

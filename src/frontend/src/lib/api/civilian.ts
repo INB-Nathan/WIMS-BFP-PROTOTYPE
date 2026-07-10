@@ -82,6 +82,13 @@ export async function uploadCivilianReportPhoto(
     accuracy: number;
     capturedAt: string;
   },
+  exifGps?: {
+    latitude: number;
+    longitude: number;
+    altitude: number | null;
+    timestamp: string | null;
+  },
+  clientPhotoId?: string,
 ): Promise<UploadPhotoResponse> {
   const formData = new FormData();
   formData.append('file', file);
@@ -92,6 +99,21 @@ export async function uploadCivilianReportPhoto(
     formData.append('browser_gps_lon', browserGps.longitude.toString());
     formData.append('browser_gps_accuracy', browserGps.accuracy.toString());
     formData.append('browser_gps_captured_at', browserGps.capturedAt);
+  }
+
+  if (exifGps) {
+    formData.append('exif_gps_lat', exifGps.latitude.toString());
+    formData.append('exif_gps_lon', exifGps.longitude.toString());
+    if (exifGps.altitude !== null) {
+      formData.append('exif_gps_altitude', exifGps.altitude.toString());
+    }
+    if (exifGps.timestamp !== null) {
+      formData.append('exif_datetime_original', exifGps.timestamp);
+    }
+  }
+
+  if (clientPhotoId) {
+    formData.append('client_photo_id', clientPhotoId);
   }
 
   return publicApiFetch<UploadPhotoResponse>(
