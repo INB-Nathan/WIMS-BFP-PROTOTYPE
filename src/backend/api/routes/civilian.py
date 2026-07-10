@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
 import redis
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -30,6 +30,7 @@ from utils.rate_limit import (
     RETRY_AFTER_FLOOR_SECONDS,
 )
 
+from auth import get_photo_db, optional_auth
 from schemas.civilian import (
     CivilianFollowupCreate,
     CivilianFollowupItem,
@@ -45,9 +46,11 @@ from schemas.civilian import (
     MyReportResponse,
     NotifyRegisterRequest,
     NotifyRegisterResponse,
+    PhotoUploadResponse,
     ReportClusterResponse,
     ReportClusterArea,
 )
+from services.report_photos import is_terminal_status, upload_and_attach_photo
 
 logger = logging.getLogger("wims.civilian")
 
@@ -277,6 +280,9 @@ def _response_from_row(row) -> CivilianReportResponse:
             )
             # Fail-closed: PII fields stay as their NULL fallback
 
+    # Derive submitter_type from contributor_user_id (not from request auth)
+    submitter_type = "registered" if getattr(row, "contributor_user_id", None) else "anonymous"
+
     return CivilianReportResponse(
         report_id=row.report_id,
         latitude=float(row.lat),
@@ -300,6 +306,7 @@ def _response_from_row(row) -> CivilianReportResponse:
         routing_duration_s=getattr(row, "routing_duration_s", None),
         routing_data_source=getattr(row, "routing_data_source", None),
         photo_count=getattr(row, "photo_count", 0) or 0,
+        submitter_type=submitter_type,
         link_count=row.link_count or 0,
         created_at=row.created_at,
     )
@@ -353,6 +360,7 @@ def _fetch_report_response(
                    cr.link_count,
                    cr.previous_report_id,
                    cr.created_at,
+                   cr.contributor_user_id,
                    cr.witness_pii_blob_enc,
                    cr.witness_encryption_iv,
                    cr.witness_crypto_provider,
@@ -362,7 +370,8 @@ def _fetch_report_response(
                    cl.status AS related_cluster_status,
                    cr.routing_distance_m,
                    cr.routing_duration_s,
-                   cr.routing_data_source
+                   cr.routing_data_source,
+                   (SELECT COUNT(*) FROM wims.report_photos rp WHERE rp.report_id = cr.report_id) AS photo_count
             FROM wims.citizen_reports cr
             LEFT JOIN wims.ref_fire_stations fs ON fs.station_id = cr.nearest_station_id
             LEFT JOIN wims.citizen_report_cluster_members cm ON cm.report_id = cr.report_id
@@ -612,12 +621,14 @@ def get_civilian_report_by_tracking_token(
                    cr.link_count,
                    cr.previous_report_id,
                    cr.created_at,
+                   cr.contributor_user_id,
                    cr.routing_distance_m,
                    cr.routing_duration_s,
                    cr.routing_data_source,
                    fs.station_name AS nearest_station_name,
                    fs.phone AS nearest_station_phone,
-                   cl.status AS related_cluster_status
+                   cl.status AS related_cluster_status,
+                   (SELECT COUNT(*) FROM wims.report_photos rp WHERE rp.report_id = cr.report_id) AS photo_count
             FROM wims.citizen_reports cr
             LEFT JOIN wims.ref_fire_stations fs ON fs.station_id = cr.nearest_station_id
             LEFT JOIN wims.citizen_report_cluster_members cm ON cm.report_id = cr.report_id
@@ -635,6 +646,9 @@ def get_civilian_report_by_tracking_token(
     status_val = row.status
     rejection_guidance = REJECTION_GUIDANCE.get(status_val)
     guidance = rejection_guidance or STATUS_GUIDANCE.get(status_val)
+
+    # Tier 1: submitter_type derived from contributor_user_id
+    tracked_submitter = "registered" if getattr(row, "contributor_user_id", None) else "anonymous"
 
     return CivilianReportResponse(
         report_id=row.report_id,
@@ -658,8 +672,8 @@ def get_civilian_report_by_tracking_token(
         routing_distance_m=getattr(row, "routing_distance_m", None),
         routing_duration_s=getattr(row, "routing_duration_s", None),
         routing_data_source=getattr(row, "routing_data_source", None),
-        photo_count=0,  # Phase 2: compute from report_photos
-        submitter_type="anonymous",  # Tracking token is unauthenticated
+        photo_count=getattr(row, "photo_count", 0) or 0,
+        submitter_type=tracked_submitter,
         link_count=row.link_count or 0,
         created_at=row.created_at,
     )
@@ -725,7 +739,7 @@ def append_civilian_report(
         text("SELECT report_id, status FROM wims.citizen_reports WHERE report_id = :rid"),
         {"rid": report_id},
     ).fetchone()
-    if parent.status == "ACTIONED" or str(parent.status).startswith("REJECTED_"):
+    if is_terminal_status(parent.status):
         raise HTTPException(
             status_code=409,
             detail="Terminal reports cannot be appended. Submit a new report or call 911.",
@@ -833,7 +847,7 @@ def submit_civilian_followup(
         text("SELECT report_id, status FROM wims.citizen_reports WHERE report_id = :rid"),
         {"rid": report_id},
     ).fetchone()
-    if parent.status == "ACTIONED" or str(parent.status).startswith("REJECTED_"):
+    if is_terminal_status(parent.status):
         raise HTTPException(
             status_code=409,
             detail="Terminal reports cannot receive follow-ups. Submit a new report or call 911.",
@@ -920,6 +934,47 @@ def submit_civilian_followup(
         report_id=result[1],
         followup_text=result[2],
         created_at=result[3],
+    )
+
+
+@router.post(
+    "/reports/{report_id}/photos",
+    response_model=PhotoUploadResponse,
+    status_code=201,
+)
+def upload_report_photo(
+    report_id: int,
+    db: Annotated[Session, Depends(get_photo_db)],
+    user: Annotated[dict | None, Depends(optional_auth)],
+    file: UploadFile = File(...),
+    device_id: str | None = Form(default=None),
+    browser_gps_lat: float | None = Form(default=None),
+    browser_gps_lon: float | None = Form(default=None),
+    browser_gps_accuracy: float | None = Form(default=None),
+    browser_gps_captured_at: datetime | None = Form(default=None),
+) -> PhotoUploadResponse:
+    """Upload and attach a photo to an existing civilian report.
+
+    Uses ``optional_auth`` + ``get_photo_db``: registered CIVILIAN_REPORTER
+    users get 5 photos / 10 MiB; anonymous users get 1 photo / 5 MiB via
+    device_id ownership.
+
+    Session is non-superuser wims_app_user with RLS context set so that
+    FORCE ROW LEVEL SECURITY on wims.report_photos is enforced.
+
+    No SQL, crypto, EXIF, filesystem, or business logic here —
+    all delegated to ``services.report_photos.upload_and_attach_photo``.
+    """
+    return upload_and_attach_photo(
+        db=db,
+        report_id=report_id,
+        file=file,
+        device_id=device_id,
+        browser_gps_lat=browser_gps_lat,
+        browser_gps_lon=browser_gps_lon,
+        browser_gps_accuracy=browser_gps_accuracy,
+        browser_gps_captured_at=browser_gps_captured_at,
+        registered_user=user,
     )
 
 

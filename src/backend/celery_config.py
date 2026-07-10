@@ -25,6 +25,7 @@ celery_app = Celery(
         "tasks.ip_blocklist",
         "tasks.monitoring",
         "tasks.notifications",
+        "tasks.report_photos",
         "tasks.scheduled_backup",
         "tasks.suricata",
     ],
@@ -42,6 +43,7 @@ celery_app.conf.imports = (
     "tasks.kms_rotation",
     "tasks.monitoring",
     "tasks.notifications",
+    "tasks.report_photos",
     "tasks.scheduled_backup",
     "tasks.scheduled_reports",
     "tasks.suricata",
@@ -56,6 +58,7 @@ celery_app.conf.update(
     enable_utc=True,
     imports=(
         "tasks.analytics_refresh",
+        "tasks.anomaly_detection",
         "tasks.civilian_reports",
         "tasks.drafts",
         "tasks.exports",
@@ -63,6 +66,7 @@ celery_app.conf.update(
         "tasks.kms_rotation",
         "tasks.monitoring",
         "tasks.notifications",
+        "tasks.report_photos",
         "tasks.routing",
         "tasks.scheduled_backup",
         "tasks.scheduled_reports",
@@ -135,6 +139,11 @@ celery_app.conf.update(
         "execute-scheduled-reports": {
             "task": "tasks.scheduled_reports.execute_due_reports",
             "schedule": SCHEDULE_CHECK_INTERVAL,
+        },
+        # Phase 2: Orphan civilian photo cleanup (hourly)
+        "cleanup-orphan-civilian-photos": {
+            "task": "tasks.report_photos.cleanup_orphan_civilian_photos",
+            "schedule": 3600.0,
         },
         # Task 7: Periodic Redis blocklist resync (every 5 min)
         "resync-ip-blocklist": {

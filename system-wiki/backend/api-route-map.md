@@ -1,7 +1,7 @@
 ---
 title: Backend API Route Map
 created: 2026-05-14
-updated: 2026-07-01
+updated: 2026-07-10
 type: backend
 tags: [wims-bfp, backend, api, implementation-map]
 sources: [raw/codebase/codebase-snapshot-2026-05-14.md, src/backend/api/routes]
@@ -23,6 +23,7 @@ FastAPI route ownership snapshot from `src/backend/api/routes`.
 | `civilian.py` | `POST` | `/reports/{report_id}/notify` | `register_notification` |
 | `civilian.py` | `GET` | `/report-clusters` | `get_report_clusters` | Public-safe root-map areas from durable civilian report clusters; no raw cluster/report IDs. |
 | `civilian.py` | `POST` | `/reports/{report_id}/followup` | `submit_civilian_followup` | Public text follow-up linked to existing report (Issue #62). Terminal reports blocked. |
+| `civilian.py` | `POST` | `/reports/{report_id}/photos` | `upload_report_photo` | Post-submit multipart photo attachment; delegates validation, EXIF sanitization, encryption, ownership, RLS, and audit to `services.report_photos`. |
 | `sessions.py` | `GET` | `/sessions/{user_id}` | `list_user_sessions` |
 | `sessions.py` | `DELETE` | `/sessions/{user_id}/{session_id}` | `terminate_user_session` |
 | `user.py` | `GET` | `/me/profile` | `get_my_profile` |
@@ -166,6 +167,7 @@ FastAPI route ownership snapshot from `src/backend/api/routes`.
 - Planned post-grill analyst export module: selected-record/full-AFOR exports should be implemented as separate `incidents.py` analyst export endpoints (`POST /api/incidents/analyst/export`, `GET /api/incidents/analyst/export/{task_id}`), not as extensions of the aggregate analytics export endpoint. A status endpoint is deferred until after the MVP dashboard.
 - `public_dmz.py` is the unauthenticated public submission surface; fail closed on all adjacent changes and read [[security/security-baseline]].
 - `ref.py` is the reference data read API tied to `wims.ref_*` tables in [[database/schema-overview]].
+- The civilian photo route deliberately uses `get_photo_db()` from `src/backend/auth.py`, not the admin `get_db()` dependency: anonymous requests leave the RLS user GUC unset, while registered requests set it from the authenticated user. `wims.report_photos` remains the final authorization boundary under `FORCE ROW LEVEL SECURITY`; ownership failures are normalized to a neutral 404.
 
 ## Operations (Linked Reports)
 - `GET /api/operations` returns active operation rows by default with `linked_report_ids` and PII-free `linked_reports` detail objects derived from `wims.citizen_reports.location` via PostGIS; `?archived=true` switches to the read-only archive board.

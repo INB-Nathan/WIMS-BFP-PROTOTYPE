@@ -53,6 +53,56 @@ export interface ReportClusterResponse {
   areas: ReportClusterArea[];
 }
 
+export interface UploadPhotoResponse {
+  photo_id: string;
+  report_id: number;
+  file_size_bytes: number;
+  mime_type: string;
+  image_width: number;
+  image_height: number;
+  exif_gps_status: string;
+  browser_gps_status: string;
+  gps_consensus: string | null;
+  photo_reported_distance_m: number | null;
+}
+
+/**
+ * Upload a civilian-report photo — anonymous/device-bound, online-only.
+ * POST /api/civilian/reports/{reportId}/photos with multipart/form-data.
+ * Browser GPS fields are included only when a complete sample is provided.
+ * Do NOT set multipart Content-Type header manually.
+ */
+export async function uploadCivilianReportPhoto(
+  reportId: number,
+  file: File,
+  deviceId: string,
+  browserGps?: {
+    latitude: number;
+    longitude: number;
+    accuracy: number;
+    capturedAt: string;
+  },
+): Promise<UploadPhotoResponse> {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('device_id', deviceId);
+
+  if (browserGps) {
+    formData.append('browser_gps_lat', browserGps.latitude.toString());
+    formData.append('browser_gps_lon', browserGps.longitude.toString());
+    formData.append('browser_gps_accuracy', browserGps.accuracy.toString());
+    formData.append('browser_gps_captured_at', browserGps.capturedAt);
+  }
+
+  return publicApiFetch<UploadPhotoResponse>(
+    `/civilian/reports/${reportId}/photos`,
+    {
+      method: 'POST',
+      body: formData,
+    },
+  );
+}
+
 export async function fetchReportClusters(lat?: number, lon?: number): Promise<ReportClusterResponse> {
   const params = new URLSearchParams();
   if (lat !== undefined && lon !== undefined) {

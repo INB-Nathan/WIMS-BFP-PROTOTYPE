@@ -171,6 +171,7 @@ _SQL_FILE_SCHEMA_PATCHES = {
     "64_consent_log_ip_hash.sql",
     "80_civilian_contributor_tables.sql",
     "81_civilian_routing_columns.sql",
+    "82_civilian_report_photos.sql",
 }
 
 
@@ -658,6 +659,12 @@ def apply_schema_patches() -> None:
             "consent_log.request_ip INET -> VARCHAR(128) for salted IP-hash storage",
         )
 
+        _apply_postgres_init_sql_patch(
+            db,
+            "82_civilian_report_photos.sql",
+            "wims.report_photos table + RLS + encryption metadata columns",
+        )
+
         # RP-06: backfill data_hash for VERIFIED incidents seeded via SQL or
         # verified before the NSD-hash extension landed. The no_update_verified
         # rule carves out data_hash-only updates on VERIFIED rows (migration 68).
@@ -683,6 +690,10 @@ def apply_schema_patches() -> None:
                 ON wims.citizen_reports FOR SELECT USING (
                     wims.current_user_role() IN ('SYSTEM_ADMIN', 'NATIONAL_ANALYST', 'NATIONAL_VALIDATOR')
                     OR (wims.current_user_role() = 'ANONYMOUS' AND contributor_user_id IS NULL)
+                    OR (
+                        wims.current_user_role() = 'CIVILIAN_REPORTER'
+                        AND contributor_user_id = wims.current_user_uuid()
+                    )
                 );
             """)
         )
@@ -736,6 +747,7 @@ def apply_schema_patches() -> None:
             "Schema patch (validate_tracking_token function) failed (non-fatal): %s", exc
         )
         db.rollback()
+
     finally:
         db.close()
         with _schema_patches_lock:

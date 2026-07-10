@@ -283,6 +283,8 @@ services:
       # WS-B (RP-08/RP-18): shared secret for Keycloak → WIMS audit event push
       - WIMS_KEYCLOAK_EVENT_SECRET=${WIMS_KEYCLOAK_EVENT_SECRET:-}
       - OLLAMA_NUM_PREDICT=${OLLAMA_NUM_PREDICT:-256}
+      # Phase-2 civilian photo storage (shared volume, backend+worker)
+      - CIVILIAN_PHOTO_STORAGE_DIR=/app/storage/civilian-photos
     volumes:
       - incident_attachments_data:/app/storage
       - ./suricata/logs:/var/log/suricata:ro
@@ -348,6 +350,8 @@ services:
       # Download GeoLite2-City.mmdb from maxmind.com and place it in ./geoip/.
       # Detector silently skips if the file is absent.
       - GEOIP_DB_PATH=/app/geoip/GeoLite2-City.mmdb
+      # Phase-2 civilian photo storage (shared volume, backend+worker)
+      - CIVILIAN_PHOTO_STORAGE_DIR=/app/storage/civilian-photos
     volumes:
       - ./suricata/logs:/var/log/suricata:ro
       - ./postgres-init:/postgres-init:ro

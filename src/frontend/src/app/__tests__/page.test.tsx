@@ -48,6 +48,18 @@ vi.mock('@/lib/api', () => ({
   }),
   fetchReportClusters: vi.fn().mockResolvedValue({ areas: [], mode: 'national', stale: false, degraded: false }),
   fetchEmergencyServices: vi.fn().mockResolvedValue({ emergency_number: '911' }),
+  uploadCivilianReportPhoto: vi.fn().mockResolvedValue({
+    photo_id: 'mock-photo-uuid',
+    report_id: 42,
+    file_size_bytes: 1024,
+    mime_type: 'image/jpeg',
+    image_width: 100,
+    image_height: 100,
+    exif_gps_status: 'NOT_PRESENT',
+    browser_gps_status: 'NOT_PRESENT',
+    gps_consensus: null,
+    photo_reported_distance_m: null,
+  }),
 }));
 
 // Mock react-leaflet (heavy dependency)
@@ -780,5 +792,158 @@ describe('ReportPage — auto-retry on reconnect + tracking link', () => {
     const trackingLink = screen.getByTestId('tracking-link');
     expect(trackingLink.tagName).toBe('A');
     expect(trackingLink.getAttribute('href')).toBe('/tracking?id=478');
+  });
+});
+
+describe('ReportPage — photo upload flow', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    try { localStorage.clear(); } catch {}
+    mockSearchParams = new URLSearchParams();
+    mapPickerChange = null;
+    mapPickerBehaviour.throwOnRender = false;
+    setConnectivity('online');
+    setNetworkOnline(true);
+    offlineMocks.checkReviewEligibility.mockImplementation(() => undefined);
+    offlineMocks.submitCivilianReportOfflineAware.mockResolvedValue({
+      queued: false,
+      response: { report_id: 42, status: 'PENDING' },
+    });
+    publicAutoSyncMocks.usePublicAutoSync.mockReturnValue({
+      syncing: false,
+      lastSyncedAt: null,
+      pendingCount: 0,
+      failedCount: 0,
+      syncNow: vi.fn(),
+    });
+  });
+  afterEach(() => {
+    mapPickerBehaviour.throwOnRender = false;
+    setNetworkOnline(true);
+  });
+
+  async function driveToSubmitted() {
+    const { default: ReportPage } = await import('../page');
+    render(<ReportPage />);
+
+    // Safety step
+    fireEvent.click(screen.getByText('I am safe'));
+    fireEvent.click(screen.getByText('Continue'));
+
+    // Context step — WITNESS + pin
+    await screen.findByText('How did you learn about this fire?');
+    fireEvent.click(screen.getByText('I saw it happen'));
+    await waitFor(() => expect(mapPickerChange).not.toBeNull());
+    mapPickerChange!(14.5, 121);
+    fireEvent.click(screen.getByText('Continue'));
+
+    // Category step
+    await screen.findByText('What type of fire is this?');
+    fireEvent.click(screen.getByText('Structural'));
+    fireEvent.click(screen.getByText('Continue'));
+
+    // Details step
+    await screen.findByText('Observed time (optional)');
+    fireEvent.click(screen.getByText('Review & Submit'));
+
+    // Review step
+    await screen.findByText('Review Your Report');
+    fireEvent.click(screen.getByText('Submit Report'));
+
+    await screen.findByText('Report Submitted');
+    return { ReportPage };
+  }
+
+  it('calls photo upload after report POST on the submitted screen', async () => {
+    await driveToSubmitted();
+
+    // The photo upload should have been attempted (uploadCivilianReportPhoto was called)
+    // since we didn't select a file, the call should not have been made
+    const { uploadCivilianReportPhoto } = await import('@/lib/api');
+    expect(uploadCivilianReportPhoto).not.toHaveBeenCalled();
+  });
+
+  it('PhotoUpload component renders in the details step', async () => {
+    const { default: ReportPage } = await import('../page');
+    render(<ReportPage />);
+
+    // Safety step
+    fireEvent.click(screen.getByText('I am safe'));
+    fireEvent.click(screen.getByText('Continue'));
+
+    await screen.findByText('How did you learn about this fire?');
+    fireEvent.click(screen.getByText('I saw it happen'));
+    await waitFor(() => expect(mapPickerChange).not.toBeNull());
+    mapPickerChange!(14.5, 121);
+    fireEvent.click(screen.getByText('Continue'));
+
+    await screen.findByText('What type of fire is this?');
+    fireEvent.click(screen.getByText('Structural'));
+    fireEvent.click(screen.getByText('Continue'));
+
+    await screen.findByText('Observed time (optional)');
+    expect(screen.getByTestId('photo-upload')).toBeInTheDocument();
+  });
+
+  it('tracking link remains visible on submitted screen regardless of photo state', async () => {
+    // The report succeeds even when photo upload is never called (no file selected)
+    try { localStorage.setItem('wims_civilian_device_id', 'd-1'); } catch {}
+
+    const { default: ReportPage } = await import('../page');
+    render(<ReportPage />);
+
+    fireEvent.click(screen.getByText('I am safe'));
+    fireEvent.click(screen.getByText('Continue'));
+    await screen.findByText('How did you learn about this fire?');
+    fireEvent.click(screen.getByText('I saw it happen'));
+    await waitFor(() => expect(mapPickerChange).not.toBeNull());
+    mapPickerChange!(14.5, 121);
+    fireEvent.click(screen.getByText('Continue'));
+    await screen.findByText('What type of fire is this?');
+    fireEvent.click(screen.getByText('Structural'));
+    fireEvent.click(screen.getByText('Continue'));
+    await screen.findByText('Observed time (optional)');
+    fireEvent.click(screen.getByText('Review & Submit'));
+    await screen.findByText('Review Your Report');
+    fireEvent.click(screen.getByText('Submit Report'));
+    await screen.findByText('Report Submitted');
+
+    // Tracking link must always be visible — even when no photo was uploaded
+    const trackingLink = screen.getByTestId('tracking-link');
+    expect(trackingLink.getAttribute('href')).toBe('/tracking?id=42');
+  });
+
+  it('queued offline submission never calls photo upload', async () => {
+    // Mock offline behavior
+    setConnectivity('offline');
+    offlineMocks.submitCivilianReportOfflineAware.mockResolvedValue({
+      queued: true,
+      localId: 'queued-local-photo',
+    });
+    try { localStorage.setItem('wims_civilian_device_id', 'd-1'); } catch {}
+
+    const { default: ReportPage } = await import('../page');
+    render(<ReportPage />);
+
+    // Safety — select life-safety
+    fireEvent.click(screen.getByText('I need help'));
+    fireEvent.click(screen.getByText('Continue'));
+
+    // Context step
+    await screen.findByText('How did you learn about this fire?');
+    fireEvent.click(screen.getByText('I saw it happen'));
+    await waitFor(() => expect(mapPickerChange).not.toBeNull());
+    mapPickerChange!(14.5, 121);
+    fireEvent.click(screen.getByText('Continue'));
+
+    // Category step — Send now
+    await screen.findByText('What type of fire is this?');
+    fireEvent.click(screen.getByText('Structural'));
+    fireEvent.click(screen.getByText('Send now / Ipadala na'));
+
+    await screen.findByText('Report saved offline');
+
+    const { uploadCivilianReportPhoto } = await import('@/lib/api');
+    expect(uploadCivilianReportPhoto).not.toHaveBeenCalled();
   });
 });

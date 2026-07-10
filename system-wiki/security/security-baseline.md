@@ -1,10 +1,10 @@
 ---
 title: Security Baseline
 created: 2026-05-14
-updated: 2026-07-01
+updated: 2026-07-10
 type: security
 tags: [wims-bfp, security, auth, rbac, rls, audit-log, ids, xai, privacy, fail-closed]
-sources: [raw/frs/frs-auth.md, raw/frs/frs-complianceanddataprivacy.md, raw/frs/frs-intrusiondetectionandnetworkingmonitoring.md, raw/frs/frs-threatdetectionwithexplainableai.md, raw/codebase/codebase-snapshot-2026-05-14.md, src/keycloak/demo-otp-provider, src/keycloak/bfp-realm.json, src/keycloak/import/bfp-realm.json]
+sources: [raw/frs/frs-auth.md, raw/frs/frs-complianceanddataprivacy.md, raw/frs/frs-intrusiondetectionandnetworkingmonitoring.md, raw/frs/frs-threatdetectionwithexplainableai.md, raw/codebase/codebase-snapshot-2026-05-14.md, src/keycloak/demo-otp-provider, src/keycloak/bfp-realm.json, src/keycloak/import/bfp-realm.json, src/postgres-init/82_civilian_report_photos.sql, src/backend/services/report_photos.py, src/backend/utils/exif.py]
 status: draft
 ---
 
@@ -82,6 +82,12 @@ Implements D18 (Public abuse controls), D5 (Public audit logging), and D6 (Redis
 
 ## RLS and Data Privacy
 FRS Module 10 requires minimization, purpose limitation, rectification/erasure handling, breach notification, DPIA, and RoPA. Database enforcement must be verified in `src/postgres-init/09_rls_helpers.sql`, `10_rls_policies.sql`, and route dependencies.
+
+### Civilian Photo Evidence Pipeline (2026-07-10)
+
+`POST /api/civilian/reports/{report_id}/photos` is a post-submit, device-bound evidence path. The route uses `get_photo_db()` with the non-superuser `wims_app_user` session so `FORCE ROW LEVEL SECURITY` on `wims.report_photos` is active. Anonymous ownership is checked against the report's UUID device bearer; registered `CIVILIAN_REPORTER` ownership is checked against `contributor_user_id`. Ownership and RLS failures return the same neutral 404 rather than exposing report existence.
+
+The service in `src/backend/services/report_photos.py` validates extension, declared MIME, magic bytes, byte caps, and decoded image content; extracts EXIF before deterministic pixel-only sanitization; and stores three independently encrypted artifacts: original bytes, sanitized bytes, and sensitive metadata. Each artifact uses a distinct AAD variant (`civilian-photo:{photo_id}:original|sanitized|metadata:v1`). Original filename, EXIF allowlist, and browser GPS are not stored plaintext. GPS distances and consensus use PostGIS. The insert and sensitive `PHOTO_UPLOAD_ATTACH` audit record commit together; filesystem failures trigger compensation cleanup. Hourly Celery reconciliation quarantines old, unreferenced final artifacts and removes only recognized stale temporary files. There is no public photo-read endpoint in Phase 2.
 
 ## Audit and Immutability
 FRS Module 4 requires SHA-256 data hashes, append-only audit logs, and immutable commit records. Verification/correction workflow remains a high-risk area; see [[gaps/frs-codebase-gap-register]].

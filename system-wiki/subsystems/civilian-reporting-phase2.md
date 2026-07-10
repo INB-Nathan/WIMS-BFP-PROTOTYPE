@@ -1,10 +1,10 @@
 ---
 title: Civilian Reporting Phase 2 — Subsystem Deep-Dive
 created: 2026-05-20
-updated: 2026-06-20
+updated: 2026-07-10
 type: subsystem
 tags: [wims-bfp, subsystem, civilian-reporting, triage, validation, public-dmz, cluster, merge, map]
-sources: [system-wiki/prd/civilian-reporting-phase-2.md, system-wiki/decisions/0001-civilian-reporting-overhaul.md, src/backend/api/routes/triage.py, src/backend/api/routes/civilian.py, src/backend/api/routes/ref.py, src/backend/api/routes/public_dmz.py, src/backend/tasks/civilian_reports.py, src/frontend/src/app/incidents/triage/page.tsx, src/frontend/src/components/triage/TriageInspectionModal.tsx, src/frontend/src/components/triage/triage-modal.css, src/frontend/src/app/page.tsx, src/frontend/src/app/tracking/page.tsx]
+sources: [system-wiki/prd/civilian-reporting-phase-2.md, system-wiki/decisions/0001-civilian-reporting-overhaul.md, src/backend/api/routes/triage.py, src/backend/api/routes/civilian.py, src/backend/api/routes/ref.py, src/backend/api/routes/public_dmz.py, src/backend/tasks/civilian_reports.py, src/backend/services/report_photos.py, src/backend/utils/exif.py, src/postgres-init/82_civilian_report_photos.sql, src/frontend/src/app/incidents/triage/page.tsx, src/frontend/src/components/triage/TriageInspectionModal.tsx, src/frontend/src/components/triage/triage-modal.css, src/frontend/src/app/page.tsx, src/frontend/src/components/civilian/PhotoUpload.tsx, src/frontend/src/app/tracking/page.tsx]
 status: current
 related: [prd/civilian-reporting-phase-2, decisions/0001-civilian-reporting-overhaul, subsystems/references/triage-api-ref, frontend/validator-triage-shortcuts, frontend/route-map, operations/civilian-triage-hci-polish, gaps/frs-codebase-gap-register]
 ---
@@ -132,6 +132,18 @@ Append new signal to an existing report (new row with `linked_to_report_id`). Re
 **Frontend update mode**: the public `/` report page enters update mode via `?update_report_id=<id>` from `/tracking`. It fetches the parent report with the stored `wims_civilian_device_id`, reuses the parent location/category/context/safety fields required by the append schema, sends the stored `device_id`, and lets the civilian add a description/timestamp. Cancel is a client button that clears update state and `router.replace('/')` so the main safety screen appears even when the route pathname is unchanged.
 
 **Rate limit**: 1 append per device per 5 minutes across all linked reports.
+
+### `POST /api/civilian/reports/{report_id}/photos`
+Post-submit multipart photo attachment. The report is submitted first; photo failure never rolls back a successful report.
+
+- Anonymous uploads require the existing report `device_id`, are capped at one photo and 5 MiB, and are online-only in the frontend.
+- Registered `CIVILIAN_REPORTER` uploads are contributor-owned, capped at five photos and 10 MiB.
+- The backend validates MIME/extension/magic bytes and decoded image content, extracts EXIF before deterministic metadata-free sanitization, and encrypts original bytes, sanitized bytes, and sensitive metadata independently with variant-specific AAD.
+- EXIF GPS and browser GPS are retained only inside encrypted metadata; PostGIS computes report distances and the GPS consensus classification.
+- `get_photo_db()` uses a non-superuser session so `FORCE ROW LEVEL SECURITY` is enforced. Ownership/RLS failures are returned as neutral 404 responses. A sensitive `PHOTO_UPLOAD_ATTACH` audit record is committed with the photo row.
+- Final encrypted artifacts are stored under `CIVILIAN_PHOTO_STORAGE_DIR`; the hourly Celery task quarantines old unreferenced final artifacts and removes recognized stale temp files. Phase 2 has no public photo-read endpoint.
+
+Frontend integration in `src/frontend/src/app/page.tsx` keeps the selected file and browser GPS sample in memory, renders `PhotoUpload` in the details step, uploads only after an online report success, and exposes retry/error status on the submitted screen.
 
 ### `POST /api/civilian/reports/{report_id}/notify`
 Register FCM notification token for tracking page push.

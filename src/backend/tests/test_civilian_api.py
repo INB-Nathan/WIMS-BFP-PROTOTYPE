@@ -6,6 +6,9 @@ unit-testable logic that does not require Docker services.
 
 import math
 
+from api.routes import civilian
+from auth import get_photo_db
+
 
 def test_civilian_report_429_detail_includes_retry_minutes():
     """The 429 detail string must include the retry time in minutes,
@@ -21,3 +24,12 @@ def test_civilian_report_429_detail_includes_retry_minutes():
         f"Detail must include retry minutes, got: {expected_detail}"
     )
     assert "Try again" in expected_detail
+
+
+def test_photo_route_uses_photo_specific_rls_dependency():
+    route = next(
+        route
+        for route in civilian.router.routes
+        if route.path == "/api/civilian/reports/{report_id}/photos"
+    )
+    assert any(dependency.call is get_photo_db for dependency in route.dependant.dependencies)

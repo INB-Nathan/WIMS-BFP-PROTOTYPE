@@ -6,7 +6,8 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { MapPicker } from '@/components/MapPicker';
 import { PublicFireMap } from '@/components/PublicFireMap';
-import { fetchCivilianDuplicateSuggestions, submitCivilianReportV2, appendCivilianReport, fetchReportStatus } from '@/lib/api';
+import { fetchCivilianDuplicateSuggestions, submitCivilianReportV2, appendCivilianReport, fetchReportStatus, uploadCivilianReportPhoto } from '@/lib/api';
+import { PhotoUpload } from '@/components/civilian/PhotoUpload';
 import {
   submitCivilianReportOfflineAware,
   appendCivilianReportOfflineAware,
@@ -501,6 +502,17 @@ export default function ReportPage() {
   const [queuedLocalId, setQueuedLocalId] = useState<string | null>(null);
   const [reviewBlockedReason, setReviewBlockedReason] = useState<string | null>(null);
 
+  // ── Photo upload state (memory-only, not persisted) ─────────────────────────
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoGps, setPhotoGps] = useState<{
+    latitude: number;
+    longitude: number;
+    accuracy: number;
+    capturedAt: string;
+  } | null>(null);
+  const [photoStatus, setPhotoStatus] = useState<'idle' | 'uploading' | 'uploaded' | 'failed'>('idle');
+  const [photoError, setPhotoError] = useState<string | null>(null);
+
   // Public auto-sync hook: listens for reconnect, fires the public sync engine,
   // prompts for desktop notifications on persistent failures.
   usePublicAutoSync();
@@ -944,6 +956,34 @@ export default function ReportPage() {
       setSubmittedResponse(result.response);
       setSubmittedReportId(result.response.report_id);
       setStep('submitted');
+
+      // ── Fire photo upload after report success (non-blocking) ────────
+      if (photoFile && navigator.onLine) {
+        setPhotoStatus('uploading');
+        uploadCivilianReportPhoto(
+          result.response.report_id,
+          photoFile,
+          deviceId,
+          photoGps ?? undefined,
+        ).then(() => {
+          setPhotoStatus('uploaded');
+          setPhotoError(null);
+        }).catch((err: unknown) => {
+          setPhotoStatus('failed');
+          const status = (err as { status?: number })?.status;
+          if (status === 404) {
+            setPhotoError('Report not found. The photo could not be attached.');
+          } else if (status === 409) {
+            setPhotoError('Photo cap reached. Only one photo per report.');
+          } else if (status === 413) {
+            setPhotoError('Photo too large. Max 5 MB for photos.');
+          } else if (status === 422) {
+            setPhotoError('Invalid photo. Please try a different image.');
+          } else {
+            setPhotoError('Photo upload failed. You can retry below.');
+          }
+        });
+      }
     } catch (err) {
       // Detect error type for targeted copy + 911 boundary
       const isNetworkError = err instanceof TypeError || (err instanceof Error ? err.message.includes('Failed to fetch') : false);
@@ -963,6 +1003,37 @@ export default function ReportPage() {
         setSubmitError(err instanceof Error ? err.message : 'Submission failed. Please try again.');
       }
       setSubmitting(false);
+    }
+  }
+
+  async function handleRetryPhoto() {
+    if (!photoFile || !submittedReportId || !navigator.onLine) return;
+    setPhotoStatus('uploading');
+    setPhotoError(null);
+    try {
+      const deviceId = getDeviceId();
+      await uploadCivilianReportPhoto(
+        submittedReportId,
+        photoFile,
+        deviceId,
+        photoGps ?? undefined,
+      );
+      setPhotoStatus('uploaded');
+      setPhotoError(null);
+    } catch (err: unknown) {
+      setPhotoStatus('failed');
+      const status = (err as { status?: number })?.status;
+      if (status === 404) {
+        setPhotoError('Report not found. The photo could not be attached.');
+      } else if (status === 409) {
+        setPhotoError('Photo cap reached. Only one photo per report.');
+      } else if (status === 413) {
+        setPhotoError('Photo too large. Max 5 MB for photos.');
+      } else if (status === 422) {
+        setPhotoError('Invalid photo. Please try a different image.');
+      } else {
+        setPhotoError('Photo upload failed. You can retry below.');
+      }
     }
   }
 
@@ -1075,6 +1146,12 @@ export default function ReportPage() {
                 <span style={{ color: 'var(--text-secondary)' }}>Location</span>
                 <span style={{ color: 'var(--text-primary)' }}>{geo.latitude?.toFixed(5)}, {geo.longitude?.toFixed(5)}</span>
               </div>
+              {photoFile && (
+                <div className="flex justify-between">
+                  <span style={{ color: 'var(--text-secondary)' }}>Photo</span>
+                  <span style={{ color: 'var(--text-primary)' }}>{photoFile.name} ({(photoFile.size / 1024 / 1024).toFixed(1)} MB)</span>
+                </div>
+              )}
             </div>
 
             <div className="text-xs p-3 rounded-lg" style={{ backgroundColor: 'var(--content-bg)', color: 'var(--text-secondary)' }}>
@@ -1463,6 +1540,58 @@ export default function ReportPage() {
                 /tracking?id={submittedReportId}
               </Link>
             </div>
+
+            {/* ── Photo status / retry ──────────────────────────────── */}
+            {photoFile && photoStatus !== 'idle' && (
+              <div className="rounded-xl border p-4 mb-4 text-left" style={{ borderColor: 'var(--border-color)', backgroundColor: 'var(--card-bg)' }}>
+                <p className="text-sm font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
+                  Photo
+                </p>
+                <p className="text-xs mb-2" style={{ color: 'var(--text-secondary)' }}>
+                  {photoFile.name} ({(photoFile.size / 1024 / 1024).toFixed(1)} MB)
+                  {photoGps ? ' — GPS captured' : ' — No GPS'}
+                </p>
+
+                {photoStatus === 'uploading' && (
+                  <div className="flex items-center gap-2 text-sm" style={{ color: '#2563eb' }} role="status">
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    Uploading photo...
+                  </div>
+                )}
+
+                {photoStatus === 'uploaded' && (
+                  <div className="flex items-center gap-2 text-sm" style={{ color: '#16a34a' }} role="status">
+                    <CheckCircle className="w-4 h-4" />
+                    Photo uploaded
+                  </div>
+                )}
+
+                {photoStatus === 'failed' && (
+                  <div>
+                    <div className="flex items-center gap-2 text-sm mb-2" style={{ color: '#b91c1c' }} role="alert">
+                      <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                      {photoError ?? 'Photo upload failed.'}
+                    </div>
+                    {isOnline && (
+                      <button
+                        type="button"
+                        onClick={() => void handleRetryPhoto()}
+                        disabled={!photoFile}
+                        className="flex items-center gap-1.5 py-2 px-4 rounded-xl border text-sm font-medium transition-colors"
+                        style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
+                      >
+                        <RefreshCw className="w-4 h-4" /> Retry photo upload
+                      </button>
+                    )}
+                    {!isOnline && (
+                      <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                        Connect to the internet to retry.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* ── Update Report ─────────────────────────────────────── */}
             {!appendSubmitted ? (
@@ -2011,6 +2140,18 @@ export default function ReportPage() {
                   <br />
                   <strong>Huwag lumapit</strong> sa sunog o kumuha ng litrato kung hindi ka ligtas.
                 </div>
+
+                {/* ── Photo upload ─────────────────────────────────── */}
+                <PhotoUpload
+                  file={photoFile}
+                  onFileChange={setPhotoFile}
+                  gps={photoGps}
+                  onGpsChange={setPhotoGps}
+                  disabled={!isOnline || submitting || photoStatus === 'uploading'}
+                  photoStatus={photoStatus}
+                  photoError={photoError}
+                  offlineExplanation={!isOnline && !photoFile}
+                />
 
               </div>
 
