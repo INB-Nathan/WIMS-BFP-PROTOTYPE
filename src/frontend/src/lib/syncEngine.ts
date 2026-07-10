@@ -907,17 +907,10 @@ export async function syncPublicOfflineOps(
     }
 
     if (result.ok) {
-      await markPublicOpSynced(op.localId, result.serverId);
-      syncedServerIds.set(op.localId, result.serverId);
-      // Walk the linkedLocalId chain for this op: if a child was previously
-      // deferred with parent_pending, the resolved serverId may now let it
-      // complete on the next batch.
-      await getLinkedPublicOp(op.localId).catch(() => []);
-
-      // ── Link queued photos to this report ────────────────────────
-      // After a submit succeeds, persist the parentLocalId → serverReportId
-      // mapping and update any queued photos that reference this localId
-      // so they become uploadable on the next sync pass.
+      // ── Link queued photos BEFORE marking synced ────────────────
+      // Crash recovery: storePhotoLink must complete before markPublicOpSynced
+      // so a crash between the two calls doesn't leave the photo permanently
+      // unresolved (synced op excluded from replay, photo orphaned).
       if (op.operation === 'submit') {
         await storePhotoLink(op.localId, result.serverId);
         const linkedPhotos = await getPhotosByParentLocalId(op.localId);
@@ -927,6 +920,13 @@ export async function syncPublicOfflineOps(
           }
         }
       }
+
+      await markPublicOpSynced(op.localId, result.serverId);
+      syncedServerIds.set(op.localId, result.serverId);
+      // Walk the linkedLocalId chain for this op: if a child was previously
+      // deferred with parent_pending, the resolved serverId may now let it
+      // complete on the next batch.
+      await getLinkedPublicOp(op.localId).catch(() => []);
 
       synced += 1;
       const payload = op.payload as Record<string, unknown>;

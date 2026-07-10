@@ -22,6 +22,18 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    # Ensure the table exists — databases that were created before SQL 82
+    # (e.g. restored from a pre-photo backup, or started without postgres-init)
+    # won't have wims.report_photos yet. CREATE TABLE IF NOT EXISTS makes
+    # this migration self-contained. Minimal columns only; ALTER below adds
+    # the rest.
+    op.execute(
+        "CREATE TABLE IF NOT EXISTS wims.report_photos ("
+        "    photo_id UUID PRIMARY KEY,"
+        "    report_id INTEGER NOT NULL"
+        ")"
+    )
+
     # Migration 83: EXIF metadata columns on wims.report_photos
     op.execute("ALTER TABLE wims.report_photos ADD COLUMN IF NOT EXISTS exif_gps_lat NUMERIC(10,7)")
     op.execute("ALTER TABLE wims.report_photos ADD COLUMN IF NOT EXISTS exif_gps_lon NUMERIC(10,7)")
@@ -46,6 +58,16 @@ def upgrade() -> None:
         " ON wims.citizen_reports(client_report_id)"
         " WHERE client_report_id IS NOT NULL"
     )
+
+    # RLS-safe photo cap counter (SECURITY DEFINER bypasses SELECT policy)
+    op.execute(
+        "CREATE OR REPLACE FUNCTION wims.count_report_photos(p_report_id INTEGER)"
+        "  RETURNS INTEGER"
+        "  LANGUAGE sql STABLE SECURITY DEFINER"
+        "  SET search_path = wims, pg_temp"
+        "  AS $$ SELECT COUNT(*) FROM wims.report_photos WHERE report_id = p_report_id $$"
+    )
+    op.execute("GRANT EXECUTE ON FUNCTION wims.count_report_photos(INTEGER) TO wims_app")
 
 
 def downgrade() -> None:

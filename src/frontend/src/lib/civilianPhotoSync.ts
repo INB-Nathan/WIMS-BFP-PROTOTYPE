@@ -81,12 +81,14 @@ export async function syncPendingPhotos(deviceId: string): Promise<PhotoSyncResu
     }
 
     try {
-      // Decrypt using shared key
+      // Decrypt using shared key.
+      // AAD is bound to parentLocalId (the submit op's localId used during
+      // encryption), NOT photo.id (which is the queue record's UUID).
       const decrypted = await decryptPhotoBlob(
         photo.encryptedBlob,
         photo.encryptionIv,
         deviceId,
-        photo.id,
+        photo.parentLocalId!, // non-null: set during queue, verified linked above
         encryptionKey,
       );
 

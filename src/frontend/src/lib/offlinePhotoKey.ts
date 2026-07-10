@@ -27,26 +27,44 @@ export async function getOrCreatePhotoKey(deviceId: string): Promise<CryptoKey> 
   // Dynamic import to avoid circular deps — offlineStore opens the DB
   const { openDB } = await import('idb');
   const db = await openDB('wims-bfp-db', 7, {
-    upgrade() { /* upgrade handled by offlineStore */ },
+    upgrade(database) {
+      // Ensure our store exists even if offlineStore hasn't opened the DB yet.
+      // The empty upgrade callback is a bug: if this module opens first it
+      // creates a v7 database with no stores, then offlineStore's upgrade
+      // won't fire (already at v7).
+      if (!database.objectStoreNames.contains(KEY_STORE_NAME)) {
+        database.createObjectStore(KEY_STORE_NAME);
+      }
+      if (!database.objectStoreNames.contains('offlinePhotos')) {
+        const ps = database.createObjectStore('offlinePhotos', { keyPath: 'id' });
+        ps.createIndex('by_deviceId', 'deviceId');
+        ps.createIndex('by_parent_local', 'parentLocalId');
+      }
+      if (!database.objectStoreNames.contains('photoLinks')) {
+        database.createObjectStore('photoLinks', { keyPath: 'parentLocalId' });
+      }
+    },
   });
 
   const keyName = getKeyStorageName(deviceId);
-  const existing = await db.get(KEY_STORE_NAME, keyName);
-  if (existing) {
+  try {
+    const existing = await db.get(KEY_STORE_NAME, keyName);
+    if (existing) {
+      return existing as CryptoKey;
+    }
+
+    // Generate new non-extractable AES-256-GCM key
+    const key = await crypto.subtle.generateKey(
+      { name: 'AES-GCM', length: 256 },
+      false, // non-extractable
+      ['encrypt', 'decrypt'],
+    );
+
+    await db.put(KEY_STORE_NAME, key, keyName);
+    return key;
+  } finally {
     db.close();
-    return existing as CryptoKey;
   }
-
-  // Generate new non-extractable AES-256-GCM key
-  const key = await crypto.subtle.generateKey(
-    { name: 'AES-GCM', length: 256 },
-    false, // non-extractable
-    ['encrypt', 'decrypt'],
-  );
-
-  await db.put(KEY_STORE_NAME, key, keyName);
-  db.close();
-  return key;
 }
 
 /**

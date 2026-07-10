@@ -54,7 +54,7 @@ export interface ReportClusterResponse {
 }
 
 export interface UploadPhotoResponse {
-  photo_id: string;
+  photo_id: string | null;  // null when duplicate (idempotent retry)
   report_id: number;
   file_size_bytes: number;
   mime_type: string;

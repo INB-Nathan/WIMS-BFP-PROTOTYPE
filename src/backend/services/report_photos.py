@@ -710,7 +710,7 @@ def upload_and_attach_photo(
                 cap = REGISTERED_PHOTO_CAP if is_registered else ANONYMOUS_PHOTO_CAP
                 photo_count = (
                     db.execute(
-                        text("SELECT COUNT(*) FROM wims.report_photos WHERE report_id = :rid"),
+                        text("SELECT wims.count_report_photos(:rid)"),
                         {"rid": report_id},
                     ).scalar()
                     or 0
@@ -744,7 +744,7 @@ def upload_and_attach_photo(
             cap = REGISTERED_PHOTO_CAP if is_registered else ANONYMOUS_PHOTO_CAP
             photo_count = (
                 db.execute(
-                    text("SELECT COUNT(*) FROM wims.report_photos WHERE report_id = :rid"),
+                    text("SELECT wims.count_report_photos(:rid)"),
                     {"rid": report_id},
                 ).scalar()
                 or 0

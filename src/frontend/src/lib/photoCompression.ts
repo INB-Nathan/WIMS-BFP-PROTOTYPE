@@ -105,8 +105,11 @@ export async function compressPhoto(file: File): Promise<CompressionResult> {
   }
 
   // ── Step 3: If file is already small enough, return as-is ─────────────
-  // If the file is ≤500KB AND ≤1280px on both dimensions, no compression needed.
-  if (originalSizeBytes <= SIZE_TARGET_BYTES) {
+  // If the file is ≤500KB AND ≤1280px on both dimensions, AND it's already
+  // JPEG, no compression needed. PNG/GIF/WebP files still go through
+  // OffscreenCanvas re-encoding to JPEG so the backend receives a
+  // consistent image/jpeg MIME type.
+  if (originalSizeBytes <= SIZE_TARGET_BYTES && file.type === 'image/jpeg') {
     const dims = await getImageDimensions(file);
     if (dims.width <= MAX_DIMENSION_INITIAL && dims.height <= MAX_DIMENSION_INITIAL) {
       return {

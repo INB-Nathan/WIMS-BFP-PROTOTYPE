@@ -76,7 +76,7 @@ class MapPickerErrorBoundary extends React.Component<
     return { hasError: true };
   }
   componentDidCatch(error: Error) {
-     
+
     console.warn(
       '[MapPicker] failed to render, falling back to manual lat/lng entry:',
       error?.message ?? error,
@@ -748,7 +748,7 @@ export default function ReportPage() {
     return () => window.removeEventListener('wims:manual-location', handler);
     // handlePinChange closes over setGpsWarningConfirmed etc.; safe to
     // re-bind on step change since we only care about the context step.
-  }, [step]);  
+  }, [step]);
 
   // ── Context step ────────────────────────────────────────────────────────────
 

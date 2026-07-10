@@ -298,4 +298,17 @@ CREATE POLICY report_photos_delete
 GRANT SELECT, INSERT, UPDATE, DELETE ON wims.report_photos TO wims_app;
 GRANT USAGE ON ALL SEQUENCES IN SCHEMA wims TO wims_app;
 
+-- ── Photo cap enforcement (SECURITY DEFINER) ─────────────────────────────────
+-- The report_photos_select RLS policy excludes ANONYMOUS and CIVILIAN_REPORTER,
+-- so a plain SELECT COUNT(*) returns 0 for those roles. This function runs
+-- with definer privileges to bypass RLS, giving correct counts for cap checks.
+
+CREATE OR REPLACE FUNCTION wims.count_report_photos(p_report_id INTEGER)
+  RETURNS INTEGER
+  LANGUAGE sql STABLE SECURITY DEFINER
+  SET search_path = wims, pg_temp
+  AS $$ SELECT COUNT(*) FROM wims.report_photos WHERE report_id = p_report_id $$;
+
+GRANT EXECUTE ON FUNCTION wims.count_report_photos(INTEGER) TO wims_app;
+
 COMMIT;
