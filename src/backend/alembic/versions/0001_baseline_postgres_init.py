@@ -140,22 +140,58 @@ def upgrade() -> None:
         ", ".join(sorted(_EXCLUDED_FILES)),
     )
 
+    def _strip_sql_transaction_wrapper(sql: str) -> str:
+        """Strip BEGIN; and COMMIT; so SQL runs cleanly in Alembic's transaction.
+
+        Most postgres-init SQL files contain explicit BEGIN / COMMIT blocks.
+        Alembic already wraps ``upgrade()`` in a transaction, so these would
+        create subtransactions that interfere with savepoint-based error
+        recovery.  Stripping them lets us wrap each file's DDL in a savepoint.
+        """
+        lines = []
+        for line in sql.splitlines():
+            normalized = line.strip().upper()
+            if normalized in {"BEGIN;", "COMMIT;"}:
+                continue
+            lines.append(line)
+        return "\n".join(lines).strip()
+
     applied: list[str] = []
     failed: list[str] = []
     for sql_file in sql_files:
         try:
-            sql = sql_file.read_text(encoding="utf-8").strip()
+            raw = sql_file.read_text(encoding="utf-8").strip()
+            if not raw:
+                continue
+
+            # Strip BEGIN / COMMIT so we can wrap execution in savepoints.
+            sql = _strip_sql_transaction_wrapper(raw)
             if not sql:
+                logger.info("  Skipping (empty after stripping wrappers): %s", sql_file.name)
                 continue
 
             logger.info("  Applying: %s", sql_file.name)
-            # Execute within Alembic's transactional context.
-            # PostgreSQL handles DDL inside transactions, so no autocommit needed.
-            op.execute(text(sql))
-            applied.append(sql_file.name)
+            # Use a savepoint so a failed SQL file doesn't abort the
+            # entire transaction (PostgreSQL aborts the current transaction
+            # on any error, even if Python catches the exception).
+            sp_name = "sp_" + sql_file.stem[:40]
+            try:
+                op.execute(text('SAVEPOINT "' + sp_name + '"'))
+                op.execute(text(sql))
+            except Exception as exc:
+                logger.warning(
+                    "SQL file %s failed (non-fatal): %s",
+                    sql_file.name,
+                    exc,
+                )
+                op.execute(text('ROLLBACK TO SAVEPOINT "' + sp_name + '"'))
+                failed.append(sql_file.name)
+            else:
+                op.execute(text('RELEASE SAVEPOINT "' + sp_name + '"'))
+                applied.append(sql_file.name)
         except Exception as exc:
             logger.warning(
-                "SQL file %s failed (non-fatal): %s",
+                "Unexpected error processing SQL file %s (non-fatal): %s",
                 sql_file.name,
                 exc,
             )
