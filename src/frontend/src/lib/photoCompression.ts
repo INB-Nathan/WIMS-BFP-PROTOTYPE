@@ -217,19 +217,9 @@ async function attemptCompression(
 
   bitmap.close();
 
-  // If we got here, all quality levels exceeded the target size.
-  // If we have a best blob (even if too large), return it with oversized flag.
-  if (bestBlob && bestSize < file.size) {
-    return {
-      blob: bestBlob,
-      width: outWidth,
-      height: outHeight,
-      originalSizeBytes: file.size,
-      compressedSizeBytes: bestSize,
-      oversized: true,
-    };
-  }
-
+  // All quality levels exceeded the target size. Return null so the caller
+  // falls through to the dimension-reduction retry (1024px). The final
+  // extreme fallback in compressPhoto() handles returning the original.
   return null;
 }
 

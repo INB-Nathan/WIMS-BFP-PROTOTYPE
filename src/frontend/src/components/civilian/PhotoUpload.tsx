@@ -191,17 +191,21 @@ export function PhotoUpload({
     // ── Step 1: Extract EXIF (must be BEFORE compression) ──────────────
     // Compression via OffscreenCanvas strips EXIF metadata, so we must
     // extract GPS data from the raw file while it is still intact.
+    // Then compress (chained after EXIF so OffscreenCanvas hasn't stripped
+    // the metadata yet).
+    setCompressing(true);
+
     extractExifGps(selected).then((exif) => {
       // Check stale guard
       if (fileGenerationRef.current !== gen) return;
       setExifData(exif);
       onExifChange?.(exif);
-    });
 
-    // ── Step 2: Compress photo (runs after EXIF has been read) ────────
-    setCompressing(true);
-
-    compressPhoto(selected).then((result: CompressionResult) => {
+      // ── Step 2: Compress photo (only after EXIF resolved) ──────────
+      return compressPhoto(selected);
+    }).then((result: CompressionResult | undefined) => {
+      // If EXIF was stale (returned early), compression also aborts
+      if (!result || fileGenerationRef.current !== gen) return;
       // Check stale guard — if user selected a different file while we were
       // processing, discard this result silently.
       if (fileGenerationRef.current !== gen) return;

@@ -523,23 +523,6 @@ def upload_and_attach_photo(
                 detail="Cannot attach photos to a closed report. Submit a new report or call 911.",
             )
 
-        # Check photo cap
-        photo_count = (
-            db.execute(
-                text("SELECT COUNT(*) FROM wims.report_photos WHERE report_id = :rid"),
-                {"rid": report_id},
-            ).scalar()
-            or 0
-        )
-
-        cap = REGISTERED_PHOTO_CAP if is_registered else ANONYMOUS_PHOTO_CAP
-        if photo_count >= cap:
-            _cleanup_files(uploaded_paths, storage_dir)
-            raise HTTPException(
-                status_code=409,
-                detail=f"Photo cap reached for this report (max {cap})",
-            )
-
         # ── 11. Compute PostGIS distances ──────────────────────────────────
         report_wkt = f"SRID=4326;POINT({report_row.lon} {report_row.lat})"
 
@@ -723,6 +706,21 @@ def upload_and_attach_photo(
                     )
                 # photo_id_val is the same as our generated photo_id
             else:
+                # Non-idempotent path — check cap before INSERT
+                cap = REGISTERED_PHOTO_CAP if is_registered else ANONYMOUS_PHOTO_CAP
+                photo_count = (
+                    db.execute(
+                        text("SELECT COUNT(*) FROM wims.report_photos WHERE report_id = :rid"),
+                        {"rid": report_id},
+                    ).scalar()
+                    or 0
+                )
+                if photo_count >= cap:
+                    _cleanup_files(uploaded_paths, storage_dir)
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"Photo cap reached for this report (max {cap})",
+                    )
                 db.execute(insert_sql, insert_params)
         except DBAPIError as db_exc:
             # SQLSTATE 42501 = insufficient_privilege (RLS policy violation).
@@ -736,6 +734,28 @@ def upload_and_attach_photo(
             _cleanup_files(uploaded_paths, storage_dir)
             db.rollback()
             raise HTTPException(status_code=500, detail="Failed to insert photo record") from db_exc
+
+        # ── 12b. Photo cap check (after INSERT, for idempotent path only) ──
+        # For client_photo_id retries, the duplicate early-return above handles
+        # the case. For fresh non-idempotent inserts, the cap was checked before
+        # the INSERT. For fresh idempotent inserts that weren't duplicates, check
+        # the cap here — rollback and cleanup if exceeded.
+        if client_photo_id:
+            cap = REGISTERED_PHOTO_CAP if is_registered else ANONYMOUS_PHOTO_CAP
+            photo_count = (
+                db.execute(
+                    text("SELECT COUNT(*) FROM wims.report_photos WHERE report_id = :rid"),
+                    {"rid": report_id},
+                ).scalar()
+                or 0
+            )
+            if photo_count > cap:
+                _cleanup_files(uploaded_paths, storage_dir)
+                db.rollback()
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Photo cap reached for this report (max {cap})",
+                )
 
         # Audit: PHOTO_UPLOAD_ATTACH (record_id=report_id, photo_id in new_values)
         try:

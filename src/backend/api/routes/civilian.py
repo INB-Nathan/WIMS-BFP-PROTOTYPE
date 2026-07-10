@@ -400,6 +400,33 @@ def submit_civilian_report(
     # which is client-controlled (gap #14).
     ip_hash = hash_client_ip(trusted_client_ip(request))
     _require_previous_report(db, body.previous_report_id)
+
+    # ── Early duplicate check for client_report_id ──────────────────
+    # If the client provides a client_report_id that already exists in the
+    # database, return the existing report immediately WITHOUT consuming the
+    # per-IP rate-limit quota. This ensures a lost-response retry succeeds
+    # even if the IP has since hit the hourly cap.
+    parsed_client_report_id: uuid.UUID | None = None
+    if body.client_report_id is not None:
+        try:
+            parsed_client_report_id = uuid.UUID(str(body.client_report_id))
+        except (ValueError, TypeError):
+            raise HTTPException(
+                status_code=422,
+                detail="client_report_id must be a valid UUID",
+            )
+        if parsed_client_report_id:
+            existing = db.execute(
+                text("SELECT report_id FROM wims.citizen_reports WHERE client_report_id = :crid"),
+                {"crid": parsed_client_report_id},
+            ).scalar()
+            if existing is not None:
+                existing_response = _fetch_report_response(db, int(existing))
+                return JSONResponse(
+                    content=existing_response.model_dump(mode="json"),
+                    status_code=200,
+                )
+
     # PR #446 gap #14 followup (P0-2): take a Postgres transaction-scoped
     # advisory lock keyed on the per-IP hash BEFORE the COUNT(*) rate-limit
     # query. This closes the TOCTOU race: N concurrent requests at the
@@ -465,16 +492,6 @@ def submit_civilian_report(
         )
 
     # ── Parse client_report_id for idempotency ───────────────────────────
-    parsed_client_report_id: uuid.UUID | None = None
-    if body.client_report_id is not None:
-        try:
-            parsed_client_report_id = uuid.UUID(str(body.client_report_id))
-        except (ValueError, TypeError):
-            raise HTTPException(
-                status_code=422,
-                detail="client_report_id must be a valid UUID",
-            )
-
     nearest = _resolve_nearest(db, wkt)
     nearest_station_id = nearest.station_id if nearest else None
     region_id = nearest.region_id if nearest else None
@@ -483,12 +500,11 @@ def submit_civilian_report(
     )
     trust_score = _trust_score(db, body, wkt, nearest_distance_m)
 
-    # ── Atomic idempotent INSERT — client_report_id as dedup key ─────────
-    # Using ON CONFLICT DO NOTHING RETURNING to avoid a TOCTOU race between
-    # a SELECT check and the INSERT. If client_report_id is provided and a
-    # row already exists, the INSERT does nothing and RETURNING yields NULL.
-    # On NULL we SELECT the existing report_id (safe — citizen_reports has
-    # permissive RLS for ANONYMOUS role) and return 200 instead of 201.
+    # ── Atomic INSERT with idempotency safety net ────────────────────────
+    # The early duplicate check above caught any existing client_report_id.
+    # Still use ON CONFLICT DO NOTHING here as a TOCTOU safety net: a
+    # concurrent transaction could have inserted after the early SELECT.
+    # The RETURNING clause handles both the fresh and the TOCTOU-hit case.
     if parsed_client_report_id:
         result = db.execute(
             text("""
@@ -535,9 +551,10 @@ def submit_civilian_report(
             },
         )
         row = result.fetchone()
-
         if row is None:
-            # Duplicate — SELECT the existing report_id (safe RLS for ANONYMOUS)
+            # TOCTOU hit — a concurrent INSERT won the race after the early
+            # duplicate SELECT. Fetch the existing report_id (safe RLS for
+            # ANONYMOUS) and return 200 as a duplicate response.
             existing = db.execute(
                 text("SELECT report_id FROM wims.citizen_reports WHERE client_report_id = :crid"),
                 {"crid": parsed_client_report_id},
@@ -545,12 +562,10 @@ def submit_civilian_report(
             if existing is None:
                 raise HTTPException(status_code=500, detail="Failed to create or find report")
             existing_response = _fetch_report_response(db, int(existing))
-            # Avoid re-running the full post-insert path for the duplicate
             return JSONResponse(
                 content=existing_response.model_dump(mode="json"),
                 status_code=200,
             )
-
         report_id = int(row[0])
     else:
         # No client_report_id — standard INSERT without idempotency

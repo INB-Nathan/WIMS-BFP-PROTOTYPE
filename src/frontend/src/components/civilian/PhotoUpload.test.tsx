@@ -5,9 +5,10 @@ import { PhotoUpload, type PhotoGpsSample } from './PhotoUpload';
 // ── Mock compressPhoto ──────────────────────────────────────────────────────
 // Compression uses OffscreenCanvas which is not available in jsdom.
 // We mock the module to simulate compression behavior.
-vi.mock('@/lib/photoCompression', () => {
-  const generation = 0;
-  return {
+vi.mock('@/lib/photoExif', () => ({
+  extractExifGps: vi.fn().mockResolvedValue(null),
+}));
+vi.mock('@/lib/photoCompression', () => ({
     compressPhoto: vi.fn(async (file: File) => {
       // Simulate compression delay
       await new Promise((r) => setTimeout(r, 0));
@@ -24,8 +25,7 @@ vi.mock('@/lib/photoCompression', () => {
         oversized: false,
       };
     }),
-  };
-});
+  }));
 
 import { compressPhoto } from '@/lib/photoCompression';
 const mockCompress = vi.mocked(compressPhoto);
@@ -192,7 +192,10 @@ describe('PhotoUpload', () => {
     await act(async () => {
       fireEvent.change(input, { target: { files: [file] } });
     });
-
+    // Wait for promise chain (EXIF → compression) to complete
+    await vi.waitFor(() => {
+      expect(onFileChange).toHaveBeenCalled();
+    });
     expect(onFileChange).toHaveBeenCalledWith(file);
   });
 
@@ -205,7 +208,10 @@ describe('PhotoUpload', () => {
     await act(async () => {
       fireEvent.change(input, { target: { files: [file] } });
     });
-
+    // Wait for promise chain (EXIF → compression) to complete
+    await vi.waitFor(() => {
+      expect(onFileChange).toHaveBeenCalled();
+    });
     expect(onFileChange).toHaveBeenCalledWith(file);
   });
 
