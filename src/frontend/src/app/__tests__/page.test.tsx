@@ -116,6 +116,32 @@ vi.mock('@/components/MapPickerInner', () => ({
   MapPickerInner: () => null,
 }));
 
+// Mock offlineStore (IndexedDB not available in jsdom)
+vi.mock('@/lib/offlineStore', () => ({
+  queueOfflinePhoto: vi.fn().mockResolvedValue(undefined),
+  getPendingPhotoCount: vi.fn().mockResolvedValue(0),
+  discardOrphanedPhotos: vi.fn().mockResolvedValue(undefined),
+  storePhotoLink: vi.fn().mockResolvedValue(undefined),
+  updatePhotoReportLink: vi.fn().mockResolvedValue(undefined),
+  getPhotosByParentLocalId: vi.fn().mockResolvedValue([]),
+  cleanupExpiredPhotos: vi.fn().mockResolvedValue(undefined),
+  rebuildSyncedServerIds: vi.fn().mockResolvedValue(new Map()),
+  getPendingPublicOpsCount: vi.fn().mockResolvedValue(0),
+  getPendingPublicOps: vi.fn().mockResolvedValue([]),
+  getPublicOp: vi.fn().mockResolvedValue(undefined),
+  markPublicOpSynced: vi.fn().mockResolvedValue(undefined),
+  markPublicOpFailed: vi.fn().mockResolvedValue(undefined),
+  getLinkedPublicOp: vi.fn().mockResolvedValue([]),
+  getDB: vi.fn(),
+}));
+
+// Mock offlinePhotoKey
+vi.mock('@/lib/offlinePhotoKey', () => ({
+  encryptPhotoBlob: vi.fn().mockResolvedValue({ encrypted: new ArrayBuffer(8), iv: 'dGVzdC1pdi0tLQ==' }),
+  decryptPhotoBlob: vi.fn().mockResolvedValue(new Blob(['test'], { type: 'image/jpeg' })),
+  getOrCreatePhotoKey: vi.fn().mockResolvedValue({}),
+}));
+
 // Mock CalmEmergencyBlock
 vi.mock('../CalmEmergencyBlock', () => ({
   CalmEmergencyBlock: () => <div data-testid="calm-block" />,

@@ -7,11 +7,13 @@ import math
 import os
 import secrets
 import threading
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
 import redis
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -398,6 +400,33 @@ def submit_civilian_report(
     # which is client-controlled (gap #14).
     ip_hash = hash_client_ip(trusted_client_ip(request))
     _require_previous_report(db, body.previous_report_id)
+
+    # ── Early duplicate check for client_report_id ──────────────────
+    # If the client provides a client_report_id that already exists in the
+    # database, return the existing report immediately WITHOUT consuming the
+    # per-IP rate-limit quota. This ensures a lost-response retry succeeds
+    # even if the IP has since hit the hourly cap.
+    parsed_client_report_id: uuid.UUID | None = None
+    if body.client_report_id is not None:
+        try:
+            parsed_client_report_id = uuid.UUID(str(body.client_report_id))
+        except (ValueError, TypeError):
+            raise HTTPException(
+                status_code=422,
+                detail="client_report_id must be a valid UUID",
+            )
+        if parsed_client_report_id:
+            existing = db.execute(
+                text("SELECT report_id FROM wims.citizen_reports WHERE client_report_id = :crid"),
+                {"crid": parsed_client_report_id},
+            ).scalar()
+            if existing is not None:
+                existing_response = _fetch_report_response(db, int(existing))
+                return JSONResponse(
+                    content=existing_response.model_dump(mode="json"),
+                    status_code=200,
+                )
+
     # PR #446 gap #14 followup (P0-2): take a Postgres transaction-scoped
     # advisory lock keyed on the per-IP hash BEFORE the COUNT(*) rate-limit
     # query. This closes the TOCTOU race: N concurrent requests at the
@@ -462,6 +491,7 @@ def submit_civilian_report(
             headers={"Retry-After": str(retry_after)},
         )
 
+    # ── Parse client_report_id for idempotency ───────────────────────────
     nearest = _resolve_nearest(db, wkt)
     nearest_station_id = nearest.station_id if nearest else None
     region_id = nearest.region_id if nearest else None
@@ -470,52 +500,121 @@ def submit_civilian_report(
     )
     trust_score = _trust_score(db, body, wkt, nearest_distance_m)
 
-    result = db.execute(
-        text("""
-            INSERT INTO wims.citizen_reports (
-                location, category, sub_category, reported_via, reported_at, device_id,
-                ip_hash, trust_score, region_id, nearest_station_id, status,
-                reporting_context, safety_status, phone_latitude, phone_longitude,
-                gps_distance_m, gps_warning_confirmed, witness_name, witness_phone,
-                previous_report_id, source_url
+    # ── Atomic INSERT with idempotency safety net ────────────────────────
+    # The early duplicate check above caught any existing client_report_id.
+    # Still use ON CONFLICT DO NOTHING here as a TOCTOU safety net: a
+    # concurrent transaction could have inserted after the early SELECT.
+    # The RETURNING clause handles both the fresh and the TOCTOU-hit case.
+    if parsed_client_report_id:
+        result = db.execute(
+            text("""
+                INSERT INTO wims.citizen_reports (
+                    location, category, sub_category, reported_via, reported_at, device_id,
+                    ip_hash, trust_score, region_id, nearest_station_id, status,
+                    reporting_context, safety_status, phone_latitude, phone_longitude,
+                    gps_distance_m, gps_warning_confirmed, witness_name, witness_phone,
+                    previous_report_id, source_url, client_report_id
+                )
+                VALUES (
+                    ST_GeogFromText(:wkt), :category, :sub_category, 'WEB', :reported_at,
+                    :device_id, :ip_hash, :trust_score, :region_id, :nearest_station_id,
+                    'PENDING', :reporting_context, :safety_status, :phone_latitude,
+                    :phone_longitude, :gps_distance_m, :gps_warning_confirmed,
+                    :witness_name, :witness_phone, :previous_report_id, :source_url,
+                    :client_report_id
+                )
+                ON CONFLICT (client_report_id) WHERE client_report_id IS NOT NULL
+                DO NOTHING
+                RETURNING report_id
+            """),
+            {
+                "wkt": wkt,
+                "category": body.category,
+                "sub_category": body.sub_category,
+                "reported_at": body.reported_at,
+                "device_id": body.device_id,
+                "ip_hash": ip_hash,
+                "trust_score": trust_score,
+                "region_id": region_id,
+                "nearest_station_id": nearest_station_id,
+                "reporting_context": body.reporting_context,
+                "safety_status": body.safety_status,
+                "phone_latitude": body.phone_latitude,
+                "phone_longitude": body.phone_longitude,
+                "gps_distance_m": body.gps_distance_m,
+                "gps_warning_confirmed": body.gps_warning_confirmed,
+                "witness_name": body.witness_name,
+                "witness_phone": body.witness_phone,
+                "previous_report_id": body.previous_report_id,
+                "source_url": body.source_url,
+                "client_report_id": parsed_client_report_id,
+            },
+        )
+        row = result.fetchone()
+        if row is None:
+            # TOCTOU hit — a concurrent INSERT won the race after the early
+            # duplicate SELECT. Fetch the existing report_id (safe RLS for
+            # ANONYMOUS) and return 200 as a duplicate response.
+            existing = db.execute(
+                text("SELECT report_id FROM wims.citizen_reports WHERE client_report_id = :crid"),
+                {"crid": parsed_client_report_id},
+            ).scalar()
+            if existing is None:
+                raise HTTPException(status_code=500, detail="Failed to create or find report")
+            existing_response = _fetch_report_response(db, int(existing))
+            return JSONResponse(
+                content=existing_response.model_dump(mode="json"),
+                status_code=200,
             )
-            VALUES (
-                ST_GeogFromText(:wkt), :category, :sub_category, 'WEB', :reported_at,
-                :device_id, :ip_hash, :trust_score, :region_id, :nearest_station_id,
-                'PENDING', :reporting_context, :safety_status, :phone_latitude,
-                :phone_longitude, :gps_distance_m, :gps_warning_confirmed,
-                :witness_name, :witness_phone, :previous_report_id, :source_url
-            )
-            RETURNING report_id
-        """),
-        {
-            "wkt": wkt,
-            "category": body.category,
-            "sub_category": body.sub_category,
-            "reported_at": body.reported_at,
-            "device_id": body.device_id,
-            "ip_hash": ip_hash,
-            "trust_score": trust_score,
-            "region_id": region_id,
-            "nearest_station_id": nearest_station_id,
-            "reporting_context": body.reporting_context,
-            "safety_status": body.safety_status,
-            "phone_latitude": body.phone_latitude,
-            "phone_longitude": body.phone_longitude,
-            "gps_distance_m": body.gps_distance_m,
-            "gps_warning_confirmed": body.gps_warning_confirmed,
-            "witness_name": body.witness_name,
-            "witness_phone": body.witness_phone,
-            "previous_report_id": body.previous_report_id,
-            "source_url": body.source_url,
-        },
-    )
-    row = result.fetchone()
+        report_id = int(row[0])
+    else:
+        # No client_report_id — standard INSERT without idempotency
+        result = db.execute(
+            text("""
+                INSERT INTO wims.citizen_reports (
+                    location, category, sub_category, reported_via, reported_at, device_id,
+                    ip_hash, trust_score, region_id, nearest_station_id, status,
+                    reporting_context, safety_status, phone_latitude, phone_longitude,
+                    gps_distance_m, gps_warning_confirmed, witness_name, witness_phone,
+                    previous_report_id, source_url
+                )
+                VALUES (
+                    ST_GeogFromText(:wkt), :category, :sub_category, 'WEB', :reported_at,
+                    :device_id, :ip_hash, :trust_score, :region_id, :nearest_station_id,
+                    'PENDING', :reporting_context, :safety_status, :phone_latitude,
+                    :phone_longitude, :gps_distance_m, :gps_warning_confirmed,
+                    :witness_name, :witness_phone, :previous_report_id, :source_url
+                )
+                RETURNING report_id
+            """),
+            {
+                "wkt": wkt,
+                "category": body.category,
+                "sub_category": body.sub_category,
+                "reported_at": body.reported_at,
+                "device_id": body.device_id,
+                "ip_hash": ip_hash,
+                "trust_score": trust_score,
+                "region_id": region_id,
+                "nearest_station_id": nearest_station_id,
+                "reporting_context": body.reporting_context,
+                "safety_status": body.safety_status,
+                "phone_latitude": body.phone_latitude,
+                "phone_longitude": body.phone_longitude,
+                "gps_distance_m": body.gps_distance_m,
+                "gps_warning_confirmed": body.gps_warning_confirmed,
+                "witness_name": body.witness_name,
+                "witness_phone": body.witness_phone,
+                "previous_report_id": body.previous_report_id,
+                "source_url": body.source_url,
+            },
+        )
+        row = result.fetchone()
 
-    if row is None:
-        raise HTTPException(status_code=500, detail="Failed to create report")
+        if row is None:
+            raise HTTPException(status_code=500, detail="Failed to create report")
 
-    report_id = int(row[0])
+        report_id = int(row[0])
 
     # ── Encrypt witness PII into blob, NULL out plaintext columns ──────────
     _encrypt_witness_pii(
@@ -952,6 +1051,11 @@ def upload_report_photo(
     browser_gps_lon: float | None = Form(default=None),
     browser_gps_accuracy: float | None = Form(default=None),
     browser_gps_captured_at: datetime | None = Form(default=None),
+    exif_gps_lat: float | None = Form(default=None),
+    exif_gps_lon: float | None = Form(default=None),
+    exif_gps_altitude: float | None = Form(default=None),
+    exif_datetime_original: str | None = Form(default=None),
+    client_photo_id: str | None = Form(default=None),
 ) -> PhotoUploadResponse:
     """Upload and attach a photo to an existing civilian report.
 
@@ -965,6 +1069,33 @@ def upload_report_photo(
     No SQL, crypto, EXIF, filesystem, or business logic here —
     all delegated to ``services.report_photos.upload_and_attach_photo``.
     """
+    # Validate EXIF fields if present
+    if exif_gps_lat is not None and not (-90 <= exif_gps_lat <= 90):
+        raise HTTPException(status_code=422, detail="exif_gps_lat must be in [-90, 90]")
+    if exif_gps_lon is not None and not (-180 <= exif_gps_lon <= 180):
+        raise HTTPException(status_code=422, detail="exif_gps_lon must be in [-180, 180]")
+    if exif_gps_altitude is not None and (not math.isfinite(exif_gps_altitude)):
+        raise HTTPException(status_code=422, detail="exif_gps_altitude must be a finite float")
+    parsed_exif_dt: datetime | None = None
+    if exif_datetime_original is not None:
+        try:
+            parsed_exif_dt = datetime.fromisoformat(exif_datetime_original)
+        except (ValueError, TypeError):
+            raise HTTPException(
+                status_code=422,
+                detail="exif_datetime_original must be a valid ISO 8601 timestamp",
+            )
+    # Validate client_photo_id
+    parsed_client_photo_id: uuid.UUID | None = None
+    if client_photo_id is not None:
+        try:
+            parsed_client_photo_id = uuid.UUID(client_photo_id)
+        except (ValueError, TypeError):
+            raise HTTPException(
+                status_code=422,
+                detail="client_photo_id must be a valid UUID",
+            )
+
     return upload_and_attach_photo(
         db=db,
         report_id=report_id,
@@ -975,6 +1106,11 @@ def upload_report_photo(
         browser_gps_accuracy=browser_gps_accuracy,
         browser_gps_captured_at=browser_gps_captured_at,
         registered_user=user,
+        exif_gps_lat=exif_gps_lat,
+        exif_gps_lon=exif_gps_lon,
+        exif_gps_altitude=exif_gps_altitude,
+        exif_datetime_original=parsed_exif_dt,
+        client_photo_id=parsed_client_photo_id,
     )
 
 

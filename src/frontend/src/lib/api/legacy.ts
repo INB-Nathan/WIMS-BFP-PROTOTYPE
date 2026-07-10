@@ -728,6 +728,7 @@ export interface CivilianReportV2Payload {
   witness_phone?: string;
   previous_report_id?: number;
   source_url?: string;
+  client_report_id?: string;
 }
 
 export interface CivilianReportV2Response {

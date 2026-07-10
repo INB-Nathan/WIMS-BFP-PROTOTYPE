@@ -22,6 +22,7 @@ import {
   purgeSyncedOps, evictStaleCachedIncidents, cacheIncident, getCachedIncident,
   type ArchiveActionPayload, type OfflineOpDecrypted, type OfflineOpType, type PendingIncident, type VerifyPayload,
 } from './offlineStore';
+import { syncPendingPhotos } from './civilianPhotoSync';
 import { validateOfflinePayload } from './validation/offlineIncident';
 import { refreshToken } from './auth-refresh';
 import { isReachable, markConnectivityOffline } from './connectivity';
@@ -703,6 +704,9 @@ import {
   markPublicOpSynced,
   markPublicOpFailed,
   purgeSyncedPublicOps,
+  storePhotoLink,
+  getPhotosByParentLocalId,
+  updatePhotoReportLink,
   type PublicOfflineOp,
 } from './offlineStore';
 // isReachable and markConnectivityOffline are already imported at the top of
@@ -730,6 +734,9 @@ export interface PublicSyncResult {
   errors: PublicSyncError[];
   abortReason?: 'offline';
   syncedIncidents: PublicSyncedIncidentSummary[];
+  photoSynced: number;
+  photoFailed: number;
+  photoKeyLost: number;
 }
 
 const PUBLIC_OP_RESULT_LABEL: Record<PublicOfflineOp['operation'], string> = {
@@ -833,16 +840,13 @@ export async function syncPublicOfflineOps(
   // retryable op is replayed), so the bypassBackoff flag is accepted for API
   // parity with the encoder hook but does not change behaviour.
   void options;
-  const empty: PublicSyncResult = { synced: 0, failed: 0, errors: [], syncedIncidents: [] };
+  const empty: PublicSyncResult = { synced: 0, failed: 0, errors: [], syncedIncidents: [], photoSynced: 0, photoFailed: 0, photoKeyLost: 0 };
 
   if (!(await isReachable())) {
     return { ...empty, abortReason: 'offline' };
   }
 
   const ops = await getPendingPublicOps(deviceId);
-  if (ops.length === 0) {
-    return empty;
-  }
 
   // Tracks the serverId a parent's localId resolved to during this batch. The
   // child op's `linkedLocalId` is the key; the value is what to PATCH against.
@@ -903,12 +907,27 @@ export async function syncPublicOfflineOps(
     }
 
     if (result.ok) {
+      // ── Link queued photos BEFORE marking synced ────────────────
+      // Crash recovery: storePhotoLink must complete before markPublicOpSynced
+      // so a crash between the two calls doesn't leave the photo permanently
+      // unresolved (synced op excluded from replay, photo orphaned).
+      if (op.operation === 'submit') {
+        await storePhotoLink(op.localId, result.serverId);
+        const linkedPhotos = await getPhotosByParentLocalId(op.localId);
+        for (const photo of linkedPhotos) {
+          if (!photo.permanentFailure && photo.parentServerReportId === null) {
+            await updatePhotoReportLink(photo.id, result.serverId);
+          }
+        }
+      }
+
       await markPublicOpSynced(op.localId, result.serverId);
       syncedServerIds.set(op.localId, result.serverId);
       // Walk the linkedLocalId chain for this op: if a child was previously
       // deferred with parent_pending, the resolved serverId may now let it
       // complete on the next batch.
       await getLinkedPublicOp(op.localId).catch(() => []);
+
       synced += 1;
       const payload = op.payload as Record<string, unknown>;
       const category = (payload.category as string | undefined) ?? '';
@@ -929,7 +948,7 @@ export async function syncPublicOfflineOps(
       await markPublicOpFailed(op.localId, 'network', result.error);
       failed += 1;
       errors.push({ localId: op.localId, operation: op.operation, error: result.error });
-      return { synced, failed, errors, syncedIncidents: summaries, abortReason: 'offline' };
+      return { synced, failed, errors, syncedIncidents: summaries, abortReason: 'offline', photoSynced: 0, photoFailed: 0, photoKeyLost: 0 };
     } else if (result.status >= 500) {
       // 5xx — retryable, continue with next op.
       await markPublicOpFailed(op.localId, '5xx', result.error);
@@ -947,7 +966,10 @@ export async function syncPublicOfflineOps(
     await purgeSyncedPublicOps();
   }
 
-  return { synced, failed, errors, syncedIncidents: summaries };
+  // ── Sync pending photos ──────────────────────────────────────────
+  const photoResult = await syncPendingPhotos(deviceId);
+
+  return { synced, failed, errors, syncedIncidents: summaries, photoSynced: photoResult.synced + photoResult.duplicated, photoFailed: photoResult.failed, photoKeyLost: photoResult.keyLost };
 }
 
 /**

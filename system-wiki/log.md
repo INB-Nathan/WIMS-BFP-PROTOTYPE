@@ -6,6 +6,14 @@
 - **Wiki:** Added `architecture/agent-instruction-hierarchy.md`; corrected the database schema, security baseline, ASVS overrides, and PWA/CI pages; updated the index to 52 verified link targets; and opened the FRS Module 4 audit-log append-only enforcement gap with exact raw-FRS/migration evidence.
 - **Validation:** `python -m json.tool` passed for `.pi/settings.json` and the WIMS-route evals; `git diff --check` passed; the index contains 52 unique wiki links with 0 missing targets. No application test suite was run because the change is documentation/instruction configuration only.
 
+## [2026-07-10] feat(civilian): photo capture enhancement v5 — camera, EXIF, compression, offline queue
+
+- **Scope:** Four-phase civilian photo enhancement: (A) camera/gallery toggle with `capture="environment"`; (E) client-side EXIF extraction with `exifr` before compression; (B) OffscreenCanvas compression with megapixel gate and quality iteration; (D) offline photo queue with AES-256-GCM encryption, IndexedDB v7 upgrade, atomic idempotency via `INSERT ... ON CONFLICT DO NOTHING RETURNING`.
+- **Migrations:** 83 (EXIF metadata columns + provenance on `report_photos`), 84 (`client_photo_id` UUID + partial unique index), 85 (`client_report_id` UUID + partial unique index). Startup path and Alembic revision 0003 added.
+- **Idempotency:** Client-supplied `client_photo_id` and `client_report_id` UUIDs provide 122-bit entropy for safe retries. `client_report_id` parsed before rate-limit check to avoid quota burn on retry. Photo cap checked after idempotent INSERT.
+- **Offline:** Photos selectable while offline (camera/gallery always enabled). `syncPublicOfflineOps` calls `storePhotoLink`/`updatePhotoReportLink` after submit success. `syncPendingPhotos` skips null-linked photos.
+- **Fix PR:** [#544](https://github.com/x1n4te/WIMS-BFP-PROTOTYPE/pull/544) — 28 files, +2834/-227.
+
 ## [2026-07-10] feat(civilian): complete Phase 2 photo-pipeline handoff validation
 
 - **Scope:** Fixed `PhotoUpload` preview lifecycle: removed the effect-driven preview state that triggered `react-hooks/set-state-in-effect`, corrected the undefined preview guard, and assigns the object URL to the preview image from the file-change effect while revoking it on replacement/unmount.

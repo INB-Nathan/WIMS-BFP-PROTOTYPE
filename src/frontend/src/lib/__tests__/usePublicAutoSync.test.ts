@@ -63,10 +63,12 @@ vi.mock('../syncEngine', () => ({
 // ── Mock offlineStore ──────────────────────────────────────────────
 const storeMocks = vi.hoisted(() => ({
   getPendingPublicOpsCount: vi.fn(),
+  getPendingPhotoCount: vi.fn(),
 }));
 
 vi.mock('../offlineStore', () => ({
   getPendingPublicOpsCount: storeMocks.getPendingPublicOpsCount,
+  getPendingPhotoCount: storeMocks.getPendingPhotoCount,
 }));
 
 // ── Mock useNetworkStatus ──────────────────────────────────────────
@@ -119,6 +121,7 @@ beforeEach(() => {
   networkMocks.isOnline = true;
   networkMocks.isReconnecting = false;
   storeMocks.getPendingPublicOpsCount.mockResolvedValue(0);
+  storeMocks.getPendingPhotoCount.mockResolvedValue(0);
   syncMocks.syncPublicOfflineOps.mockResolvedValue(OK_RESULT);
   try { localStorage.setItem('wims_civilian_device_id', DEVICE_ID); } catch {}
 });

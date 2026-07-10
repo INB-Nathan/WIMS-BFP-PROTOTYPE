@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-10
 Indexed wiki pages: 52
-Last changes: Reworked the eight-file agent instruction hierarchy, corrected Alembic/CI guidance, and recorded the open Module 4 audit immutability gap exposed by the final partition migration.
+Last changes: Civilian photo capture enhancement v5 — camera shortcut, EXIF extraction, OffscreenCanvas compression, offline AES-256-GCM photo queue, atomic idempotency (client_report_id + client_photo_id), IndexedDB v7 upgrade, sync engine extension. Updated subsystems/civilian-reporting-phase2, frontend/frontend-infrastructure, backend/api-route-map, database/schema-overview, security/security-baseline.
 Purpose: project-local knowledgebase for agents routing themselves to relevant WIMS-BFP context.
 
 ## Start Here

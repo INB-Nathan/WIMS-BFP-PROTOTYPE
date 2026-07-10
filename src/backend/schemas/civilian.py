@@ -34,6 +34,7 @@ class CivilianReportCreate(BaseModel):
     witness_phone: str | None = Field(default=None, max_length=80)
     previous_report_id: int | None = Field(default=None, gt=0)
     source_url: str | None = Field(default=None, max_length=2048)
+    client_report_id: str | None = Field(default=None, max_length=128)
 
 
 class CivilianReportAppend(BaseModel):
@@ -273,10 +274,16 @@ class BrowserGPSFields(BaseModel):
 
 
 class PhotoUploadResponse(BaseModel):
-    """Response body for successful photo upload (201)."""
+    """Response body for successful photo upload (201) or duplicate (200).
 
-    photo_id: str
+    When ``duplicate`` is True, ``photo_id`` is None because the INSERT
+    was silently skipped (ON CONFLICT DO NOTHING). Fresh uploads always
+    carry a non-null ``photo_id``.
+    """
+
+    photo_id: str | None = None
     report_id: int
+    duplicate: bool = False
     file_size_bytes: int
     mime_type: str
     image_width: int

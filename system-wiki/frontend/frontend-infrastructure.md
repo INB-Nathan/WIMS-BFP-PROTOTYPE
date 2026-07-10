@@ -520,6 +520,13 @@ Four triggers run the per-record eviction pair (`evictExpiredReadCache` + `evict
 
 All four are best-effort (`try/catch` + dev-mode `console.warn`); a failed eviction never blocks the caller. The write counter is reset to 0 BEFORE the eviction call so a slow eviction does not cause the next write to also be at 25.
 
+### Offline photo queue v5 (2026-07-10)
+
+- **IndexedDB v7 upgrade** (`offlineStore.ts`): Added `OFFLINE_PHOTOS_STORE` and `PHOTO_LINK_STORE` with compound indexes (`by_device`, `by_parent_local`). Uses `idb` library. Existing stores (draft ops, offline ops, cached data) are preserved during upgrade.
+- **Encryption** (`offlinePhotoKey.ts`): AES-256-GCM with non-extractable `CryptoKey` stored via IndexedDB structured clone. Random 12-byte IV per photo. AAD binds to `photoId + deviceId`. Key loss means permanent failure of queued photos.
+- **Photo sync** (`civilianPhotoSync.ts`): Decrypts using shared key, uploads with `client_photo_id` for server-side dedup. Exponential backoff with jitter (max 30s, 5 retries). `markPhotoRetry` persists `retryCount`/`lastAttemptAt`.
+- **Sync engine** (`syncEngine.ts`): `syncPublicOfflineOps` always calls `syncPendingPhotos`. After submit success, calls `storePhotoLink` + `updatePhotoReportLink` to resolve queued photos. Export type includes `photoSynced`/`photoFailed`/`photoKeyLost`.
+
 ### Scope notes
 
 - The read-caching layer documented here is **scoped to read-only pages** (filter dropdowns, dashboards, monitoring panels, audit/map views, wildland detail). Writes go through the existing `offlineOps` queue + `syncEngine` and are NOT re-implemented here.
