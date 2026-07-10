@@ -72,11 +72,20 @@ export async function encryptPhotoBlob(
   // Encode AAD: photo:{photoId}:{deviceId}
   const aad = new TextEncoder().encode(`photo:${photoId}:${deviceId}`);
 
+  // Read blob data. In Node.js (JSDOM test env), Blob.arrayBuffer() returns
+  // a JSDOM-realm ArrayBuffer that fails webcrypto instanceof checks.
+  // Buffer.from() converts to a same-realm TypedArray in Node.js.
+  // In the browser, Buffer is undefined and we use the raw ArrayBuffer.
+  const raw = await blob.arrayBuffer();
+  const data: BufferSource = typeof Buffer !== 'undefined'
+    ? Buffer.from(raw)
+    : raw;
+
   // Encrypt
   const encrypted = await crypto.subtle.encrypt(
     { name: 'AES-GCM', iv, additionalData: aad },
     encryptionKey,
-    await blob.arrayBuffer(),
+    data,
   );
 
   // Base64 encode IV for storage
