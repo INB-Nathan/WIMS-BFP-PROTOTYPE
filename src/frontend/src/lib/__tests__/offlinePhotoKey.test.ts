@@ -19,11 +19,6 @@ import { webcrypto } from 'node:crypto';
 import 'fake-indexeddb/auto';
 import { openDB } from 'idb';
 
-// Ensure Node.js webcrypto is available for subtle operations.
-if (!globalThis.crypto || !(globalThis.crypto as unknown as { subtle?: unknown }).subtle) {
-  (globalThis as Record<string, unknown>).crypto = webcrypto;
-}
-
 // ─── Setup: ensure the crypto-keys store exists ─────────────────────────────
 
 // Use DB version 7 to stay in sync with offlineStore.ts and offlinePhotoKey.ts.
@@ -149,8 +144,6 @@ describe('encryptPhotoBlob', () => {
     const blob = createTestBlob(512);
     const result = await encryptPhotoBlob(blob, DEVICE_ID, PHOTO_ID);
 
-    // Cross-realm ArrayBuffer check (JSDOM has its own ArrayBuffer class,
-    // so instanceof ArrayBuffer fails across realms — use constructor.name)
     expect(result.encrypted?.constructor?.name).toBe('ArrayBuffer');
     expect(result.iv).toBeDefined();
     // IV should be base64-encoded 12 bytes = 16 chars
@@ -174,7 +167,6 @@ describe('encryptPhotoBlob', () => {
     const blob = createTestBlob(64);
     const result = await encryptPhotoBlob(blob, DEVICE_ID, PHOTO_ID, key);
 
-    // Cross-realm ArrayBuffer check
     expect(result.encrypted?.constructor?.name).toBe('ArrayBuffer');
     // AES-GCM tag overhead = 16 bytes
     expect(result.encrypted.byteLength).toBe(80);

@@ -76,7 +76,6 @@ export async function encryptPhotoBlob(
   const blobBytes = await blob.arrayBuffer();
 
   // Encrypt
-  // Encrypt
   const encrypted = await crypto.subtle.encrypt(
     { name: 'AES-GCM', iv, additionalData: aad },
     encryptionKey,
