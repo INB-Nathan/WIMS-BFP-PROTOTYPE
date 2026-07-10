@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS wims.anonymous_sessions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_anonymous_sessions_expires
-    ON wims.anonymous_sessions(expires_at) WHERE expires_at < now();
+    ON wims.anonymous_sessions(expires_at);
 
 ALTER TABLE wims.anonymous_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE wims.anonymous_sessions FORCE ROW LEVEL SECURITY;
@@ -48,37 +48,6 @@ DROP POLICY IF EXISTS anonymous_sessions_delete ON wims.anonymous_sessions;
 CREATE POLICY anonymous_sessions_delete
     ON wims.anonymous_sessions FOR DELETE
     USING (wims.current_user_role() = 'SYSTEM_ADMIN');
-
-
--- ── SECURITY DEFINER helper for tracking token validation ──────────────────
--- Public (anonymous) tracking endpoint validates tokens via hash lookup,
--- but the RLS policy on report_tracking_tokens blocks ANONYMOUS reads.
--- This SECURITY DEFINER function bypasses RLS so the endpoint works
--- without weakening the table-level SELECT policy.
--- SET search_path locks the function to wims, pg_temp for injection safety.
-CREATE OR REPLACE FUNCTION wims.validate_tracking_token(
-    p_report_id INTEGER,
-    p_token_hash TEXT
-)
-RETURNS BOOLEAN
-LANGUAGE sql
-STABLE
-SECURITY DEFINER
-SET search_path = wims, pg_temp
-AS $$
-    SELECT EXISTS (
-        SELECT 1
-        FROM wims.report_tracking_tokens
-        WHERE report_id = p_report_id
-          AND token_hash = p_token_hash
-          AND is_active = TRUE
-          AND revoked_at IS NULL
-          AND (expires_at IS NULL OR expires_at > now())
-    );
-$$;
-
-REVOKE ALL ON FUNCTION wims.validate_tracking_token(INTEGER, TEXT) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION wims.validate_tracking_token(INTEGER, TEXT) TO wims_app;
 
 
 -- ═══════════════════════════════════════════════════════════════════════════════
@@ -138,5 +107,38 @@ DROP POLICY IF EXISTS tracking_tokens_delete ON wims.report_tracking_tokens;
 CREATE POLICY tracking_tokens_delete
     ON wims.report_tracking_tokens FOR DELETE
     USING (wims.current_user_role() = 'SYSTEM_ADMIN');
+
+
+-- ── SECURITY DEFINER helper for tracking token validation ──────────────────
+-- Public (anonymous) tracking endpoint validates tokens via hash lookup,
+-- but the RLS policy on report_tracking_tokens blocks ANONYMOUS reads.
+-- This SECURITY DEFINER function bypasses RLS so the endpoint works
+-- without weakening the table-level SELECT policy.
+-- SET search_path locks the function to wims, pg_temp for injection safety.
+-- NOTE: Must be AFTER the report_tracking_tokens table definition because
+-- LANGUAGE sql function bodies are checked at creation time.
+CREATE OR REPLACE FUNCTION wims.validate_tracking_token(
+    p_report_id INTEGER,
+    p_token_hash TEXT
+)
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = wims, pg_temp
+AS $$
+    SELECT EXISTS (
+        SELECT 1
+        FROM wims.report_tracking_tokens
+        WHERE report_id = p_report_id
+          AND token_hash = p_token_hash
+          AND is_active = TRUE
+          AND revoked_at IS NULL
+          AND (expires_at IS NULL OR expires_at > now())
+    );
+$$;
+
+REVOKE ALL ON FUNCTION wims.validate_tracking_token(INTEGER, TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION wims.validate_tracking_token(INTEGER, TEXT) TO wims_app;
 
 COMMIT;

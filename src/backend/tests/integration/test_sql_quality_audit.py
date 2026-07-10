@@ -183,6 +183,13 @@ class TestCompositeIndex:
         assert exists is True
 
 
+class TestCivilianContributorIndexes:
+    def test_anonymous_session_expiry_index_uses_immutable_definition(self):
+        sql = _sql_text("80_civilian_contributor_tables.sql")
+        assert "ON wims.anonymous_sessions(expires_at);" in sql
+        assert "WHERE expires_at < now()" not in sql
+
+
 class TestDockerReadOnlyMount:
     def test_postgres_init_mount_is_readonly(self):
         compose = DOCKER_COMPOSE.read_text()
