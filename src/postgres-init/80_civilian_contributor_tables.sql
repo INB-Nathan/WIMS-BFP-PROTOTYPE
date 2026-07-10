@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS wims.anonymous_sessions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_anonymous_sessions_expires
-    ON wims.anonymous_sessions(expires_at) WHERE expires_at < now();
+    ON wims.anonymous_sessions(expires_at);
 
 ALTER TABLE wims.anonymous_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE wims.anonymous_sessions FORCE ROW LEVEL SECURITY;
