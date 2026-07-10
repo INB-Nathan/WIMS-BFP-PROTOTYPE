@@ -122,7 +122,7 @@ Present the summary. The summary should:
 | Skill | How looping differs |
 |---|---|
 | `/review-wims` | Reviews the **diff** against spec, architecture, risk. Looping re-reads the **original request** and the **full file state**, not just the diff. |
-| `/ponytail-review` | Looks for over-engineering — bloat, speculative abstractions. Looping looks for **correctness and completeness**: missed requirements, half-baked code, wrong assumptions. |
+| `/skill:ponytail-review` | Looks for over-engineering — bloat, speculative abstractions. Looping looks for **correctness and completeness**: missed requirements, half-baked code, wrong assumptions. |
 | Spec self-review (in grill-with-docs) | Checks a design doc for placeholders and ambiguity. Looping checks **implementation** against the **original request**. |
 | `/ci-preflight` | Runs lint, tests, build — automated gates. Looping is a **cognitive re-read**: the agent reads its own work as a human reviewer would. |
 

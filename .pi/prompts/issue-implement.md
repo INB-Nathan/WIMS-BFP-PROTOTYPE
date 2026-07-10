@@ -10,5 +10,5 @@ Workflow:
 3. Check `git status`; do not touch unrelated or conflicted files unless they are part of this issue.
 4. Implement the smallest correct change that satisfies the issue and WIMS architecture constraints.
 5. Run targeted tests/lint for touched areas; run broader CI gates when the change warrants it.
-6. Update the relevant `system-wiki/` page and `system-wiki/log.md` if the change is non-trivial; update the gap register only if an FRS/code gap changes.
+6. For a semantic change, follow `system-wiki/AGENTS.md`: update the relevant synthesis page, index, and log; update the gap register only if FRS/code alignment changes.
 7. Summarize files changed, validation run, skipped checks, and whether wiki updates were made.

@@ -1,7 +1,7 @@
 ---
 title: PWA/Offline-First, Tests & CI/CD
 created: 2026-05-16
-updated: 2026-06-21
+updated: 2026-07-10
 type: architecture
 tags: [wims-bfp, pwa, offline-first, testing, ci-cd, service-worker, sync-engine, validator-offline]
 sources: [src/frontend/src/lib/, src/frontend/src/lib/api/offlineAnalytics.ts, src/frontend/src/lib/api/offlineValidator.ts, src/frontend/src/lib/api/offlineBase.ts, src/frontend/public/sw.js, src/frontend/src/app/home/__tests__/operations-board.test.tsx, .github/workflows/, src/backend/main.py, src/backend/tests/test_immutable_records.py, src/backend/tests/test_schema_patch_startup_guard.py]
@@ -194,7 +194,7 @@ Uses `unittest.mock` (MagicMock, patch), `tmp_path`, `monkeypatch`. No database 
 
 **4. Rate-limit test isolation** — root `conftest.py` clears four Redis namespaces before each test: `public_rate_limit:*` (DMZ), `rate_limit:*` (PKCE callback), `wims:rl:public_consent:*` (`/api/auth/consent` 5/IP/hr), and `wims:rl:public_notify:*` (`/api/civilian/reports/{id}/notify` 5/IP/hr). The `wims:rl:public_*` namespaces were added in the 2026-06-22 follow-up to the WS1 XFF→`trusted_client_ip` migration; without them, consent/notify tests collide on the shared TestClient fallback IP ("testclient") once ~5 prior tests have spent the bucket. This prevents public submission, PKCE callback, consent, and notify endpoint tests from inheriting a spent sliding-window budget from earlier tests while preserving per-test burst behavior.
 
-**5. ci.yml exclusions** — 8 test files explicitly excluded from CI runner: rate-limiting, suricata, infra-config, bootstrap, OTP, schema, RLS policy, SQL quality (need special Docker setup).
+**5. ci.yml exclusions** — the workflow explicitly excludes 8 infrastructure-heavy files: rate-limiting, Suricata, infra-config, bootstrap, OTP, schema, RLS policy, and SQL quality. `pytest.ini` default `addopts` also excludes `test_scheduled_reports.py`, so the effective CI/default collection excludes 9 files. Report separately when any of these suites is run in its required environment.
 
 **6. Startup DDL and pytest lock-hang regression (PR #207)**
 `src/backend/main.py` intentionally does not patch `wims.users.email` at FastAPI startup. Migration `src/postgres-init/44_add_email_to_users.sql` owns that column plus the local unique email index for fresh CI databases. Runtime DDL on `wims.users` can block indefinitely when tests hold ordinary SQLAlchemy sessions open: `src/backend/tests/test_immutable_records.py` reads `wims.users` in region fixtures, then creates `TestClient(app)`, which triggers startup before fixture teardown. A startup `ALTER TABLE wims.users ...` queued for `AccessExclusiveLock` behind the open `AccessShareLock`, making CI appear to stop after the preceding fire-location test. Future startup schema patches should avoid user-table DDL or use bounded lock handling.
@@ -202,7 +202,7 @@ Uses `unittest.mock` (MagicMock, patch), `tmp_path`, `monkeypatch`. No database 
 **7. Operations Board offline-guard test mock (2026-06-12)**
 `src/frontend/src/app/home/page.tsx` uses `useNetworkStatus()` to render an offline restricted-route guard for `/home`. `src/frontend/src/app/home/__tests__/operations-board.test.tsx` must mock `useNetworkStatus()` as online for Operations Board tests; otherwise jsdom renders "Operations Unavailable Offline" and hides the board controls. After the merge fix, `npx.cmd vitest run` passed 38 frontend test files / 236 tests.
 
-**8. Backend startup schema patch guard** — `src/backend/main.py` runs compatibility schema repairs for old containers at FastAPI startup, but guards the routine with a process-local lock/attempt flag so repeated `TestClient(app)` lifespans in pytest do not rerun DDL/RLS patch blocks. `src/backend/tests/test_schema_patch_startup_guard.py` verifies that repeated calls reopen no second admin DB session and rerun no patch helpers.
+**8. Legacy startup schema patch guard** — `src/backend/main.py` retains a guarded compatibility handler, and `src/backend/tests/test_schema_patch_startup_guard.py` verifies repeated direct/TestClient lifespans do not rerun it. The normal container entrypoint now disables Uvicorn lifespan and requires the current Alembic revision to match `alembic heads`; persistent DDL moved to `0002_startup_schema_patches.py`. The handler is therefore not the normal container migration path.
 
 **9. Auth/RLS test override pattern** — tests that override role-specific dependencies such as `get_regional_encoder` or `get_system_admin` must also override `get_current_wims_user` or `get_db_with_rls` when the route uses an RLS-scoped DB dependency. Reference-table RLS tests use a `wims_app_user` connection instead of the CI postgres superuser so PostgreSQL row-level policies are actually enforced.
 
@@ -223,9 +223,9 @@ Uses `unittest.mock` (MagicMock, patch), `tmp_path`, `monkeypatch`. No database 
 | Job | Runner | What It Runs |
 |---|---|---|
 | `security-audit` | ubuntu-latest | `pip-audit` + `npm audit --omit=dev` (continue-on-error) |
-| `migrations` | ubuntu-latest | PostGIS 15-3.4 service container, applies all .sql files in lexical order, asserts schema |
+| `migrations` | ubuntu-latest | PostGIS 15-3.4 service container; runs `alembic upgrade head` (fresh baseline reads ordered bootstrap SQL, then later revisions) and lists resulting schema tables |
 | `frontend` | ubuntu-latest | Node 20, `npm ci` → `npm run lint` → `npx vitest run` → `npm run build` |
-| `backend` | ubuntu-latest | Python 3.12, PostGIS + Redis 7 service containers. `KEYCLOAK_CLIENT_ID`/`KEYCLOAK_AUDIENCE` are set to `wims-web`/`wims-web`; Direct Grant tests scope `bfp-client` separately. `ruff check` → `ruff format --check` → `pytest -v --tb=short` (8 test files excluded) |
+| `backend` | ubuntu-latest | Python 3.12, PostGIS 15-3.4 + Redis 8.8 service containers. `KEYCLOAK_CLIENT_ID`/`KEYCLOAK_AUDIENCE` are `wims-web`/`wims-web`; Direct Grant tests scope `bfp-client` separately. `ruff check` → `ruff format --check` → Alembic → pytest (8 explicit/9 effective ignored files) |
 | `docker-build` | ubuntu-latest | Copies root `.env.example` to `src/.env` for required compose interpolation, then runs `docker compose config` validation + `docker compose build --parallel` |
 | `security-scan` | ubuntu-latest | Copies root `.env.example` to `src/.env`, then runs OWASP ZAP baseline scan + Nmap port scan. Uses `.zap/rules.tsv` to ignore 7 pre-existing WARN alerts (CSP/COEP headers, Keycloak upstream, Next.js informational). Uses `zaproxy/action-baseline@v0.15.0` plus explicit artifact name `zap-scan` to avoid legacy artifact-upload rejection in older ZAP action packaging. `fail_action: true` — only new HIGH/CRITICAL block merge. Stack is brought up with `docker compose -f docker-compose.yml -f docker-compose.ci.yml` to use the HTTP-only `nginx.ci.conf`, avoiding TLS certificate requirements that exist in the local (`nginx.local.conf`) and production (`nginx.conf`) configs. |
 | `merge-gate` | ubuntu-latest | **Blocks merge** unless migrations, frontend, backend, docker-build, and security-scan all pass |
@@ -247,10 +247,16 @@ The backend job still runs a second advisory coverage pass after the main pytest
 
 **Trigger:** Push to `master` only
 
-The deploy workflow has a `ci` gate before SSH deployment. The backend test step runs on the GitHub runner, so it must use GitHub Actions service containers rather than Docker Compose service DNS names. The gate now provisions PostGIS (`localhost:5432`) and Redis (`localhost:6379`), initializes `wims_test` by applying `src/postgres-init/*.sql` in lexical order, sets backend auth envs to `wims-web`/`wims-web`, and runs the same backend pytest exclusion set used by `.github/workflows/ci.yml`.
+The deploy workflow has a separate `ci` gate before SSH deployment. The backend test step runs on the GitHub runner, so it uses GitHub Actions PostGIS/Redis service containers on localhost rather than Compose DNS. It initializes `wims_test` with `alembic upgrade head`, sets backend auth envs to `wims-web`/`wims-web`, and runs its own backend pytest command. Re-compare this gate with `.github/workflows/ci.yml` when either changes because the deploy gate does not currently run the complete main-CI lint/format/Vitest set.
 
 The SSH deployment step exports production secrets such as `DATABASE_URL`, `REDIS_URL`, Keycloak realm URL, and `WIMS_MASTER_KEY`, plus the non-secret web OIDC defaults `KEYCLOAK_CLIENT_ID=wims-web` and `KEYCLOAK_AUDIENCE=wims-web`; then it updates `/opt/wims-bfp` from `origin/master` with `git fetch` + `git checkout -B master origin/master`. This avoids ambiguous `git pull` behavior on a VPS checkout after a force-updated remote. It performs a pre-deploy database connectivity check from the backend container before rebuilding and restarting the backend service. The rollback-tag step uses Docker's quiet image output directly, avoiding a `jq` dependency on the VPS.
 
 Post-restart health polling uses a 15-second settle delay plus 45 iterations × 2s = 90s total capacity. The health check is performed inside the `wims-backend` container using Python/httpx against `http://localhost:8000/health` (the backend's actual route). Deployment also requests public `/api/public/emergency-services` because nginx serves `/health` itself; the real API probe verifies nginx can reach the current backend container address after a recreation. Compose startup uses `--wait`, and deployment verifies that `qwen2.5:3b` is present after the one-shot Ollama model-pull service completes.
 
 The SSH action's `envs:` list must include every variable the script references. `DEPLOY_COMMIT` is set in the `deploy` job's `env:` block (`DEPLOY_COMMIT: ${{ github.sha }}`) but was missing from the `Deploy via SSH` step's `envs:` passthrough, causing `set -euo pipefail` to exit 1 on the unbound variable before the health check ran.
+
+## Related
+
+- [[architecture/infrastructure-config]]
+- [[operations/agent-routing-guide]]
+- [[database/schema-overview]]

@@ -1,63 +1,19 @@
-# infra Agent Instructions
+# Infrastructure Instruction Routing
 
-## Docker Stack — 14 Services
+## Scope
 
-| Service | Directory | Purpose |
-|---------|-----------|---------|
-| `postgres` | — | PostgreSQL 15 + PostGIS 3.4 |
-| `redis` | — | Celery broker, rate limiting, session blacklist |
-| `mailhog` | — | SMTP capture for dev (not for production) |
-| `keycloak` | `keycloak/` | Auth server with WIMS-BFP realm |
-| `keycloak-bootstrap` | `keycloak/` | One-shot realm import (`--import-realm`, `IGNORE_EXISTING`) |
-| `openbao` | `openbao/` | KMS (secrets engine) |
-| `openbao-bootstrap` | `openbao/` | One-shot OpenBao init |
-| `ollama` | — | Local LLM (Qwen2.5-3B) |
-| `ollama-model-pull` | — | One-shot model download |
-| `backend` | `backend/` | FastAPI application |
-| `celery-worker` | `backend/` | Celery async workers |
-| `frontend` | `frontend/` | Next.js production build |
-| `wims-suricata` | `suricata/` | IDS/IPS with EVE JSON output |
-| `nginx-gateway` | `nginx/` | Edge gateway (TLS, rate limiting) |
+This directory currently contains instruction/routing material, while the actual
+runtime infrastructure lives under `src/`.
 
-## Infrastructure Rules
+For changes to Compose, PostgreSQL bootstrap/Alembic, Keycloak, Nginx, OpenBao,
+Suricata, Dockerfiles, or CI/CD:
 
-- **Lexical SQL order.** All `.sql` files in `postgres-init/` execute in strict `LC_ALL=C sort` order with `ON_ERROR_STOP=1`.
-- **Keycloak imports once.** Realm JSON uses `IGNORE_EXISTING` strategy. After first boot, the realm is not re-imported.
-- **Frontend build requires env vars.** `NEXT_PUBLIC_AUTH_API_URL` and `NEXT_PUBLIC_BASE_URL` must be set at build time.
-- **Two issuer URLs.** Backend fetches JWKS from `keycloak:8080` (Docker internal). Token `iss` validation uses `localhost` (browser-visible, `KC_HOSTNAME=localhost`).
+1. Read the root `AGENTS.md`.
+2. Read `src/AGENTS.md` (the canonical scoped infrastructure rules).
+3. Read the relevant system-wiki architecture/security/database page.
+4. Read every environment-specific config or overlay affected by the change.
 
-## Platform Notes
-
-### Arch Linux — pytest requires a venv
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-pytest
-```
-
-### SQL Migration Gotchas
-
-| Symptom | Fix |
-|---------|-----|
-| Duplicate object names | Add `IF NOT EXISTS` / `OR REPLACE` |
-| Missing schema prefix | Use `wims.` before table names |
-| `CREATE POLICY` fails | Ensure `ALTER TABLE ... ENABLE ROW LEVEL SECURITY` runs first |
-
-## Key Environment Variables
-
-| Variable | Service | Purpose |
-|----------|---------|---------|
-| `DATABASE_URL` | backend, celery | PostgreSQL connection |
-| `DATABASE_ADMIN_URL` | backend | Postgres superuser (DDL patches) |
-| `WIMS_MASTER_KEY` | backend | AES-256-GCM PII encryption key |
-| `KEYCLOAK_REALM_URL` | backend | JWKS endpoint (Docker internal) |
-| `KEYCLOAK_ISSUER` | backend | JWT `iss` validation (browser-visible) |
-| `REDIS_URL` | backend, celery | Redis connection |
-| `OLLAMA_URL` | backend | Local LLM endpoint |
-| `NEXT_PUBLIC_AUTH_API_URL` | frontend | Keycloak auth URL |
-
-## CI/CD
-
-Full CI pre-flight with detailed gates 1-5: `docs/agents/ci-preflight.md`
+Do not duplicate service inventories, image versions, port maps, environment
+variables, or migration counts here; derive them from current configuration.
+If implementation files are later added under `infra/`, extend this file only
+with rules specific to that subtree and do not weaken `src/AGENTS.md` safeguards.

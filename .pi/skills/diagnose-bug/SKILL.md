@@ -8,8 +8,8 @@ description: "Diagnose and fix hard bugs in the WIMS-BFP codebase. Structured 6-
 A disciplined 6-phase investigation loop for hard bugs. **Skip phases only when explicitly justified.**
 
 Before touching anything, read the relevant:
-- **Bug patterns** — `docs/agents/gotchas.md` (16 real WIMS agent mistakes)
-- **Architecture constraints** — `AGENTS.md` lines 40–49
+- **Bug patterns** — `docs/agents/gotchas.md` (read the current complete list)
+- **Architecture constraints** — the named non-negotiable-boundaries section in `AGENTS.md`
 - **Subsystem context** — `system-wiki/operations/agent-routing-guide.md` (minimum context pack)
 
 ---
@@ -51,7 +51,7 @@ Goal is not a clean repro but a **higher reproduction rate**. Loop 100×, parall
 | Bug symptom | Quick loop |
 |---|---|
 | RLS returning 0 rows | Run the SQL directly: `SET LOCAL wims.current_user_id = '<uuid>'; SELECT * FROM wims.fire_incidents;`. Then commit and re-run. |
-| PII decryption failure | `python -c "from utils.crypto import decrypt_data; print(decrypt_data('<ciphertext>', '<key>'))"` |
+| PII decryption failure | Reproduce with a synthetic fixture in `pytest tests/test_crypto.py -q`; never print a real key, ciphertext payload, or decrypted PII |
 | Rate limit too aggressive | `for i in 1..10; do curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost/api/...; done` |
 | Test fixture returns 0 rows | Check which session factory: `_SessionLocal` (RLS-gated) vs `_AdminSessionLocal` (bypasses RLS) |
 | Frontend build fails | Check `NEXT_PUBLIC_AUTH_API_URL` and `NEXT_PUBLIC_BASE_URL` are set |
@@ -132,10 +132,10 @@ Each probe maps to a specific prediction from Phase 3. **Change one variable at 
 |---|---|
 | Check RLS context | `psql -c "SHOW wims.current_user_id;"` |
 | Check session factory | `rg "SessionLocal\|AdminSessionLocal" tests/test_file.py` |
-| Check PII key | `python -c "from utils.crypto import get_master_key; print(get_master_key()[:8])"` (prints first 8 chars, enough to confirm correct key) |
-| Check audit trigger | `psql -c "SELECT tgname FROM pg_trigger WHERE tgrelid = 'wims.audit_log'::regclass;"` |
+| Check PII key identity | Compare a short SHA-256 fingerprint of the environment value; never print any key bytes or prefix |
+| Check audit immutability | `psql -c "SELECT rulename FROM pg_rules WHERE schemaname='wims' AND tablename='system_audit_trails';"` and compare with the final ordered migration state |
 | Check import order | `cd src/backend && ruff check . | head -20` |
-| Check route order | Check `get_current_wims_user` comes before `get_db_with_rls` in route signature |
+| Check RLS dependency graph | Verify `get_db_with_rls` explicitly uses `Depends(get_current_wims_user)` and that test overrides preserve that dependency |
 
 ### Performance branch
 
@@ -165,8 +165,8 @@ Before committing the fix, verify these if the change touches them:
 
 - [ ] RLS context re-set after every `db.commit()` in the handler
 - [ ] PII columns: plaintext field is NULL, encrypted field is populated
-- [ ] Audit trigger still fires — check `wims.audit_log` has the new entry
-- [ ] Route order: `get_current_wims_user` before `get_db_with_rls`
+- [ ] Sensitive action still writes the expected `wims.system_audit_trails` row
+- [ ] `get_db_with_rls` retains its explicit `Depends(get_current_wims_user)` dependency and RLS context
 - [ ] No `print()` or `[DEBUG-...]` logging survived
 
 ---
@@ -187,7 +187,7 @@ Required before declaring done:
 - If the answer is a missing gotcha → consider adding it to `docs/agents/gotchas.md`
 - If the answer is an RLS/PII/audit gap that isn't caught → file an issue with `ready-for-agent`
 
-Route the recommendation: `/grill-with-docs` on the pain point → create issue → `/issue-implement`.
+Route the recommendation: `/skill:grill-with-docs` on the pain point → create issue → `/issue-implement`.
 
 ---
 
@@ -203,7 +203,7 @@ These appear frequently. Check them early — they save hours.
 | 4 | **PII key mismatch** | Decryption returns garbage or auth tag error | Cross-check `WIMS_MASTER_KEY` across envs |
 | 5 | **Import ordering (E402)** | `ruff check .` fails on code between import blocks | Move all code below imports |
 | 6 | **Missing RLS on new table** | Admin queries show all rows, app queries show none | `ALTER TABLE wims.x ENABLE ROW LEVEL SECURITY;` |
-| 7 | **Route dependency order** | Route fails with "no wims_user in request.state" | `get_current_wims_user` before `get_db_with_rls` |
+| 7 | **RLS dependency override mismatch** | Route/test uses an unscoped DB or override does not propagate | Inspect the explicit `get_db_with_rls` → `Depends(get_current_wims_user)` graph and all overrides |
 | 8 | **Keycloak role path** | Role-based access unexpectedly denied | Check `realm_access.roles` vs `resource_access.<client>.roles` |
 | 9 | **Pytest outside src/backend/** | `ModuleNotFoundError: No module named 'auth'` | Run from `src/backend/` |
 | 10 | **Frontend build env vars** | Build fails with missing `NEXT_PUBLIC_*` | `export NEXT_PUBLIC_AUTH_API_URL=... NEXT_PUBLIC_BASE_URL=...` |

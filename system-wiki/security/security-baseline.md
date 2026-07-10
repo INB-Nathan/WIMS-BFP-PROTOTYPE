@@ -92,7 +92,7 @@ The service in `src/backend/services/report_photos.py` validates extension, decl
 ## Audit and Immutability
 FRS Module 4 requires SHA-256 data hashes, append-only audit logs, and immutable commit records. Verification/correction workflow remains a high-risk area; see [[gaps/frs-codebase-gap-register]].
 
-- `17_immutable_records.sql` now includes `no_delete_audit` and `no_update_audit` RULEs on `wims.system_audit_trails` (GH #240) — DELETE and UPDATE silently no-op at DB level for full audit trail immutability. (Future migrations that need to UPDATE/DELETE rows must temporarily drop these rules.)
+- `17_immutable_records.sql` creates `no_delete_audit` and `no_update_audit` rules, but later `72_partition_audit_trail.sql` replaces `wims.system_audit_trails` and does not recreate them on the final partitioned parent. Application RLS still limits ordinary writes, but the FRS-required DB-level append-only control is not complete on a fresh ordered schema. Treat this as an open high-risk gap; remediation requires an aligned SQL/Alembic migration and final-schema UPDATE/DELETE regression test. See [[gaps/frs-codebase-gap-register]].
 - `wims.system_audit_trails` now has `old_values` and `new_values` JSONB columns (GH #242, migration `60_audit_forensics_columns.sql`) for forensic completeness per ASVS V7.3.1.
 - `log_system_audit()` accepts optional `old_values`/`new_values` params; UPDATE call sites in `users.py` and `config.py` populate them. Non-JSON-serializable types (UUID, datetime, Decimal) are safely coerced via `default=str`.
 
