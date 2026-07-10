@@ -704,6 +704,9 @@ import {
   markPublicOpSynced,
   markPublicOpFailed,
   purgeSyncedPublicOps,
+  storePhotoLink,
+  getPhotosByParentLocalId,
+  updatePhotoReportLink,
   type PublicOfflineOp,
 } from './offlineStore';
 // isReachable and markConnectivityOffline are already imported at the top of
@@ -844,9 +847,6 @@ export async function syncPublicOfflineOps(
   }
 
   const ops = await getPendingPublicOps(deviceId);
-  if (ops.length === 0) {
-    return empty;
-  }
 
   // Tracks the serverId a parent's localId resolved to during this batch. The
   // child op's `linkedLocalId` is the key; the value is what to PATCH against.
@@ -913,6 +913,21 @@ export async function syncPublicOfflineOps(
       // deferred with parent_pending, the resolved serverId may now let it
       // complete on the next batch.
       await getLinkedPublicOp(op.localId).catch(() => []);
+
+      // ── Link queued photos to this report ────────────────────────
+      // After a submit succeeds, persist the parentLocalId → serverReportId
+      // mapping and update any queued photos that reference this localId
+      // so they become uploadable on the next sync pass.
+      if (op.operation === 'submit') {
+        await storePhotoLink(op.localId, result.serverId);
+        const linkedPhotos = await getPhotosByParentLocalId(op.localId);
+        for (const photo of linkedPhotos) {
+          if (!photo.permanentFailure && photo.parentServerReportId === null) {
+            await updatePhotoReportLink(photo.id, result.serverId);
+          }
+        }
+      }
+
       synced += 1;
       const payload = op.payload as Record<string, unknown>;
       const category = (payload.category as string | undefined) ?? '';

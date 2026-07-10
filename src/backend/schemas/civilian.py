@@ -274,9 +274,14 @@ class BrowserGPSFields(BaseModel):
 
 
 class PhotoUploadResponse(BaseModel):
-    """Response body for successful photo upload (201)."""
+    """Response body for successful photo upload (201) or duplicate (200).
 
-    photo_id: str
+    When ``duplicate`` is True, ``photo_id`` is None because the INSERT
+    was silently skipped (ON CONFLICT DO NOTHING). Fresh uploads always
+    carry a non-null ``photo_id``.
+    """
+
+    photo_id: str | None = None
     report_id: int
     duplicate: bool = False
     file_size_bytes: int

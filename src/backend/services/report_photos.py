@@ -617,44 +617,44 @@ def upload_and_attach_photo(
         # The partial unique index only fires when client_photo_id IS NOT NULL,
         # so legacy uploads without one are unaffected.
         try:
-            insert_sql = text(
-                """
-                INSERT INTO wims.report_photos (
-                    photo_id, report_id, uploader_user_id, uploader_device_id,
-                    media_type, file_extension, image_width, image_height, file_size_bytes,
-                    original_storage_path, original_file_size_bytes, original_sha256,
-                    orig_encryption_iv, orig_key_version, orig_crypto_provider, orig_kms_key_name,
-                    sanitized_storage_path, sanitized_file_size_bytes, sanitized_sha256,
-                    sanitized_encryption_iv, sanitized_key_version, sanitized_crypto_provider, sanitized_kms_key_name,
-                    sensitive_metadata_blob_enc,
-                    metadata_encryption_iv, metadata_key_version, metadata_crypto_provider, metadata_kms_key_name,
-                    exif_gps_status, browser_gps_status, gps_consensus,
-                    exif_to_report_distance_m, browser_to_report_distance_m,
-                    photo_reported_distance_m,
-                    exif_gps_lat, exif_gps_lon, exif_gps_altitude, exif_datetime_original, exif_data_source
-                    {', client_photo_id' if client_photo_id else ''}
-                ) VALUES (
-                    :photo_id, :report_id, :uploader_user_id, :uploader_device_id,
-                    :media_type, :file_extension, :image_width, :image_height, :file_size_bytes,
-                    :original_storage_path, :original_file_size_bytes, :original_sha256,
-                    :orig_encryption_iv, :orig_key_version, :orig_crypto_provider, :orig_kms_key_name,
-                    :sanitized_storage_path, :sanitized_file_size_bytes, :sanitized_sha256,
-                    :sanitized_encryption_iv, :sanitized_key_version, :sanitized_crypto_provider, :sanitized_kms_key_name,
-                    :sensitive_metadata_blob_enc,
-                    :metadata_encryption_iv, :metadata_key_version, :metadata_crypto_provider, :metadata_kms_key_name,
-                    :exif_gps_status, :browser_gps_status, :gps_consensus,
-                    :exif_to_report_distance_m, :browser_to_report_distance_m,
-                    :photo_reported_distance_m,
-                    :exif_gps_lat_val, :exif_gps_lon_val, :exif_gps_altitude_val, :exif_dt_val, :exif_data_source
-                    {', :client_photo_id' if client_photo_id else ''}
-                )
-                """
-                + (
-                    "ON CONFLICT (client_photo_id) WHERE client_photo_id IS NOT NULL DO NOTHING RETURNING photo_id"
-                    if client_photo_id
-                    else ""
-                )
+            base_cols = (
+                "photo_id, report_id, uploader_user_id, uploader_device_id,"
+                " media_type, file_extension, image_width, image_height, file_size_bytes,"
+                " original_storage_path, original_file_size_bytes, original_sha256,"
+                " orig_encryption_iv, orig_key_version, orig_crypto_provider, orig_kms_key_name,"
+                " sanitized_storage_path, sanitized_file_size_bytes, sanitized_sha256,"
+                " sanitized_encryption_iv, sanitized_key_version, sanitized_crypto_provider, sanitized_kms_key_name,"
+                " sensitive_metadata_blob_enc,"
+                " metadata_encryption_iv, metadata_key_version, metadata_crypto_provider, metadata_kms_key_name,"
+                " exif_gps_status, browser_gps_status, gps_consensus,"
+                " exif_to_report_distance_m, browser_to_report_distance_m,"
+                " photo_reported_distance_m,"
+                " exif_gps_lat, exif_gps_lon, exif_gps_altitude, exif_datetime_original, exif_data_source"
             )
+            base_vals = (
+                ":photo_id, :report_id, :uploader_user_id, :uploader_device_id,"
+                " :media_type, :file_extension, :image_width, :image_height, :file_size_bytes,"
+                " :original_storage_path, :original_file_size_bytes, :original_sha256,"
+                " :orig_encryption_iv, :orig_key_version, :orig_crypto_provider, :orig_kms_key_name,"
+                " :sanitized_storage_path, :sanitized_file_size_bytes, :sanitized_sha256,"
+                " :sanitized_encryption_iv, :sanitized_key_version, :sanitized_crypto_provider, :sanitized_kms_key_name,"
+                " :sensitive_metadata_blob_enc,"
+                " :metadata_encryption_iv, :metadata_key_version, :metadata_crypto_provider, :metadata_kms_key_name,"
+                " :exif_gps_status, :browser_gps_status, :gps_consensus,"
+                " :exif_to_report_distance_m, :browser_to_report_distance_m,"
+                " :photo_reported_distance_m,"
+                " :exif_gps_lat_val, :exif_gps_lon_val, :exif_gps_altitude_val, :exif_dt_val, :exif_data_source"
+            )
+            if client_photo_id:
+                cols = base_cols + ", client_photo_id"
+                vals = base_vals + ", :client_photo_id"
+                conflict = " ON CONFLICT (client_photo_id) WHERE client_photo_id IS NOT NULL DO NOTHING RETURNING photo_id"
+            else:
+                cols = base_cols
+                vals = base_vals
+                conflict = ""
+
+            insert_sql = text(f"INSERT INTO wims.report_photos ({cols}) VALUES ({vals}){conflict}")
 
             insert_params = {
                 "photo_id": photo_id,

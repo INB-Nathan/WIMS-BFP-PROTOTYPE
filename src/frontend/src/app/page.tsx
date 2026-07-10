@@ -76,7 +76,7 @@ class MapPickerErrorBoundary extends React.Component<
     return { hasError: true };
   }
   componentDidCatch(error: Error) {
-    // eslint-disable-next-line no-console
+     
     console.warn(
       '[MapPicker] failed to render, falling back to manual lat/lng entry:',
       error?.message ?? error,
@@ -748,7 +748,7 @@ export default function ReportPage() {
     return () => window.removeEventListener('wims:manual-location', handler);
     // handlePinChange closes over setGpsWarningConfirmed etc.; safe to
     // re-bind on step change since we only care about the context step.
-  }, [step]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [step]);  
 
   // ── Context step ────────────────────────────────────────────────────────────
 
@@ -897,6 +897,7 @@ export default function ReportPage() {
       witness_phone: witnessPhone || undefined,
       reported_at: observedTime ? new Date(observedTime).toISOString() : undefined,
       device_id: getDeviceId(),
+      client_report_id: parentLocalIdRef.current ?? undefined,
     };
   }
 
@@ -2233,7 +2234,7 @@ export default function ReportPage() {
                   gps={photoGps}
                   onGpsChange={setPhotoGps}
                   onExifChange={setPhotoExif}
-                  disabled={!isOnline || submitting || photoStatus === 'uploading'}
+                  disabled={submitting || photoStatus === 'uploading'}
                   photoStatus={photoStatus}
                   photoError={photoError}
                   online={isOnline}

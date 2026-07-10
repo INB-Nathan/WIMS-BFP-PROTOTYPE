@@ -1718,7 +1718,7 @@ export async function getPendingPhotosForSync(deviceId: string): Promise<Offline
     // first key, so this is an efficient prefix query.
     const all: OfflinePhotoRecord[] = await db.getAll(OFFLINE_PHOTOS_STORE);
     return all.filter(
-        (p) => p.deviceId === deviceId && !p.permanentFailure && p.parentServerReportId !== null
+        (p) => p.deviceId === deviceId && !p.permanentFailure
     );
 }
 
@@ -1791,6 +1791,24 @@ export async function markPhotoPermanentFailure(photoId: string): Promise<void> 
     const record: OfflinePhotoRecord | undefined = await store.get(photoId);
     if (record) {
         record.permanentFailure = true;
+        await store.put(record);
+    }
+    await tx.done;
+}
+
+/**
+ * Increment a photo record's retryCount and stamp lastAttemptAt.
+ * Used by civilianPhotoSync after retryable failures so the backoff
+ * ceiling (max 5) eventually kicks in.
+ */
+export async function markPhotoRetry(photoId: string): Promise<void> {
+    const db = await getDB();
+    const tx = db.transaction(OFFLINE_PHOTOS_STORE, 'readwrite');
+    const store = tx.objectStore(OFFLINE_PHOTOS_STORE);
+    const record: OfflinePhotoRecord | undefined = await store.get(photoId);
+    if (record) {
+        record.retryCount += 1;
+        record.lastAttemptAt = Date.now();
         await store.put(record);
     }
     await tx.done;

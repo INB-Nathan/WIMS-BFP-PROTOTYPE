@@ -668,6 +668,27 @@ def apply_schema_patches() -> None:
             "wims.report_photos table + RLS + encryption metadata columns",
         )
 
+        # Migration 83: EXIF metadata columns on report_photos
+        _apply_postgres_init_sql_patch(
+            db,
+            "83_photo_exif_metadata.sql",
+            "EXIF fields / provenance on wims.report_photos",
+        )
+
+        # Migration 84: client_photo_id for idempotent photo retry
+        _apply_postgres_init_sql_patch(
+            db,
+            "84_photo_idempotency_key.sql",
+            "client_photo_id UUID + partial unique index on report_photos",
+        )
+
+        # Migration 85: client_report_id for idempotent report submission
+        _apply_postgres_init_sql_patch(
+            db,
+            "85_citizen_report_idempotency.sql",
+            "client_report_id UUID + partial unique index on citizen_reports",
+        )
+
         # RP-06: backfill data_hash for VERIFIED incidents seeded via SQL or
         # verified before the NSD-hash extension landed. The no_update_verified
         # rule carves out data_hash-only updates on VERIFIED rows (migration 68).

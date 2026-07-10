@@ -13,6 +13,7 @@ import {
   getPendingPhotosForSync,
   markPhotoUploaded,
   markPhotoPermanentFailure,
+  markPhotoRetry,
 } from './offlineStore';
 import { decryptPhotoBlob } from './offlinePhotoKey';
 import { uploadCivilianReportPhoto } from './api/civilian';
@@ -61,6 +62,9 @@ export async function syncPendingPhotos(deviceId: string): Promise<PhotoSyncResu
 
   for (const photo of photos) {
     if (photo.permanentFailure) continue;
+
+    // Skip photos that haven't been linked to a server report yet
+    if (photo.parentServerReportId === null) continue;
 
     if (photo.retryCount >= 5) {
       await markPhotoPermanentFailure(photo.id);
@@ -121,6 +125,7 @@ export async function syncPendingPhotos(deviceId: string): Promise<PhotoSyncResu
 
       // Network error (fetch failed, timeout) — retryable
       if (status === undefined || status === 0) {
+        await markPhotoRetry(photo.id);
         result.failed++;
         continue;
       }
@@ -129,6 +134,7 @@ export async function syncPendingPhotos(deviceId: string): Promise<PhotoSyncResu
       if (status >= 400 && status < 500) {
         if (status === 408 || status === 425 || status === 429) {
           // Retryable 4xx
+          await markPhotoRetry(photo.id);
           result.failed++;
           continue;
         }
@@ -139,6 +145,7 @@ export async function syncPendingPhotos(deviceId: string): Promise<PhotoSyncResu
       }
 
       // 5xx — retryable
+      await markPhotoRetry(photo.id);
       result.failed++;
     }
   }

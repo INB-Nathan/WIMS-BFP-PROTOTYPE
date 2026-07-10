@@ -26,6 +26,9 @@ vi.mock('../offlineStore', () => ({
   purgeSyncedPublicOps: vi.fn(),
   getPublicOp: vi.fn(),
   getPendingPhotosForSync: vi.fn().mockResolvedValue([]),
+  storePhotoLink: vi.fn(),
+  getPhotosByParentLocalId: vi.fn().mockResolvedValue([]),
+  updatePhotoReportLink: vi.fn(),
 }));
 
 vi.mock('../connectivity', () => ({
@@ -42,6 +45,9 @@ const {
   purgeSyncedPublicOps,
   getPublicOp,
   getPendingPhotosForSync,
+  storePhotoLink,
+  getPhotosByParentLocalId,
+  updatePhotoReportLink,
 } = await import('../offlineStore');
 const { markConnectivityOffline, isReachable } = await import('../connectivity');
 const { syncPublicOfflineOps } = await import('../syncEngine');

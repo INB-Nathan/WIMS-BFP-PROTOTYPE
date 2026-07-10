@@ -324,39 +324,6 @@ export function PhotoUpload({
     return <>{indicators}</>;
   }
 
-  // Offline info banner — shown when device is offline and no file is selected
-  if (!online && !file) {
-    return (
-      <div className="space-y-2" data-testid="photo-upload-offline">
-        <p className="text-sm font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>
-          Attach a photo (optional)
-        </p>
-        <div
-          className="flex items-center gap-2 p-3 rounded-lg text-sm"
-          style={{ backgroundColor: 'rgba(245,158,11,0.06)', color: 'var(--text-secondary)' }}
-        >
-          <AlertTriangle className="w-4 h-4 flex-shrink-0 text-amber-500" />
-          <span>
-            Photos will be saved and uploaded when you reconnect.
-            <br />
-            <span lang="fil">Ang mga litrato ay nai-save at ia-upload kapag nakakonekta ka.</span>
-          </span>
-        </div>
-        {pendingCount > 0 && (
-          <div
-            className="flex items-center gap-2 p-3 rounded-lg text-sm"
-            style={{ backgroundColor: 'rgba(59,130,246,0.06)', color: '#2563eb' }}
-          >
-            <RefreshCw className="w-4 h-4 flex-shrink-0" />
-            <span>
-              {pendingCount} photo{pendingCount !== 1 ? 's' : ''} waiting to upload
-            </span>
-          </div>
-        )}
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-2" data-testid="photo-upload">
       <p className="text-sm font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>
@@ -367,6 +334,34 @@ export function PhotoUpload({
         <br />
         <span lang="fil">Mag-share ng litrato ng sunog. JPEG o PNG. Isang litrato bawat report.</span>
       </p>
+
+      {/* ── Offline banners (non-blocking) ──────────────────────── */}
+      {!online && !file && (
+        <>
+          <div
+            className="flex items-center gap-2 p-3 rounded-lg text-sm"
+            style={{ backgroundColor: 'rgba(245,158,11,0.06)', color: 'var(--text-secondary)' }}
+          >
+            <AlertTriangle className="w-4 h-4 flex-shrink-0 text-amber-500" />
+            <span>
+              Photos will be saved and uploaded when you reconnect.
+              <br />
+              <span lang="fil">Ang mga litrato ay nai-save at ia-upload kapag nakakonekta ka.</span>
+            </span>
+          </div>
+          {pendingCount > 0 && (
+            <div
+              className="flex items-center gap-2 p-3 rounded-lg text-sm"
+              style={{ backgroundColor: 'rgba(59,130,246,0.06)', color: '#2563eb' }}
+            >
+              <RefreshCw className="w-4 h-4 flex-shrink-0" />
+              <span>
+                {pendingCount} photo{pendingCount !== 1 ? 's' : ''} waiting to upload
+              </span>
+            </div>
+          )}
+        </>
+      )}
 
       {validationError && (
         <div

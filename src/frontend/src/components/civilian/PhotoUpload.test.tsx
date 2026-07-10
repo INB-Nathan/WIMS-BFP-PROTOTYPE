@@ -6,7 +6,7 @@ import { PhotoUpload, type PhotoGpsSample } from './PhotoUpload';
 // Compression uses OffscreenCanvas which is not available in jsdom.
 // We mock the module to simulate compression behavior.
 vi.mock('@/lib/photoCompression', () => {
-  let generation = 0;
+  const generation = 0;
   return {
     compressPhoto: vi.fn(async (file: File) => {
       // Simulate compression delay
@@ -442,10 +442,12 @@ describe('PhotoUpload', () => {
 
   // ── Offline explanation mode ─────────────────────────────────────────────
 
-  it('shows offline info banner when online is false and no file selected', () => {
+  it('shows offline banner inside photo-upload when online is false and no file selected', () => {
     render(<PhotoUpload {...defaultProps} online={false} />);
-    expect(screen.getByTestId('photo-upload-offline')).toBeInTheDocument();
+    expect(screen.getByTestId('photo-upload')).toBeInTheDocument();
     expect(screen.getByText(/Photos will be saved/)).toBeInTheDocument();
+    // File inputs should still be rendered (not blocked by offline banner)
+    expect(screen.getByTestId('photo-gallery-btn')).toBeInTheDocument();
   });
 
   it('does not show offline info banner when a file is already selected (shows preview instead)', () => {
