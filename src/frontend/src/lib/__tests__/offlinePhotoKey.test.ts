@@ -26,11 +26,16 @@ if (!globalThis.crypto || !(globalThis.crypto as unknown as { subtle?: unknown }
 
 // ─── Setup: ensure the crypto-keys store exists ─────────────────────────────
 
+// Use DB version 7 to stay in sync with offlineStore.ts and offlinePhotoKey.ts.
+// Opening at version 1 after the DB has been upgraded to 7 would hang in
+// fake-indexeddb (version downgrade is not supported).
 async function ensureKeyStore() {
-  const db = await openDB('wims-bfp-db', 1, {
+  const db = await openDB('wims-bfp-db', 7, {
     upgrade(db, oldVersion) {
-      if (oldVersion < 1) {
-        db.createObjectStore('crypto-keys');
+      if (oldVersion < 7) {
+        if (!db.objectStoreNames.contains('crypto-keys')) {
+          db.createObjectStore('crypto-keys');
+        }
       }
     },
   });
@@ -118,10 +123,15 @@ describe('getOrCreatePhotoKey', () => {
     await ensureKeyStore();
     await getOrCreatePhotoKey(DEVICE_ID);
 
-    const db = await openDB('wims-bfp-db', 2);
+    const db = await openDB('wims-bfp-db');
     const stored = await db.get('crypto-keys', `photo-key:${DEVICE_ID}`);
     expect(stored).toBeDefined();
     expect((stored as CryptoKey).algorithm).toMatchObject({ name: 'AES-GCM' });
+    db.close();
+  });
+
+  afterEach(async () => {
+    await deleteAllDbs();
   });
 });
 
@@ -130,12 +140,18 @@ describe('encryptPhotoBlob', () => {
     await ensureKeyStore();
   });
 
+  afterEach(async () => {
+    await deleteAllDbs();
+  });
+
   it('returns encrypted data and a base64 IV', async () => {
     await ensureKeyStore();
     const blob = createTestBlob(512);
     const result = await encryptPhotoBlob(blob, DEVICE_ID, PHOTO_ID);
 
-    expect(result.encrypted).toBeInstanceOf(ArrayBuffer);
+    // Cross-realm ArrayBuffer check (JSDOM has its own ArrayBuffer class,
+    // so instanceof ArrayBuffer fails across realms — use constructor.name)
+    expect(result.encrypted?.constructor?.name).toBe('ArrayBuffer');
     expect(result.iv).toBeDefined();
     // IV should be base64-encoded 12 bytes = 16 chars
     expect(result.iv).toHaveLength(16);
@@ -158,7 +174,8 @@ describe('encryptPhotoBlob', () => {
     const blob = createTestBlob(64);
     const result = await encryptPhotoBlob(blob, DEVICE_ID, PHOTO_ID, key);
 
-    expect(result.encrypted).toBeInstanceOf(ArrayBuffer);
+    // Cross-realm ArrayBuffer check
+    expect(result.encrypted?.constructor?.name).toBe('ArrayBuffer');
     // AES-GCM tag overhead = 16 bytes
     expect(result.encrypted.byteLength).toBe(80);
   });
@@ -167,6 +184,10 @@ describe('encryptPhotoBlob', () => {
 describe('decryptPhotoBlob', () => {
   beforeEach(async () => {
     await ensureKeyStore();
+  });
+
+  afterEach(async () => {
+    await deleteAllDbs();
   });
 
   it('decrypts a blob that was encrypted with the same key', async () => {
@@ -235,7 +256,7 @@ describe('decryptPhotoBlob', () => {
     const { encrypted, iv } = await encryptPhotoBlob(original, LOST_DEVICE, PHOTO_ID);
 
     // Clear all crypto-keys data
-    const db = await openDB('wims-bfp-db', 1);
+    const db = await openDB('wims-bfp-db');
     await db.clear('crypto-keys');
     db.close();
 
@@ -285,6 +306,10 @@ describe('decryptPhotoBlob', () => {
 describe('encrypt + decrypt round-trip (integration)', () => {
   beforeEach(async () => {
     await ensureKeyStore();
+  });
+
+  afterEach(async () => {
+    await deleteAllDbs();
   });
 
   it('round-trips various blob sizes', async () => {

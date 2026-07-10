@@ -32,7 +32,10 @@ export async function getOrCreatePhotoKey(deviceId: string): Promise<CryptoKey> 
 
   const keyName = getKeyStorageName(deviceId);
   const existing = await db.get(KEY_STORE_NAME, keyName);
-  if (existing) return existing as CryptoKey;
+  if (existing) {
+    db.close();
+    return existing as CryptoKey;
+  }
 
   // Generate new non-extractable AES-256-GCM key
   const key = await crypto.subtle.generateKey(
@@ -42,6 +45,7 @@ export async function getOrCreatePhotoKey(deviceId: string): Promise<CryptoKey> 
   );
 
   await db.put(KEY_STORE_NAME, key, keyName);
+  db.close();
   return key;
 }
 
@@ -71,6 +75,7 @@ export async function encryptPhotoBlob(
   // Read blob as ArrayBuffer
   const blobBytes = await blob.arrayBuffer();
 
+  // Encrypt
   // Encrypt
   const encrypted = await crypto.subtle.encrypt(
     { name: 'AES-GCM', iv, additionalData: aad },
