@@ -72,14 +72,11 @@ export async function encryptPhotoBlob(
   // Encode AAD: photo:{photoId}:{deviceId}
   const aad = new TextEncoder().encode(`photo:${photoId}:${deviceId}`);
 
-  // Read blob as ArrayBuffer
-  const blobBytes = await blob.arrayBuffer();
-
   // Encrypt
   const encrypted = await crypto.subtle.encrypt(
     { name: 'AES-GCM', iv, additionalData: aad },
     encryptionKey,
-    blobBytes,
+    await blob.arrayBuffer(),
   );
 
   // Base64 encode IV for storage

@@ -19,6 +19,12 @@ import { webcrypto } from 'node:crypto';
 import 'fake-indexeddb/auto';
 import { openDB } from 'idb';
 
+// Replace JSDOM's crypto completely with Node.js webcrypto.
+// JSDOM's crypto.subtle delegates to Node's webcrypto internally but wraps
+// inputs/outputs in JSDOM-realm ArrayBuffers that fail instanceof checks.
+// Node's webcrypto provides consistent same-realm ArrayBuffers.
+vi.stubGlobal('crypto', webcrypto);
+
 // ─── Setup: ensure the crypto-keys store exists ─────────────────────────────
 
 // Use DB version 7 to stay in sync with offlineStore.ts and offlinePhotoKey.ts.
