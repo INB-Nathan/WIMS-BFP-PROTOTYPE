@@ -583,6 +583,16 @@ The MapPicker mock gained a `mapPickerBehaviour.throwOnRender` toggle
   in the console because the SW caches RSC payloads that reference the
   endpoint. Cosmetic, not a crash trigger.
 
+### Photo capture enhancement v5 (2026-07-10)
+
+- **Camera shortcut:** Split file input into camera mode (`capture="environment"`) + gallery toggle. Mobile shows large "Take Photo" button; desktop shows gallery only.
+- **Client-side EXIF extraction:** `photoExif.ts` extracts GPS/lat/lng/altitude/DateTimeOriginal via `exifr` BEFORE compression. Backend receives EXIF as form fields; server EXIF is authoritative.
+- **Client-side compression:** `photoCompression.ts` uses `createImageBitmap` + `OffscreenCanvas`. Megapixel gate (>8000px passthrough). JPEG quality iteration (0.7→0.3). Dimension fallback (1280px→1024px). Safari <16.4 fallback.
+- **Offline queue:** IndexedDB v7 with `OFFLINE_PHOTOS_STORE` + `PHOTO_LINK_STORE`. AES-256-GCM encryption via non-extractable CryptoKey. `client_photo_id` for atomic idempotent retry.
+- **Sync engine extension:** `syncPublicOfflineOps` calls `storePhotoLink`/`updatePhotoReportLink` after submit success. `syncPendingPhotos` skips null-linked photos. Retry count tracked via `markPhotoRetry`.
+- **Idempotency:** `client_report_id` on `citizen_reports` (migration 85). Parsed before rate-limit check. Photo cap checked after idempotent INSERT.
+- **Tests:** 173+ frontend tests pass (10 test files). Backend ruff + format clean. Build succeeds.
+
 ### Test summary (2026-06-21 follow-up)
 
 - 593/593 frontend vitest tests pass (was 590; +3 new).

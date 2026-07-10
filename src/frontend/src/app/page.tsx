@@ -14,7 +14,7 @@ import {
   appendCivilianReportOfflineAware,
   checkReviewEligibility,
 } from '@/lib/api/offlineCivilian';
-import { queueOfflinePhoto, getPendingPhotoCount, discardOrphanedPhotos, storePhotoLink, updatePhotoReportLink, getPhotosByParentLocalId, cleanupExpiredPhotos, rebuildSyncedServerIds } from '@/lib/offlineStore';
+import { queueOfflinePhoto, getPendingPhotoCount, updatePhotoReportLink, getPhotosByParentLocalId, cleanupExpiredPhotos, rebuildSyncedServerIds } from '@/lib/offlineStore';
 import { encryptPhotoBlob } from '@/lib/offlinePhotoKey';
 import type { OfflinePhotoGps, OfflinePhotoExif } from '@/lib/offlineStore';
 import { usePublicAutoSync } from '@/lib/usePublicAutoSync';

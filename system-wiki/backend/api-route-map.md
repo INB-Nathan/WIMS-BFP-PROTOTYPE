@@ -169,6 +169,12 @@ FastAPI route ownership snapshot from `src/backend/api/routes`.
 - `ref.py` is the reference data read API tied to `wims.ref_*` tables in [[database/schema-overview]].
 - The civilian photo route deliberately uses `get_photo_db()` from `src/backend/auth.py`, not the admin `get_db()` dependency: anonymous requests leave the RLS user GUC unset, while registered requests set it from the authenticated user. `wims.report_photos` remains the final authorization boundary under `FORCE ROW LEVEL SECURITY`; ownership failures are normalized to a neutral 404.
 
+## Civilian Photo Upload (v5 — 2026-07-10)
+- `POST /api/civilian/reports` now accepts `client_report_id` (UUID string) in the JSON body for idempotent report submission. Parsed before rate-limit check: if `client_report_id` matches an existing row, returns 200 with the existing report without consuming per-IP quota.
+- `POST /api/civilian/reports/{report_id}/photos` accepts optional `client_photo_id` (UUID), EXIF GPS fields (`exif_gps_lat`, `exif_gps_lon`, `exif_gps_altitude`, `exif_datetime_original`), and browser GPS fields. Uses atomic `INSERT ... ON CONFLICT DO NOTHING RETURNING` for idempotent retry. Photo cap check occurs after the INSERT for idempotent requests. Returns `duplicate: true` with `photo_id: null` on duplicate.
+- New schema columns: `exif_gps_lat`, `exif_gps_lon`, `exif_gps_altitude`, `exif_datetime_original`, `exif_data_source` (EXIF provenance), `client_photo_id` (photo idempotency), `client_report_id` (report idempotency).
+- Migrations: 83 (EXIF), 84 (photo idempotency), 85 (report idempotency). Alembic revision 0003.
+
 ## Operations (Linked Reports)
 - `GET /api/operations` returns active operation rows by default with `linked_report_ids` and PII-free `linked_reports` detail objects derived from `wims.citizen_reports.location` via PostGIS; `?archived=true` switches to the read-only archive board.
 - `GET /api/operations/linkable-reports` is `NATIONAL_VALIDATOR`-only and returns eligible non-rejected civilian reports for operation linking, including disabled already-linked cards.

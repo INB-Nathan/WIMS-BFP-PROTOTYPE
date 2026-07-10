@@ -603,6 +603,18 @@ landed in the working tree of `feat/keycloak-brute-force-protection`
 | **V14.2.4** | MED | New `docs/compliance/data-retention.md` + migration `68_data_retention.sql` (6 config keys + `data_retention_erased_at` column) + Celery beat task `tasks/data_retention.py` (daily 03:00 UTC, self-registers to avoid editing `main.py`). Per-table strategies: soft-archive VERIFIED `fire_incidents`, hard-delete non-VERIFIED, **real blob-erasure** for `incident_sensitive_details` (NULL all PII + `pii_blob_enc` + `encryption_iv` + `data_retention_erased_at=now()`, preserves FK), no-op for IVH + audit_trails. Deferred: key-destruction crypto-shred. | 5 tests in `test_data_retention.py` |
 | **V14.3.3** | MED | `localStorage.setItem` now stores only `{id, role}` (was full user with email/name). `Pick<User, 'id'\|'role'>` type. `serverValidated=false` on offline restore. | 3 tests in `AuthContext.test.tsx` |
 
+### Offline photo encryption (2026-07-10)
+
+- **Crypto:** AES-256-GCM with random 12-byte IV (generated via `crypto.getRandomValues`). Non-extractable `CryptoKey` stored via IndexedDB structured clone — never exported, never leaves the device. AAD binds ciphertext to `photoId + deviceId`.
+- **PII at rest:** Device ID, browser GPS, and EXIF GPS metadata stored as plaintext in IndexedDB (outside the encrypted blob). This is a deliberate design decision documented in the threat model: GPS is sent to the server in plaintext anyway, and IndexedDB is same-origin isolated. No separate security-decision record was filed.
+- **Key loss:** Permanent failure of all queued photos under that key. No key backup/export mechanism (prevents exfiltration).
+- **Server-side:** Photo blobs encrypted with AES-256-GCM + OpenBao KMS. `client_photo_id` is a client-supplied UUID — server treats it as untrusted input, validated before use.
+
+### Offline capture + idempotency (2026-07-10)
+
+- Camera/gallery inputs are available offline; photos are queued encrypted in IndexedDB and uploaded on reconnect. `client_report_id` provides report-level idempotency — a lost-response retry after hitting the per-IP rate limit still succeeds. `client_photo_id` provides photo-level idempotency — retries after hitting the photo cap return the duplicate response instead of 409.
+- Rate-limit bypass: `client_report_id` is parsed before the advisory lock and per-IP COUNT query. If an existing report is found, it returns immediately without consuming quota.
+
 **Compliance rate:** 88.93% → 91.07% (224/280 reqs COMPLIANT, 4 NON-COMPLIANT, 21 NOT-VERIFIED, 31 NOT-APPLICABLE). Deferred (NOT-VERIFIED): V13.2.5 (nginx-side, application-layer sufficient), V13.4.4 (TRACE method), V16.2.5 (logger call sites beyond XAI prompt).
 
 **Subagent reports:**

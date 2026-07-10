@@ -102,6 +102,13 @@ enforcing `col IS NULL OR col >= 0`:
 - `wims.incident_sensitive_details`: `pii_blob_consistency` (pii_blob_enc ↔ encryption_iv)
 - `wims.security_threat_logs`: `suricata_sid` > 0
 
+### Civilian photo v5 migrations (2026-07-10)
+- **83_photo_exif_metadata.sql** (`wims.report_photos`): Adds `exif_gps_lat NUMERIC(10,7)`, `exif_gps_lon NUMERIC(10,7)`, `exif_gps_altitude NUMERIC`, `exif_datetime_original TIMESTAMPTZ`, `exif_data_source TEXT` with comments.
+- **84_photo_idempotency_key.sql** (`wims.report_photos`): Adds `client_photo_id UUID` with partial unique index `idx_report_photos_client_id WHERE client_photo_id IS NOT NULL`.
+- **85_citizen_report_idempotency.sql** (`wims.citizen_reports`): Adds `client_report_id UUID` with partial unique index `idx_citizen_reports_client_id WHERE client_report_id IS NOT NULL`.
+- Application path: startup SQL patches (main.py) and Alembic revision 0003.
+- `wims.report_photos` RLS: `FORCE ROW LEVEL SECURITY` preserved. Idempotent INSERT uses `ON CONFLICT DO NOTHING RETURNING` to avoid SELECT under ANONYMOUS RLS.
+
 ### App-Enforced Only (Pydantic / application logic)
 
 - Locality hierarchy consistency (city → barangay → province → region) — cross-table CHECKs impractical in PostgreSQL
