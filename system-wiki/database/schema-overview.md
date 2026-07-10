@@ -3,40 +3,39 @@ title: Database Schema Overview
 created: 2026-05-14
 updated: 2026-07-10
 type: database
-tags: [wims-bfp, database, schema, rls, audit-log, implementation-map, startup-self-heal]
-sources: [raw/codebase/codebase-snapshot-2026-05-14.md, src/postgres-init]
+tags: [wims-bfp, database, schema, rls, audit-log, implementation-map, alembic]
+sources: [raw/codebase/codebase-snapshot-2026-05-14.md, src/postgres-init, src/backend/alembic, src/backend/entrypoint.sh]
 status: draft
 ---
 
 # Database Schema Overview
 
-PostgreSQL/PostGIS schema is bootstrapped by ordered SQL files in `src/postgres-init`.
+PostgreSQL/PostGIS clean-volume schema is bootstrapped by ordered SQL files in
+`src/postgres-init/`; persistent upgrades are now managed by Alembic under
+`src/backend/alembic/`.
 
-## Startup Self-Heal
+## Bootstrap and Persistent Upgrade Path
 
-`src/postgres-init/` scripts only run on first container boot. For existing containers (e.g. VPS with a persistent Postgres volume), `src/backend/main.py::apply_schema_patches()` applies idempotent DDL on every restart.
+- PostgreSQL's Docker entrypoint executes `src/postgres-init/*.sql` in lexical
+  filename order only when it initializes a new data volume.
+- Alembic revision `0001_baseline_postgres_init.py` detects whether the core WIMS
+  schema already exists. It stamps an existing complete schema; on a fresh target,
+  it reads the ordered bootstrap SQL and excludes the documented psql-only Keycloak
+  database bootstrap file.
+- Revision `0002_startup_schema_patches.py` moved the former repeated startup DDL
+  into a one-shot persistent migration.
+- `src/backend/entrypoint.sh` runs with Uvicorn lifespan disabled, verifies that the
+  database's current Alembic revision matches `alembic heads`, and resynchronizes
+  the IP blocklist. The legacy `main.py::apply_schema_patches()` startup handler is
+  not the normal container upgrade path under this entrypoint.
 
-As of 2026-06-19, eligible schema-only SQL files are executed directly from `src/postgres-init/` via the `_apply_postgres_init_sql_patch()` loader, rather than hand-copying DDL into Python string literals. This reduces drift between the canonical SQL files and the runtime self-heal.
-
-**Allowlisted files** (schema-only, idempotent, executed by the loader):
-- `19_reference_number.sql`
-- `25_extent_fields.sql`
-- `27_reference_sequence.sql`
-- `28_general_description_column.sql`
-- `35_barangay_text.sql`
-- `45_add_client_id_to_incidents.sql`
-- `53_incident_pii_key_version.sql`
-- `54_openbao_provider_metadata.sql`
-- `61_check_constraints.sql`
-- `62_audit_correlation_columns.sql`
-- `63_ivh_ip_address.sql`
-- `82_civilian_report_photos.sql` — civilian photo table, RLS, and encryption metadata columns
-
-**Kept inline** (mixed schema + seed data, RLS rewrites, or rule/policy patches):
-- `21_all_regions.sql` — province_district/city_municipality columns only; file also seeds regions/provinces/cities and assigns users
-- `41_fix_immutable_rule_for_archive.sql` — rule rewrite, already special-cased
-- `42_ref_table_rls.sql` — policy rewrite, already special-cased
-- Seed files (03, 14, 29, 38) never executed in startup self-heal
+New schema changes therefore need a new Alembic revision for existing databases and
+an aligned clean-bootstrap SQL change when fresh installs require it. Editing or
+adding only a `postgres-init` file does not upgrade an already initialized volume.
+The current baseline handles individual SQL-file failures with savepoint rollback
+and warning logs, so an `alembic upgrade head` exit code alone does not prove every
+bootstrap file applied; inspect migration logs/schema and run the relevant bootstrap
+contract tests.
 
 | Table | Source file |
 |---|---|
@@ -79,7 +78,7 @@ As of 2026-06-19, eligible schema-only SQL files are executed directly from `src
 - Reference geography: `wims.ref_regions`, `wims.ref_provinces`, `wims.ref_cities`, `wims.ref_barangays`.
 - Users and RBAC mirror: `wims.users` plus Keycloak identity data. PR #207 adds local `email` storage with a unique `LOWER(email)` index (`uq_users_email_lower`) to align local email uniqueness with Keycloak's duplicate-email prevention; startup DDL intentionally does not patch this table.
 - Incident workflow: `wims.fire_incidents`, detail tables, involved parties, responding units, operational challenges, attachments.
-- Verification/immutability: `wims.incident_verification_history`, immutable records SQL (DELETE + UPDATE blocked for audit trails), audit trails.
+- Verification/immutability: `wims.incident_verification_history` has final-schema UPDATE/DELETE blocking rules. `wims.system_audit_trails` is required to be append-only, but `72_partition_audit_trail.sql` replaces the table after migration 17 and does not recreate `no_update_audit`/`no_delete_audit`; this is an open enforcement gap in [[gaps/frs-codebase-gap-register]].
 - Analytics: `wims.analytics_incident_facts`, materialized view SQL, export/scheduled report tables. Migration `28_analytics_geography_denorm.sql` adds denormalized `municipality_name` and `province_name` fields for analyst filters/top-N views, plus export task/file metadata on `analytics_export_log`. Scheduled reports remain deferred outside the National Analyst dashboard phase.
 - Security: `wims.security_threat_logs`, `wims.system_audit_trails`, `wims.ip_blocklist`, public keys.
 - Civilian reporting: `wims.citizen_reports` stores device-UUID-owned reports. The `location` column is a PostGIS `geography` type — when extracting latitude/longitude via `ST_Y`/`ST_X`, the column must be cast to `geometry`: `ST_Y(location::geometry)` or `ST_X(location::geometry)`. The Phase 2 update flow uses `GET /api/civilian/reports?device_id=` to enumerate a device's owned reports before allowing an append.

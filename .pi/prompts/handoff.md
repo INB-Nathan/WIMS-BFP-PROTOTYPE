@@ -59,7 +59,7 @@ What the previous agent assumed that might not hold. What hasn't been verified y
 ```markdown
 ## Dependencies & Assumptions
 - Assumes `REDIS_URL` is set for rate limiting — not tested without it
-- `get_current_wims_user` must be listed before `get_db_with_rls` in route deps
+- `get_db_with_rls` explicitly depends on `get_current_wims_user`; test overrides must preserve that dependency graph
 - `ruff format .` was NOT run yet — run it before committing
 ```
 
@@ -109,7 +109,7 @@ Every verification command that has been run, with its exact output state. The n
 - Branch: `feature/civilian-eyewitness`
 - Latest: `abc1234 — Add POST /civilian/reports endpoint`
 - `git status`: 3 modified, 1 untracked
-- Divergence from `main`: 2 ahead, 0 behind
+- Divergence from `master`: 2 ahead, 0 behind
 - Unresolved conflicts: none
 ```
 

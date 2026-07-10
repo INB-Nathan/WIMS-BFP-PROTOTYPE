@@ -70,11 +70,11 @@ system-wiki/.obsidian/
 # Network capture artifacts (never commit — large/noisy/sensitive)
 *.har
 
-# Worktrees (project-local, ignored)
+# Worktrees and local subagent artifacts
 .worktrees/
 .pi-subagents/
+
+# Pi local/generated state (tracked .pi source remains visible)
 .pi/sessions/
 .pi/npm/
-.pi/
-src/keycloak/
-# Untracked artifacts
+.pi/git/

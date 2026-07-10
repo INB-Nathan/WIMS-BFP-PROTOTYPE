@@ -1,3 +1,11 @@
+## [2026-07-10] docs(agents): rebuild scoped agent instruction hierarchy
+
+- **Scope:** Rewrote the six existing first-party `AGENTS.md` files and added `.pi/AGENTS.md` plus `src/AGENTS.md`, yielding eight maintained instruction scopes. The root now owns durable evidence/security rules; nested files own Pi, source/infrastructure, backend, frontend, docs, and wiki procedures.
+- **Corrections:** Removed volatile SQL/service/test counts and stale RLS dependency-order guidance; distinguished target architecture from legacy exceptions; made `.github/workflows/ci.yml` the merge-gate source; documented Alembic versus clean bootstrap, effective pytest ignores, and `make ci-local` as a smoke target. Final-schema review also found that migration 72 drops the audit immutability rules created by migration 17.
+- **Pi resources:** Documented trust and executable-extension risk, aligned the Pi README/prompts/routing skill/eval, corrected the `master` handoff base, and unignored maintained `.pi` source while retaining cache/session ignores.
+- **Wiki:** Added `architecture/agent-instruction-hierarchy.md`; corrected the database schema, security baseline, ASVS overrides, and PWA/CI pages; updated the index to 52 verified link targets; and opened the FRS Module 4 audit-log append-only enforcement gap with exact raw-FRS/migration evidence.
+- **Validation:** `python -m json.tool` passed for `.pi/settings.json` and the WIMS-route evals; `git diff --check` passed; the index contains 52 unique wiki links with 0 missing targets. No application test suite was run because the change is documentation/instruction configuration only.
+
 ## [2026-07-10] feat(civilian): complete Phase 2 photo-pipeline handoff validation
 
 - **Scope:** Fixed `PhotoUpload` preview lifecycle: removed the effect-driven preview state that triggered `react-hooks/set-state-in-effect`, corrected the undefined preview guard, and assigns the object URL to the preview image from the file-change effect while revoking it on replacement/unmount.

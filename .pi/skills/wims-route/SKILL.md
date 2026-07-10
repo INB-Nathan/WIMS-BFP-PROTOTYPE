@@ -16,9 +16,9 @@ A **flow** is a path through the skills and prompts in this repo. Most work foll
 
 The route most work travels. You have an idea or requirement and want it built, tested, reviewed, and pushed.
 
-### Step 1 — `/grill-with-docs`
+### Step 1 — `/skill:grill-with-docs`
 
-Sharpen the idea through structured interview that writes vocabulary and decisions down as they go. This is the **project-level `grill-with-docs` skill** — it walks the design tree one question at a time with recommended answers, captures resolved terms into `CONTEXT.md` inline, records hard-to-reverse decisions as ADRs in `system-wiki/decisions/`, proposes 2–3 approaches, and gates on user approval before any implementation.
+Sharpen the idea through structured interview that writes vocabulary and decisions down as they go. This is the **project-level `grill-with-docs` skill** — invoke it explicitly as `/skill:grill-with-docs`. It walks the design tree one question at a time with recommended answers, captures resolved terms into `CONTEXT.md` inline, records hard-to-reverse decisions as ADRs in `system-wiki/decisions/`, proposes 2–3 approaches, and gates on user approval before any implementation.
 
 **When to start here:** Any time the requirement is fuzzy, multi-part, or needs design discussion. If the request is already a well-formed GH issue with clear acceptance criteria, you can skip to Step 3.
 
@@ -42,7 +42,7 @@ This prompt:
 2. Reads the relevant subsystem `AGENTS.md` and `system-wiki/` context.
 3. Implements the smallest correct change that satisfies the issue **and** the WIMS architecture constraints (thin routes, services own logic, schemas as contracts, RBAC/RLS/PII/audit/PostGIS/offline-sync preserved).
 4. Runs targeted tests/lint for touched areas.
-5. Updates `system-wiki/` and `system-wiki/log.md` if the change is non-trivial.
+5. Follows `system-wiki/AGENTS.md` for synthesis/index/log synchronization when the change is semantic.
 6. Summarizes files changed, validation, and skipped checks.
 
 ### Step 4 — `/review-wims`
@@ -58,9 +58,9 @@ This **does not edit files**. It checks three axes:
 
 It cites file paths and line numbers for every finding and orders by severity.
 
-### Step 5 — `/looping`
+### Step 5 — `/skill:looping`
 
-Before presenting the summary, loop back and re-verify everything. The `/looping` skill fires automatically — it re-reads the original request, re-examines every changed file, and catches blind spots. Fixes silently, then re-loops. Only presents when clean.
+Before presenting the summary, loop back and re-verify everything. The `looping` skill is model-invoked automatically when its trigger matches; its explicit command is `/skill:looping`. It re-reads the original request, re-examines every changed file, and catches blind spots before presenting.
 
 ### Step 6 — `/ci-preflight`
 
@@ -68,14 +68,15 @@ Before pushing, run the `ci-preflight` prompt:
 
 > Run `.pi/prompts/ci-preflight.md`.
 
-This executes the five CI gates:
-1. `ruff check .` — backend lint
-2. `ruff format --check .` — backend format
-3. `pytest -v --tb=short` — backend tests (skipping integration-heavy files)
-4. `npm run lint` + `npx vitest run` — frontend
-5. SQL migration replay (when migrations changed)
+Start with task-scoped checks, then follow `docs/agents/ci-preflight.md` and the
+canonical `.github/workflows/ci.yml`. The merge gate currently depends on five
+blocking jobs: migrations (Alembic), frontend lint/test/build, backend
+lint/format/test, Docker config/build, and the security scan. Dependency audits and
+coverage are advisory. `make ci-local` is a fast root-level smoke target, not the
+full merge gate.
 
-If any gate fails, fix it, re-run, then push.
+If any applicable gate fails, fix it, re-run it, and report any gate that cannot be
+run rather than describing it as passing.
 
 ---
 
@@ -104,9 +105,9 @@ Incoming issues that **you didn't create** — bug reports, feature requests —
 
 Issues created as part of Step 2 are already agent-ready — **don't triage them**.
 
-### Something's broken → `/diagnose-bug`
+### Something's broken → `/skill:diagnose-bug`
 
-Run the `diagnose-bug` skill. This runs a structured 6-phase investigation:
+Run `/skill:diagnose-bug`. This starts a structured 6-phase investigation:
 1. **Build a feedback loop** — one command that goes red on this bug (aggressive, creative, refuse to give up)
 2. **Reproduce + minimise** — shrink the repro to the smallest load-bearing scenario
 3. **Hypothesise** — 3–5 ranked falsifiable hypotheses (shown to you before testing)
@@ -114,7 +115,7 @@ Run the `diagnose-bug` skill. This runs a structured 6-phase investigation:
 5. **Fix + regression test** — at the correct seam, or flag if no seam exists
 6. **Cleanup + post-mortem** — remove instrumentation, document the root cause
 
-The skill has a built-in reference table of 10 common WIMS bug patterns (RLS context loss, wrong session factory, UUID/string mismatch, PII key mismatch, route dependency order, etc.) — check those before building custom hypotheses.
+The skill has a WIMS bug-pattern reference (RLS transaction context, wrong session factory, UUID/string mismatch, PII key mismatch, and related patterns) — verify each pattern against current code before building custom hypotheses.
 
 ---
 
@@ -124,20 +125,26 @@ Not feature work — upkeep.
 
 ### `/ci-preflight`
 
-Run **before every push or PR**. Even one-line changes. The five gates cost seconds and prevent red merge gates.
+Run before every push or PR. Select checks by changed scope, then complete the
+applicable canonical merge gates; Docker/security/integration checks may require a
+full stack and do not necessarily finish in seconds.
 
 ### `/wiki-update`
 
-Run `.pi/prompts/wiki-update.md` after any non-trivial change. It:
+Run `.pi/prompts/wiki-update.md` after a semantic change. It:
 1. Updates the relevant `system-wiki/` synthesis page.
-2. Appends an entry to `system-wiki/log.md`.
+2. Updates `system-wiki/index.md` and adds an entry to `system-wiki/log.md`.
 3. Updates `system-wiki/gaps/frs-codebase-gap-register.md` only when an FRS/codebase gap is created, closed, or changed.
 
-**When is a change "non-trivial"?** New feature, new API route, DB migration, new Docker service, auth/RBAC/RLS change, behavioral change, config/env var change, docs source change. Bugfixes under 20 LOC, typos, refactors without behavior change, and test-only maintenance do **not** require wiki updates.
+**When is synchronization needed?** Use semantic impact: features, routes/contracts,
+schema, security, workflow, infrastructure, environment/configuration, decisions,
+and durable documentation sources require it. Behavior-neutral refactors,
+test-only preservation, and typo/format fixes do not unless an existing wiki claim
+would become false. Follow `system-wiki/AGENTS.md`; do not use a line-count cutoff.
 
 ### Architecture improvement
 
-Run `/grill-with-docs` on the pain point → create a GitHub issue with acceptance criteria → `/issue-implement` — the same pipeline as feature work. It's the survey that finds the candidates.
+Run `/skill:grill-with-docs` on the pain point → create a GitHub issue with acceptance criteria → `/issue-implement` — the same pipeline as feature work. It's the survey that finds the candidates.
 
 ---
 
@@ -146,7 +153,7 @@ Run `/grill-with-docs` on the pain point → create a GitHub issue with acceptan
 These references run *beneath* the flows above. Reach for them when the **words or structure**, not the process, are the problem.
 
 - **Agent routing guide** — `system-wiki/operations/agent-routing-guide.md`. Read this before any subsystem change to learn exactly which pages and source files are needed (minimum-context principle: don't load the full repo when a subsystem pack is enough).
-- **Architecture constraints** — `AGENTS.md` lines 40–49 and `CLAUDE.md`. Never violate: RLS on every `wims.*` table, PII encrypted at rest, audit append-only, PostGIS is source of truth for geometry, offline/PWA dual-path sync engine.
+- **Architecture constraints** — the root `AGENTS.md` non-negotiable-boundaries section and `CLAUDE.md` overview. Preserve explicit RLS decisions/policies, encrypted PII, the required append-only audit/verification invariants (verifying final-schema enforcement), PostGIS spatial truth, and offline/PWA compatibility paths; verify documented exceptions and open gaps rather than asserting a universal rule.
 - **Triage labels** — `docs/agents/triage-labels.md`. Maps the five canonical roles to actual GitHub label strings.
 - **Gotchas** — `docs/agents/gotchas.md`. Read before every review. Real mistakes made by agents on this repo.
 - **FRS module map** — `system-wiki/concepts/frs-module-map.md`. 15-module FRS-to-code routing. Read before claiming what the FRS requires — never cite an FRS module without reading the raw source file first.
@@ -164,10 +171,9 @@ These references run *beneath* the flows above. Reach for them when the **words 
 
 Off the main flow entirely.
 
-- **`/teacher`** — learn WIMS concepts (architecture, RLS, PII encryption, incident pipeline) across multiple sessions, with a stateful workspace.
-- **`/review-pipeline`** — three-axis subagent review (standards, spec, risk). Use for thorough PR reviews where independent reviewers should each check a different axis.
-- **`/ponytail-review`** — code review focused exclusively on over-engineering. Finds what to delete: reinvented stdlib, unneeded dependencies, speculative abstractions. Use after implementation to catch bloat before it compounds.
-- **`/ponytail`** — minimal implementation mode for low-risk, bounded tasks (presentational UI, pure functions, helpers). **Never** use on auth/RBAC/RLS, PII, audit, PostGIS, offline-sync, Celery orchestration, SQL bootstrap, OpenBao, Suricata, or Nginx paths. Always use `lite` mode on WIMS; `ultra` is prohibited.
+- **Optional user-local workflows** — commands such as `/teacher` or `/review-pipeline` are not project resources; mention them only after confirming they are installed in the active Pi session.
+- **`/skill:ponytail-review`** — code review focused exclusively on over-engineering. Use after low-risk implementation to catch bloat before it compounds.
+- **`/skill:ponytail`** — minimal implementation guidance for low-risk, bounded tasks (presentational UI, pure functions, helpers). Never use it to decide auth/RBAC/RLS, PII, audit, PostGIS, offline sync, Celery orchestration, SQL/Alembic, OpenBao, Suricata, or Nginx changes. WIMS allows `lite`; `full` requires consent and `ultra` is prohibited.
 
 ---
 
@@ -175,18 +181,17 @@ Off the main flow entirely.
 
 | Skill/Prompt | What it does | How to invoke |
 |---|---|---|
-| `/grill-with-docs` | Design interview with CONTEXT.md + ADR capture | Type `/grill-with-docs` |
-| `/diagnose-bug` | 6-phase structured bug investigation | Type `/diagnose-bug` |
-| `/issue-implement` | Implement a GitHub issue using WIMS rules | Run `.pi/prompts/issue-implement.md` against issue #N |
-| `/review-wims` | 3-axis review (spec, architecture, risk) | Run `.pi/prompts/review-wims.md` |
-| `/looping` | Self-verify before presenting | Automatic (model-invoked) |
-| `/ci-preflight` | 5-gate CI check | Run `.pi/prompts/ci-preflight.md` |
-| `/wiki-update` | Update system-wiki after a change | Run `.pi/prompts/wiki-update.md` |
-| `/handoff` | Compact session for fresh thread | Run `.pi/prompts/handoff.md` |
-| `/teacher` | Learn WIMS across sessions | Type `/teacher` |
-| `/review-pipeline` | Three-axis subagent review | Type `/review-pipeline` |
-| `/ponytail-review` | Over-engineering audit | Type `/ponytail-review` |
-| `/ponytail` | Minimal implementation (lite only, ultra prohibited) | Type `/ponytail` |
+| `/skill:wims-route` | This router (model invocation disabled) | Type `/skill:wims-route` |
+| `/skill:grill-with-docs` | Design interview with CONTEXT.md + ADR capture | Type `/skill:grill-with-docs` |
+| `/skill:diagnose-bug` | 6-phase structured bug investigation | Type `/skill:diagnose-bug` |
+| `/issue-implement` | Implement a GitHub issue using WIMS rules | Prompt template command |
+| `/review-wims` | 3-axis review (spec, architecture, risk) | Prompt template command |
+| `/skill:looping` | Self-verify before presenting | Usually model-invoked; explicit command available |
+| `/ci-preflight` | Task-scoped checks plus canonical push/PR preflight | Prompt template command |
+| `/wiki-update` | Update system-wiki after a change | Prompt template command |
+| `/handoff` | Compact session for a fresh thread | Prompt template command |
+| `/skill:ponytail-review` | Over-engineering audit | Type `/skill:ponytail-review` |
+| `/skill:ponytail` | Minimal guidance under WIMS mode limits | Type `/skill:ponytail` |
 
 ---
 
@@ -196,7 +201,7 @@ No setup needed. The WIMS-BFP repo already has:
 - GitHub issue tracker configured
 - Five canonical triage labels created
 - System-wiki established with synthesis pages and log
-- CI pipeline with five gates
+- CI pipeline with five blocking merge jobs plus advisory checks
 - Architecture constraints documented
 
 You are ready to route. Start by answering: **what are you trying to do?**

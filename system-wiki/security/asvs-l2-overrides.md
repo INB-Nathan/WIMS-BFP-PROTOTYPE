@@ -1,8 +1,10 @@
 ---
 title: WIMS-BFP ASVS 5.0 L2 Audit — Project-Specific Overrides
 created: 2026-06-23
+updated: 2026-07-10
 type: security
 tags: [wims-bfp, asvs, security-audit, compliance, overrides]
+sources: [system-wiki/security/security-baseline.md, system-wiki/gaps/frs-codebase-gap-register.md, src/postgres-init/17_immutable_records.sql, src/postgres-init/72_partition_audit_trail.sql]
 status: draft
 companion_to: ~/.pi/agent/skills/wims-bfp-asvs-l2/SKILL.md
 ---
@@ -284,13 +286,13 @@ docker exec wims-keycloak /opt/keycloak/bin/kcadm.sh get realms/bfp \
 
 | Req ID | Where to look | Expected |
 |---|---|---|
-| V16.1.1 | `system-wiki/security/security-baseline.md` § Audit and Immutability | COMPLIANT |
+| V16.1.1 | `system-wiki/security/security-baseline.md` § Audit and Immutability | PARTIAL — final partitioned audit table lacks the migration-17 UPDATE/DELETE rules |
 | V16.2.1 | `psql -c "\d+ wims.system_audit_trails"` — log entry schema | COMPLIANT |
 | V16.2.2 | `src/backend/utils/audit.py` — UTC timestamps | COMPLIANT |
 | V16.3.1 | `rg "log_system_audit" src/backend/api/routes/auth.py` | COMPLIANT |
 | V16.3.2 | `rg "log_system_audit.*403\|log_system_audit.*denied" src/backend/ --type py` | COMPLIANT |
 | V16.4.1 | `rg "logging.Formatter\|escape" src/backend/utils/logging.py` | review |
-| V16.4.2 | `17_immutable_records.sql` — `no_delete_audit`, `no_update_audit` RULEs | COMPLIANT |
+| V16.4.2 | `17_immutable_records.sql` plus later `72_partition_audit_trail.sql`; see the gap register | NOT COMPLIANT until final-parent UPDATE/DELETE protection and regression tests are restored |
 | V16.4.3 | Logs sent to a separate system? — review; currently local Suricata logs | review |
 | V16.5.1 | `curl -sk $BACKEND_URL/api/v1/incidents/99999999 -H "Authorization: Bearer $TOKEN"` | expect clean JSON, no stack trace |
 
@@ -319,9 +321,9 @@ These are controls that are intentionally non-compliant or partially compliant. 
 
 ## Cross-References to Existing Documentation
 
-- `system-wiki/security/security-baseline.md` — current security posture
-- `system-wiki/gaps/frs-codebase-gap-register.md` — known gaps
-- `system-wiki/concepts/frs-module-map.md` — FRS-to-implementation traceability
+- [[security/security-baseline]] — current security posture
+- [[gaps/frs-codebase-gap-register]] — known gaps
+- [[concepts/frs-module-map]] — FRS-to-implementation traceability
 - `docs/agents/remove-demo-otp-bypass.md` — SKIP_MFA removal procedure
 - `docs/operations/openbao-kms-runbook.md` — OpenBao KMS runbook
 

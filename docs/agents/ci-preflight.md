@@ -1,61 +1,40 @@
 # CI Pre-flight Routine
 
-Run this routine in full before every push or PR on this repo.
-All four CI gates are blocking (`merge-gate` fails if any one fails).
+`.github/workflows/ci.yml` is the executable source of truth. Re-read it whenever
+this runbook, tool versions, ignore lists, Compose files, or CI jobs change.
 
----
+The merge gate currently requires five blocking jobs:
 
-## Gate 1 — Backend ruff lint
+1. `migrations`
+2. `frontend`
+3. `backend`
+4. `docker-build`
+5. `security-scan`
+
+Dependency audits and backend coverage are advisory (`continue-on-error`). A green
+`make ci-local` is useful but is not equivalent to this gate.
+
+## Validation Order
+
+1. Run a focused test/repro for the changed behavior.
+2. Run the affected subsystem lint/format/test/build checks.
+3. Before a push or PR, run every applicable blocking gate locally or report the
+   exact environment limitation and rely on the corresponding GitHub job.
+4. Review `git diff`, `git diff --check`, and final `git status`.
+
+Do not run destructive volume resets or production operations as preflight without
+explicit approval.
+
+## Backend Job
+
+Main CI uses Python 3.12. The project supports Python 3.10+ and Ruff targets
+`py310`, so changes must remain compatible with that range.
+
+From `src/backend/`:
 
 ```bash
-cd src/backend
 ruff check .
-```
-
-**If it fails:** ruff prints `file.py:line:col: Exxxx message`. Fix each one.
-Common issues:
-
-| Code | Meaning | Fix |
-|------|---------|-----|
-| `F401` | Unused import | Remove the import or add `# noqa: F401` only if re-exported intentionally |
-| `F821` | Undefined name | Check spelling; add missing import |
-| `E711` | `== None` instead of `is None` | Change to `is None` / `is not None` |
-| `W291/W293` | Trailing whitespace | Delete trailing spaces |
-| `E302/E303` | Wrong blank-line count | Two blank lines before top-level defs |
-
-After fixing, re-run `ruff check .` until it exits 0.
-
----
-
-## Gate 2 — Backend ruff format
-
-```bash
-cd src/backend
 ruff format --check .
-```
-
-**If it fails:** run the formatter to auto-fix, then review the diff:
-
-```bash
-ruff format .
-git diff
-```
-
-`ruff format` enforces: double quotes, 4-space indent, trailing commas in multi-line
-collections, blank lines around class bodies. It does NOT sort imports — that is
-handled by `ruff check` (rule `I`). The project does NOT enable `I` rules, so import
-order is not enforced; do not add isort or reorder imports unnecessarily.
-
-After formatting, re-run `ruff format --check .` until it exits 0.
-
----
-
-## Gate 3 — Backend pytest
-
-CI command (mirrors `ci.yml` exactly):
-
-```bash
-cd src/backend
 pytest -v --tb=short \
   --ignore=tests/test_rate_limiting.py \
   --ignore=tests/test_suricata_ingestion.py \
@@ -67,109 +46,154 @@ pytest -v --tb=short \
   --ignore=tests/integration/test_sql_quality_audit.py
 ```
 
-The `addopts` in `pytest.ini` already include the same `--ignore` list, so
-`pytest -v` locally is equivalent. Use the explicit form above to exactly match CI.
-
-**Required environment variables** (CI injects these; set locally for integration tests):
+CI provides PostGIS and Redis services and runs `alembic upgrade head` before
+pytest. Relevant environment values include:
 
 ```bash
 export DATABASE_URL="postgresql://postgres:postgres@localhost:5432/wims_test"
 export REDIS_URL="redis://localhost:6379/0"
 export KEYCLOAK_REALM_URL="http://localhost:8080/auth/realms/bfp"
-export KEYCLOAK_CLIENT_ID="bfp-client"
-export KEYCLOAK_AUDIENCE="account"
-export WIMS_MASTER_KEY="<32-byte hex key>"
+export KEYCLOAK_CLIENT_ID="wims-web"
+export KEYCLOAK_AUDIENCE="wims-web"
+export WIMS_MASTER_KEY="<valid non-production test key>"
 ```
 
-### Common test failure patterns
+### Pytest ignore semantics
 
-**UUID passed where string expected**
-Symptom: `AttributeError: 'UUID' object has no attribute 'replace'`
-Fix: In fixture dependency overrides, always `str()` UUID values:
-```python
-async def _async_override():
-    return {"user_id": str(user_id), "keycloak_id": str(keycloak_id)}
-```
+`pytest.ini` contributes default `addopts` even when CI supplies explicit flags.
+It currently adds the same infrastructure-heavy ignores **plus**
+`tests/test_scheduled_reports.py`. Therefore a default or CI backend run does not
+prove any ignored suite passed. Run an excluded suite explicitly in its required
+Compose environment (overriding `addopts` when needed) and report it separately.
 
-**RLS context not set after commit**
-Symptom: queries return 0 rows after a `db.commit()` mid-handler.
-Cause: `SET LOCAL wims.current_user_id` resets when the transaction commits.
-Fix: call `set_rls_context(db, user_id)` again after every `db.commit()` in the
-same handler (see `incidents.py` and `regional.py` for the pattern).
+### Ruff failures
 
-**Fixture using wrong session factory**
-Symptom: INSERT in fixture succeeds but the row is invisible to the handler.
-Cause: test seeding used `_SessionLocal` (app URL, RLS-gated) instead of
-`_AdminSessionLocal` (admin URL, bypasses RLS).
-Fix: seed test data through `_AdminSessionLocal` from `database.py`.
+- Fix reported lint errors; do not add `noqa` without a real intentional exception.
+- If `ruff format --check .` fails, run `ruff format` only on the intended files or
+  `ruff format .`, review the resulting diff, and re-run the check.
+- The configured Ruff rules are in `pyproject.toml`; do not invent an isort/import
+  ordering requirement that is not enabled.
 
-**Import errors on collection**
-Symptom: `ModuleNotFoundError: No module named 'auth'`
-Cause: running pytest outside `src/backend/` — `pythonpath = .` in `pytest.ini`
-resolves relative to that directory.
-Fix: always run pytest from `src/backend/`.
+### Common evidence-led diagnostics
 
----
+- UUID/string mismatch: inspect fixture overrides before adding `str()` blindly.
+- Rows disappear after `commit()`: verify whether transaction-local RLS context was
+  re-established.
+- Seed rows are invisible: verify setup used the intended admin seed session and
+  request execution used a non-superuser/RLS-scoped session.
+- Import failures: confirm pytest was launched from `src/backend/` and inspect
+  `pythonpath` in `pytest.ini`.
 
-## Gate 4 — Frontend
+## Frontend Job
+
+Main CI uses Node 20 and a clean lockfile install. From `src/frontend/`:
 
 ```bash
-cd src/frontend
-npm run lint          # ESLint — must exit 0 (warnings OK, errors block)
-npx vitest run        # all tests must pass
-npm run build         # production build must succeed
+npm ci
+npm run lint
+npx vitest run
+NEXT_PUBLIC_AUTH_API_URL=http://localhost:8080/auth/realms/bfp \
+NEXT_PUBLIC_MAPBOX_TOKEN= \
+NEXT_PUBLIC_BASE_URL=http://localhost \
+npm run build
 ```
 
-Build requires these env vars (CI sets them; safe dummy values work locally):
+The build is part of the blocking job and performs Next.js/TypeScript production
+validation. Report new lint warnings caused by the change even when only errors
+block CI.
+
+## Migration Job
+
+CI starts a fresh PostGIS 15/PostGIS 3.4 database, installs backend dependencies,
+and runs:
 
 ```bash
-export NEXT_PUBLIC_AUTH_API_URL="http://localhost:8080/auth/realms/bfp"
-export NEXT_PUBLIC_MAPBOX_TOKEN=""
-export NEXT_PUBLIC_BASE_URL="http://localhost"
+cd src/backend
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/wims_test" \
+  alembic upgrade head
 ```
 
----
+The baseline Alembic revision bootstraps a fresh database from ordered
+`src/postgres-init/*.sql` files (excluding its documented psql-only file), and later
+revisions upgrade/repair the schema. It currently rolls back an individual failed
+SQL file to a savepoint and logs the failure as non-fatal, so a zero Alembic exit
+alone is not proof that every bootstrap file applied; inspect logs/schema and run
+the relevant bootstrap contract tests. For migration changes, validate both:
 
-## Gate 5 — SQL migrations (optional locally, always runs in CI)
+- `alembic upgrade head` on a disposable fresh database; and
+- the upgrade behavior from the prior revision/persistent-schema state when the
+  change affects existing deployments.
 
-CI applies every `.sql` file in `src/postgres-init/` in strict lexical order
-with `ON_ERROR_STOP=1`. If you added or edited a migration file:
+Do not describe a manual SQL replay as the CI migration job. If the clean bootstrap
+itself changed, also run its dedicated integration/SQL-quality tests in a disposable
+environment. Those direct psql/bootstrap contracts preserve lexical ordering and
+fail fast with `ON_ERROR_STOP=1`; the current Alembic `0001` behavior above is an
+explicit non-fatal exception.
+
+## Docker Build Job
+
+CI copies the non-secret placeholder `.env.example` to `src/.env`, validates the
+effective Compose config, and builds images:
 
 ```bash
-# spin up a throw-away postgres and replay all migrations
-export PGPASSWORD=postgres
-for f in $(ls src/postgres-init/*.sql | LC_ALL=C sort); do
-  echo "Applying $f"
-  psql -v ON_ERROR_STOP=1 -h localhost -p 5432 -U postgres -d wims_test -f "$f"
-done
+cp .env.example src/.env  # only when no local src/.env must be preserved
+cd src
+docker compose config --quiet
+docker compose build --parallel
 ```
 
-Common SQL failures: duplicate object names (add `IF NOT EXISTS` / `OR REPLACE`),
-missing schema prefix (`wims.` before table names), `CREATE POLICY` on a table
-that does not yet have `ALTER TABLE ... ENABLE ROW LEVEL SECURITY`.
+Do not overwrite a developer's existing `src/.env`. A config parse success does not
+prove images build or services become healthy; report each result separately.
 
----
-
-## Recommended pre-push sequence
+For overlay changes, validate deterministic structural combinations with committed
+non-secret placeholders:
 
 ```bash
-# 1. Fix lint
-cd src/backend && ruff check . && ruff format --check .
-# If format check fails:
-#   ruff format . && git add -u && git diff --staged
-
-# 2. Run tests
-cd src/backend && pytest -v --tb=short
-
-# 3. Frontend
-cd src/frontend && npm run lint && npx vitest run && npm run build
-
-# 4. Commit only if all three pass
-git status
-git add <specific files>
-git commit -m "..."
-git push
+cd src
+docker compose --env-file ../.env.example \
+  -f docker-compose.yml -f docker-compose.ci.yml config --quiet
+docker compose --env-file ../.env.example \
+  --env-file .env.production.example \
+  -f docker-compose.yml -f docker-compose.prod.yml config --quiet
 ```
 
-Never skip ruff format — it is the single most common CI blocker on this repo.
-Run `ruff format .` (auto-fix) rather than hand-fixing whitespace.
+The structural production command does not prove target values/secrets. When an
+authorized local production file exists, validate actual interpolation without
+printing it:
+
+```bash
+cd src
+docker compose --env-file .env.production \
+  -f docker-compose.yml -f docker-compose.prod.yml config --quiet
+```
+
+## Security Scan Job
+
+CI builds the stack with `docker-compose.yml` plus `docker-compose.ci.yml`, waits for
+the HTTP gateway, runs Nmap for unexpected ports, and runs the OWASP ZAP baseline
+with `.zap/rules.tsv`. This is blocking.
+
+Run the same stack/scan only in an isolated local environment with the required
+Docker/network capability. If it is not practical locally, say so explicitly and
+verify the GitHub `security-scan` job rather than claiming the gate passed.
+
+## Fast Local Smoke Target
+
+From the repository root:
+
+```bash
+make ci-local
+```
+
+This currently runs backend Ruff lint, frontend ESLint, backend default pytest, and
+frontend Vitest. It omits Ruff format check, frontend build, Alembic migration,
+Docker build/config validation, and the security scan.
+
+## Before a PR or Push
+
+- Target `master`, not stale `main`.
+- Check the PR base with `gh pr view <N> --json baseRefName` when a PR exists.
+- Review every skipped/default-ignored test and state why it was not run.
+- Confirm no generated output, secret, local `.env`, Pi session/cache, or unrelated
+  file is staged.
+- Report command-by-command results; never summarize an unrun collection as green.

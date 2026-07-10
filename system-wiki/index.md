@@ -1,8 +1,8 @@
 # WIMS-BFP System Wiki Index
 
 Last updated: 2026-07-10
-Total synthesis pages: 34
-Last changes: Documented the civilian contributor Phase 2 post-submit photo pipeline, `wims.report_photos` schema/RLS/encryption model, API route, frontend integration, and reconciliation task.
+Indexed wiki pages: 52
+Last changes: Reworked the eight-file agent instruction hierarchy, corrected Alembic/CI guidance, and recorded the open Module 4 audit immutability gap exposed by the final partition migration.
 Purpose: project-local knowledgebase for agents routing themselves to relevant WIMS-BFP context.
 
 ## Start Here
@@ -15,6 +15,7 @@ Purpose: project-local knowledgebase for agents routing themselves to relevant W
 ## Architecture
 - [[architecture/system-overview]] — Dockerized full-stack architecture, runtime services, and evidence sources.
 - [[architecture/context-map]] — source-of-truth hierarchy, root `CONTEXT.md` glossary, and how FRS, code, and this wiki relate.
+- [[architecture/agent-instruction-hierarchy]] — scope and ownership of the eight first-party `AGENTS.md` files, including Pi discovery and generated-tree boundaries.
 - [[architecture/infrastructure-config]] — Docker Compose, Nginx reverse proxy, Suricata IDS, Keycloak realm config (2641-line export).
 - [[architecture/pwa-tests-cicd]] — PWA/offline-first (IndexedDB, sync engine, service worker), test infrastructure (30 test files), CI/CD pipelines (GitHub Actions).
 - [[architecture/docs-and-scripts]] — Project documentation (10 files: ARCHITECTURE, CHANGELOG, API docs, M4 specs, PR docs) and utility scripts (14 files: seeding, geography, code generation, AFOR preview tool).
@@ -54,11 +55,12 @@ Purpose: project-local knowledgebase for agents routing themselves to relevant W
 - [[subsystems/civilian-reporting-phase2]] — Civilian Reporting Phase 2 full subsystem record: public API, triage queue, merge-candidate discovery, cluster map, keyboard shortcuts, timeout job, test coverage.
 
 ## Database
-- [[database/schema-overview]] — PostgreSQL/PostGIS tables, migration source files, and startup self-heal (SQL-file-backed loader for existing containers).
+- [[database/schema-overview]] — PostgreSQL/PostGIS tables plus the ordered clean-bootstrap SQL and Alembic persistent-upgrade paths.
 - [[database/sql-init-files]] — Complete documentation of SQL init files: RLS policies, helper functions, analytics materialized views, immutable records, seed data, demo threat telemetry, and migration intent.
 
 ## Security
 - [[security/security-baseline]] — auth, RBAC, RLS, audit, IDS/XAI, and fail-closed notes.
+- [[security/asvs-l2-overrides]] — project-specific ASVS audit evidence paths and current compliance exceptions.
 
 ## Gaps
 - [[gaps/frs-codebase-gap-register]] — FRS/codebase verification targets (hashing, RLS, notifications, offline-first, M9).

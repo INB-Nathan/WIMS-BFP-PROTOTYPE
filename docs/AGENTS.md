@@ -1,49 +1,84 @@
-# docs Agent Instructions
+# Documentation Instructions
 
-## Domain Documentation
+## Scope
 
-This is a single-repo WIMS-BFP prototype. Domain and architecture context lives in:
+Applies to `docs/` and descendants. It supplements the root `AGENTS.md`.
+Documentation can change product, operational, and security decisions; treat it as
+reviewable source, not harmless prose.
 
-- `AGENTS.md` — root agent rules, repo map, architecture constraints
-- `CLAUDE.md` — architecture overview, key patterns, env vars
-- `system-wiki/` — authoritative implementation knowledgebase
-- `system-wiki/decisions/` — recorded architecture decisions
+## Authority and Placement
 
-### Before exploring, read
+- Raw product requirements live in `system-wiki/raw/frs/`. Read the exact raw FRS
+  file before attributing a requirement to a module; the module map is only a
+  routing index.
+- Current implementation facts come from live code/config/tests. `system-wiki/`
+  synthesizes those facts for agents and must cite its sources.
+- Durable architecture decisions live in `system-wiki/decisions/`. Surface a
+  conflict before proposing or documenting a different architecture.
+- Put user/operations/security runbooks and durable project documentation in the
+  appropriate `docs/` subtree.
+- Specs and plans describe intended work; reviews, handoffs, PR notes, audits, and
+  dated reports are historical evidence. Do not present them as current behavior
+  without re-verifying the implementation.
 
-1. `AGENTS.md`
-2. `CLAUDE.md`
-3. The relevant subsystem page from `system-wiki/operations/agent-routing-guide.md`
+Before creating a new document, search for an existing owner page. Update that page
+instead of creating a second source of truth unless the new artifact has a distinct
+lifecycle or audience.
 
-### Vocabulary
+## Writing and Evidence Rules
 
-Use WIMS-BFP domain terms from `system-wiki/concepts/frs-module-map.md`, `system-wiki/mocs/system-map.md`, and the relevant subsystem page when naming issues, writing hypotheses, or proposing changes.
+- Read the referenced source before writing. Cite repository paths and, when useful,
+  symbols or verified line ranges.
+- Distinguish requirement, current implementation, decision, proposal, test result,
+  and unresolved gap.
+- Avoid volatile hard-coded counts, versions, ports, image tags, route inventories,
+  or test totals. Derive them from configuration and include an as-of date/command
+  when the number is itself important.
+- Use WIMS terminology from `CONTEXT.md` and the relevant system-wiki subsystem
+  page. Do not normalize distinct concepts into a convenient synonym.
+- Record deviations from an issue/spec explicitly; do not rewrite acceptance
+  criteria after implementation to make a mismatch disappear.
+- Never include secrets, real credentials, private keys, access tokens, PII, raw
+  production payloads, or unredacted sensitive logs/screenshots.
+- Keep commands copy-pasteable, state their working directory and prerequisites,
+  label destructive/production commands, and provide a safe verification step.
+- Preserve the purpose and date of historical artifacts; correct current routing
+  docs rather than silently modernizing an old review or handoff.
 
-### Decision Conflicts
+## Reviews, Issues, and PRDs
 
-If proposed work contradicts an existing decision in `system-wiki/decisions/`, surface the conflict explicitly before implementing.
+Read `docs/agents/gotchas.md` before writing or updating a review.
 
-## Issue Tracker
+GitHub Issues is the tracker for `x1n4te/WIMS-BFP-PROTOTYPE`:
 
-Issues and PRDs are tracked in GitHub Issues for `x1n4te/WIMS-BFP-PROTOTYPE`.
+- command conventions: `docs/agents/issue-tracker.md`
+- canonical triage labels: `docs/agents/triage-labels.md`
+- full issue/spec context: `gh issue view <N> --comments`
+
+Run `gh` inside this clone so repository inference is explicit, and verify PRs target
+`master`, not stale `main`. Do not create/comment/close an issue or post a PR review
+unless the user asked for that remote side effect.
+
+## Documentation Validation
+
+For documentation-only changes, at minimum:
 
 ```bash
-gh issue view <number> --comments      # Read issue + comments
-gh issue list --state open              # List open issues
-gh issue create --title "..." --body "..."  # Create
-gh issue comment <number> --body "..."  # Comment
-gh issue edit <number> --add-label "..."     # Add label
-gh issue close <number> --comment "..."     # Close
+git diff --check
+rg -n 'path/or/symbol/being-cited' <relevant-source>
+git status --short
 ```
 
-Run `gh` from inside the repo clone so it infers the repository from `git remote -v`.
+Additionally verify:
 
-## Triage Labels
+- every referenced repository path exists or is clearly marked proposed;
+- relative links resolve from the document's directory;
+- commands match current scripts, package metadata, Compose, or CI;
+- quoted requirements match the raw source;
+- dates/status labels and affected issue/PR numbers are accurate;
+- the diff does not rewrite unrelated historical material.
 
-| Label | Meaning |
-|-------|---------|
-| `needs-triage` | Maintainer needs to evaluate |
-| `needs-info` | Waiting on reporter for more information |
-| `ready-for-agent` | Fully specified, ready for an AFK agent |
-| `ready-for-human` | Requires human implementation |
-| `wontfix` | Will not be actioned |
+If a durable documentation source changes implementation knowledge, update the
+relevant system-wiki synthesis/index/log under `system-wiki/AGENTS.md`. In the final
+response, state which docs were validated and whether wiki synchronization was
+needed.

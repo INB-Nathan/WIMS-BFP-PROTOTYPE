@@ -52,7 +52,7 @@
     {
       "id": 9,
       "prompt": "Can you review my diff for over-engineering before I commit?",
-      "expected_output": "Routes to /ponytail-review for an over-engineering-focused pass",
+      "expected_output": "Routes to /skill:ponytail-review for an over-engineering-focused pass",
       "should_trigger": true
     },
     {
@@ -118,7 +118,7 @@
     {
       "id": 20,
       "prompt": "Docker compose keeps failing on postgres bootstrap",
-      "expected_output": "Routes to Infrastructure/Docker/CI subsystem: docker-compose files, 74 SQL bootstrap files, ci-preflight",
+      "expected_output": "Routes to Infrastructure/Docker/CI subsystem: src/AGENTS.md, Compose overlays, Alembic plus ordered SQL bootstrap, and ci-preflight",
       "should_trigger": true
     }
   ]
