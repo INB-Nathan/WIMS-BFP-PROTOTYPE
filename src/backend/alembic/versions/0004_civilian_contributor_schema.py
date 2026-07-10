@@ -99,16 +99,21 @@ def _migration_80_tracking_tokens() -> None:
     op.execute("ALTER TABLE wims.report_tracking_tokens FORCE ROW LEVEL SECURITY")
 
     for pol_name, action, extra in [
-        ("tracking_tokens_select", "SELECT", "USING (wims.current_user_role() IN ('SYSTEM_ADMIN', 'CIVILIAN_REPORTER', 'ANONYMOUS'))"),
+        (
+            "tracking_tokens_select",
+            "SELECT",
+            "USING (wims.current_user_role() IN ('SYSTEM_ADMIN', 'CIVILIAN_REPORTER', 'ANONYMOUS'))",
+        ),
         ("tracking_tokens_insert", "INSERT", "WITH CHECK (TRUE)"),
-        ("tracking_tokens_update", "UPDATE", "USING (wims.current_user_role() = 'SYSTEM_ADMIN') WITH CHECK (wims.current_user_role() = 'SYSTEM_ADMIN')"),
+        (
+            "tracking_tokens_update",
+            "UPDATE",
+            "USING (wims.current_user_role() = 'SYSTEM_ADMIN') WITH CHECK (wims.current_user_role() = 'SYSTEM_ADMIN')",
+        ),
         ("tracking_tokens_delete", "DELETE", "USING (wims.current_user_role() = 'SYSTEM_ADMIN')"),
     ]:
         op.execute(f"DROP POLICY IF EXISTS {pol_name} ON wims.report_tracking_tokens")
-        op.execute(
-            f"CREATE POLICY {pol_name}"
-            f" ON wims.report_tracking_tokens FOR {action} {extra}"
-        )
+        op.execute(f"CREATE POLICY {pol_name} ON wims.report_tracking_tokens FOR {action} {extra}")
 
     # Grant
     op.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON wims.report_tracking_tokens TO wims_app")
@@ -187,8 +192,6 @@ def downgrade() -> None:
         "routing_duration_s",
         "routing_distance_m",
     ):
-        op.execute(
-            f"ALTER TABLE wims.citizen_reports DROP COLUMN IF EXISTS {col}"
-        )
+        op.execute(f"ALTER TABLE wims.citizen_reports DROP COLUMN IF EXISTS {col}")
     op.execute("DROP TABLE IF EXISTS wims.report_tracking_tokens CASCADE")
     op.execute("DROP TABLE IF EXISTS wims.anonymous_sessions CASCADE")
