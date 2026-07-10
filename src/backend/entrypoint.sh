@@ -21,26 +21,10 @@ _SKIP="${SKIP_MIGRATION_CHECK:-0}"
 [ "$_SKIP" = "0" ] && _SKIP="${SKIP_STARTUP_HANDLERS:-0}"
 
 if [ "$1" = "uvicorn" ] && [ "$_SKIP" != "1" ]; then
-    echo "[entrypoint] === Checking Alembic migration status ==="
-    # Verify the database is at the latest migration before starting.
-    # We use 'alembic current' and 'alembic heads' directly instead of
-    # 'alembic check' because the latter can return non-zero for reasons
-    # unrelated to version mismatch (e.g., model metadata drift in
-    # non-autogenerate workflows).
-    CURRENT=$(alembic current 2>/dev/null | head -1 | awk '{print $1}')
-    HEAD=$(alembic heads 2>/dev/null | head -1 | awk '{print $1}')
-    if [ "$CURRENT" != "$HEAD" ]; then
-        echo "[entrypoint] WARNING: Database not at latest migration"
-        echo "[entrypoint]   Current: ${CURRENT:-unknown}"
-        echo "[entrypoint]   Head:    ${HEAD:-unknown}"
-        if [ "${SKIP_MIGRATION_CHECK:-0}" != "1" ]; then
-            echo "[entrypoint] FATAL: Migration check failed. Set SKIP_MIGRATION_CHECK=1 to bypass." >&2
-            exit 1
-        fi
-        echo "[entrypoint] SKIP_MIGRATION_CHECK=1 set — bypassing migration check"
-    else
-        echo "[entrypoint] Alembic migrations are up to date ($CURRENT)"
-    fi
+    echo "[entrypoint] === Running Alembic migrations ==="
+    alembic upgrade head
+    echo "[entrypoint] === Migration status ==="
+    alembic current
 
     echo "[entrypoint] === Resyncing blocklist from Postgres to Redis ==="
     if ! python3 << 'PYEOF'
