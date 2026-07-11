@@ -21,6 +21,7 @@ const { photoResponse, mockPublicApiFetch } = vi.hoisted(() => {
 
 vi.mock('../public-transport', () => ({
   publicApiFetch: mockPublicApiFetch,
+  fetchWithOptionalAuth: mockPublicApiFetch,
 }));
 
 // ── Helpers ─────────────────────────────────────────────────────────────────

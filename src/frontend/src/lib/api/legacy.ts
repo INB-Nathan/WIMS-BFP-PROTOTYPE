@@ -20,7 +20,7 @@ import {
 } from '../regional-incidents';
 
 import { API_BASE, ApiRequestError, apiFetch, errorMessageFromJson } from './transport';
-import { publicApiFetch } from './public-transport';
+import { publicApiFetch, fetchWithOptionalAuth } from './public-transport';
 import type { MapClusterItem, StationItem } from './map';
 
 /** Fetch incidents list - returns [] on error or 404 */
@@ -729,6 +729,8 @@ export interface CivilianReportV2Payload {
   previous_report_id?: number;
   source_url?: string;
   client_report_id?: string;
+  /** Cloudflare Turnstile token for anonymous CAPTCHA verification. */
+  turnstile_token?: string;
 }
 
 export interface CivilianReportV2Response {
@@ -766,9 +768,9 @@ export async function submitCivilianReport(payload: {
   });
 }
 
-/** Submit Phase 2 structured civilian report — Zero-Trust, NO auth. POST /api/civilian/reports */
+/** Submit Phase 2 structured civilian report — supports optional_auth. POST /api/civilian/reports */
 export async function submitCivilianReportV2(payload: CivilianReportV2Payload): Promise<CivilianReportV2Response> {
-  const result = await publicApiFetch<CivilianReportV2Response>('/civilian/reports', {
+  const result = await fetchWithOptionalAuth<CivilianReportV2Response>('/civilian/reports', {
     method: 'POST',
     body: JSON.stringify(payload),
   });
@@ -778,7 +780,7 @@ export async function submitCivilianReportV2(payload: CivilianReportV2Payload): 
   return result;
 }
 
-/** Append additional data to an existing civilian report — Zero-Trust, NO auth. PATCH /api/civilian/reports/{reportId}/append */
+/** Append additional data to an existing civilian report — supports optional_auth. PATCH /api/civilian/reports/{reportId}/append */
 export async function appendCivilianReport(
   reportId: number,
   payload: {
@@ -797,9 +799,11 @@ export async function appendCivilianReport(
     witness_name?: string;
     witness_phone?: string;
     description?: string;
+    /** Cloudflare Turnstile token for anonymous CAPTCHA verification. */
+    turnstile_token?: string;
   },
 ): Promise<CivilianReportTrackingResponse> {
-  return publicApiFetch(`/civilian/reports/${reportId}/append`, {
+  return fetchWithOptionalAuth(`/civilian/reports/${reportId}/append`, {
     method: 'PATCH',
     body: JSON.stringify(payload),
   });

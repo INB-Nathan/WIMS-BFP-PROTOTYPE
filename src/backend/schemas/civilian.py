@@ -35,6 +35,7 @@ class CivilianReportCreate(BaseModel):
     previous_report_id: int | None = Field(default=None, gt=0)
     source_url: str | None = Field(default=None, max_length=2048)
     client_report_id: str | None = Field(default=None, max_length=128)
+    turnstile_token: str | None = Field(default=None, max_length=2048)
 
 
 class CivilianReportAppend(BaseModel):
@@ -55,6 +56,7 @@ class CivilianReportAppend(BaseModel):
     witness_name: str | None = Field(default=None, max_length=160)
     witness_phone: str | None = Field(default=None, max_length=80)
     description: str | None = Field(default=None, max_length=1000)
+    turnstile_token: str | None = Field(default=None, max_length=2048)
 
 
 class CivilianReportResponse(BaseModel):

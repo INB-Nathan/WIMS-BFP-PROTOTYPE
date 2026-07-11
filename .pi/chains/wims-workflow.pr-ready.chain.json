@@ -1,0 +1,21 @@
+{
+  "name": "wims-workflow.pr-ready",
+  "description": "Post-implementation chain that runs before opening a PR. Domain specialist reviews the diff, wiki synchronizer applies needed updates, validation ladder runs appropriate checks.",
+  "chain": [
+    {
+      "description": "Step 1: Domain specialist reviews the diff for correctness and pattern compliance",
+      "agent": "wims.wims-backend.specialist",
+      "task": "Review the current diff for correctness and pattern compliance. Check FastAPI layering, service layering, auth/RLS, PII crypto, audit trail enforcement, PostGIS usage, Celery patterns, and test coverage. Report findings with file paths and line numbers."
+    },
+    {
+      "description": "Step 2: Wiki synchronizer inspects behavioral/API/schema/security changes and applies updates if needed",
+      "agent": "wims.wims-wiki.synchronizer",
+      "task": "Inspect whether behavioral, API, schema, security, or infrastructure changes in the current diff require system-wiki updates. Apply updates if needed following the sync contract. If no update is required, report that no wiki changes are needed."
+    },
+    {
+      "description": "Step 3: Validation ladder — run appropriate checks from root AGENTS.md based on diff scope",
+      "agent": "worker",
+      "task": "Run the validation ladder: identify the scope of changes (backend, frontend, infra, docs, or cross-cutting) and execute the minimum useful checks from the root AGENTS.md validation table. Report results for each check."
+    }
+  ]
+}

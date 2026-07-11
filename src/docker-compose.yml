@@ -285,6 +285,8 @@ services:
       - OLLAMA_NUM_PREDICT=${OLLAMA_NUM_PREDICT:-256}
       # Phase-2 civilian photo storage (shared volume, backend+worker)
       - CIVILIAN_PHOTO_STORAGE_DIR=/app/storage/civilian-photos
+      # Phase-3 Turnstile CAPTCHA
+      - TURNSTILE_SECRET_KEY=${TURNSTILE_SECRET_KEY:-}
     volumes:
       - incident_attachments_data:/app/storage
       - ./suricata/logs:/var/log/suricata:ro
@@ -414,6 +416,8 @@ services:
       - NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=${NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID:-465171995576}
       - NEXT_PUBLIC_FIREBASE_APP_ID=${NEXT_PUBLIC_FIREBASE_APP_ID:-1:465171995576:web:9aa2403d8f6b9c4bb50d4d}
       - NEXT_PUBLIC_FIREBASE_VAPID_KEY=${NEXT_PUBLIC_FIREBASE_VAPID_KEY:-}
+      # Phase-3 Turnstile CAPTCHA
+      - NEXT_PUBLIC_TURNSTILE_SITE_KEY=${NEXT_PUBLIC_TURNSTILE_SITE_KEY:-}
     networks:
       - wims_internal
     depends_on:

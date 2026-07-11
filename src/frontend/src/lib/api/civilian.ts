@@ -25,7 +25,7 @@ export type {
   ReportingContext,
   SafetyStatus,
 } from './legacy';
-import { publicApiFetch } from './public-transport';
+import { publicApiFetch, fetchWithOptionalAuth } from './public-transport';
 
 export interface ReportClusterCenter {
   latitude: number;
@@ -67,7 +67,7 @@ export interface UploadPhotoResponse {
 }
 
 /**
- * Upload a civilian-report photo — anonymous/device-bound, online-only.
+ * Upload a civilian-report photo — supports optional_auth.
  * POST /api/civilian/reports/{reportId}/photos with multipart/form-data.
  * Browser GPS fields are included only when a complete sample is provided.
  * Do NOT set multipart Content-Type header manually.
@@ -89,6 +89,8 @@ export async function uploadCivilianReportPhoto(
     timestamp: string | null;
   },
   clientPhotoId?: string,
+  /** Cloudflare Turnstile token for anonymous CAPTCHA verification. */
+  turnstileToken?: string,
 ): Promise<UploadPhotoResponse> {
   const formData = new FormData();
   formData.append('file', file);
@@ -116,7 +118,11 @@ export async function uploadCivilianReportPhoto(
     formData.append('client_photo_id', clientPhotoId);
   }
 
-  return publicApiFetch<UploadPhotoResponse>(
+  if (turnstileToken) {
+    formData.append('turnstile_token', turnstileToken);
+  }
+
+  return fetchWithOptionalAuth<UploadPhotoResponse>(
     `/civilian/reports/${reportId}/photos`,
     {
       method: 'POST',

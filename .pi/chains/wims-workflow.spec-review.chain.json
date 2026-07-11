@@ -1,0 +1,48 @@
+{
+  "name": "wims-workflow.spec-review",
+  "description": "Runs all 5 voice agents in parallel against a provided spec or plan, then synthesizes findings into a prioritized revision list.",
+  "chain": [
+    {
+      "description": "All 5 voice agents review the spec concurrently",
+      "parallel": [
+        {
+          "agent": "wims.wims-voice.devops",
+          "task": "Review the provided spec or plan for infrastructure, reliability, scalability, and observability issues. Produce findings using the standard [BLOCKER | WARNING | INFO] output schema.",
+          "output": ".pi/chain-runs/spec-review/devops-findings.md"
+        },
+        {
+          "agent": "wims.wims-voice.qa",
+          "task": "Review the provided spec or plan for test coverage, edge cases, acceptance criteria, and failure behavior gaps. Produce findings using the standard [BLOCKER | WARNING | INFO] output schema.",
+          "output": ".pi/chain-runs/spec-review/qa-findings.md"
+        },
+        {
+          "agent": "wims.wims-voice.security",
+          "task": "Review the provided spec or plan for auth gaps, PII leaks, audit trails, RLS, crypto, and injection vectors. Produce findings using the standard [BLOCKER | WARNING | INFO] output schema.",
+          "output": ".pi/chain-runs/spec-review/security-findings.md"
+        },
+        {
+          "agent": "wims.wims-voice.architect",
+          "task": "Review the provided spec or plan for patterns, coupling, boundaries, and maintainability issues. Produce findings using the standard [BLOCKER | WARNING | INFO] output schema.",
+          "output": ".pi/chain-runs/spec-review/architect-findings.md"
+        },
+        {
+          "agent": "wims.wims-voice.product",
+          "task": "Review the provided spec or plan for spec fidelity, requirement coverage, and user experience issues. Produce findings using the standard [BLOCKER | WARNING | INFO] output schema.",
+          "output": ".pi/chain-runs/spec-review/product-findings.md"
+        }
+      ]
+    },
+    {
+      "description": "Synthesis: read all 5 finding files, group by severity, deduplicate, produce prioritized revision list",
+      "agent": "wims.wims-wiki.synchronizer",
+      "task": "Read all 5 finding files from .pi/chain-runs/spec-review/. Group findings by severity (BLOCKER, WARNING, INFO), deduplicate across voices, and produce a prioritized revision list. Write the synthesis to .pi/chain-runs/spec-review/synthesis.md",
+      "reads": [
+        ".pi/chain-runs/spec-review/devops-findings.md",
+        ".pi/chain-runs/spec-review/qa-findings.md",
+        ".pi/chain-runs/spec-review/security-findings.md",
+        ".pi/chain-runs/spec-review/architect-findings.md",
+        ".pi/chain-runs/spec-review/product-findings.md"
+      ]
+    }
+  ]
+}
