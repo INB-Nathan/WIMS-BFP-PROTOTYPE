@@ -139,6 +139,8 @@ export interface AppendInput {
   witness_name?: string;
   witness_phone?: string;
   description: string;
+  /** Cloudflare Turnstile token for anonymous CAPTCHA verification. */
+  turnstile_token?: string;
 }
 
 export async function appendCivilianReportOfflineAware(

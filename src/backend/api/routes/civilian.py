@@ -23,11 +23,13 @@ from tasks.routing import compute_routing_task
 from utils.audit import hash_client_ip, log_system_audit, trusted_client_ip
 from utils.crypto import SecurityProviderError
 from utils.public_abuse import rate_limit_public
+from services.captcha import verify_turnstile
 from utils.rate_limit import (
     CIVILIAN_FOLLOWUP_PER_IP_HOURLY_CAP,
     CIVILIAN_FOLLOWUP_PER_REPORT_HOURLY_CAP,
     CIVILIAN_REPORT_HOURLY_CAP,
     CIVILIAN_REPORT_RATE_LIMIT_WINDOW_SECONDS,
+    REGISTERED_REPORT_HOURLY_CAP,
     RETRY_AFTER_CEILING_SECONDS,
     RETRY_AFTER_FLOOR_SECONDS,
 )
@@ -388,18 +390,35 @@ def _fetch_report_response(
 
 
 @router.post("/reports", response_model=CivilianReportResponse, status_code=201)
-def submit_civilian_report(
+async def submit_civilian_report(
     body: CivilianReportCreate,
     request: Request,
     db: Annotated[Session, Depends(get_db)],
+    user: Annotated[dict | None, Depends(optional_auth)] = None,
 ) -> CivilianReportResponse:
-    """Public endpoint: submit emergency report with no auth."""
+    """Public endpoint: submit emergency report.
+
+    Authenticated CIVILIAN_REPORTER users skip Turnstile and get a
+    higher hourly rate limit (20 vs 3). Anonymous submitters must
+    pass Turnstile verification.
+    """
     wkt = f"SRID=4326;POINT({body.longitude} {body.latitude})"
     # trusted_client_ip reads X-Real-IP (set by nginx to $realip_remote_addr)
     # and falls back to the ASGI socket peer. It NEVER reads X-Forwarded-For,
     # which is client-controlled (gap #14).
     ip_hash = hash_client_ip(trusted_client_ip(request))
     _require_previous_report(db, body.previous_report_id)
+
+    # ── CAPTCHA guard for anonymous submitters ────────────────────────────
+    if user is None:
+        await verify_turnstile(body.turnstile_token, trusted_client_ip(request))
+
+    # ── Determine rate-limit cap and contributor identity ─────────────────
+    is_registered_reporter = user is not None and user.get("role") == "CIVILIAN_REPORTER"
+    rate_limit_cap = (
+        REGISTERED_REPORT_HOURLY_CAP if is_registered_reporter else CIVILIAN_REPORT_HOURLY_CAP
+    )
+    contributor_user_id = user["user_id"] if is_registered_reporter else None
 
     # ── Early duplicate check for client_report_id ──────────────────
     # If the client provides a client_report_id that already exists in the
@@ -448,7 +467,7 @@ def submit_civilian_report(
         """),
         {"ip_hash": ip_hash},
     ).fetchone()
-    if rate_row is not None and int(rate_row.rate_count) >= CIVILIAN_REPORT_HOURLY_CAP:
+    if rate_row is not None and int(rate_row.rate_count) >= rate_limit_cap:
         oldest = rate_row.oldest_created_at
         if oldest is not None:
             # PR #446 P1-11: wims.citizen_reports.created_at is TIMESTAMPTZ
@@ -476,12 +495,12 @@ def submit_civilian_report(
             )
         else:
             # P1-10: the if-branch should be impossible — if COUNT(*) >=
-            # CIVILIAN_REPORT_HOURLY_CAP then MIN(created_at) cannot be NULL.
+            # rate_limit_cap then MIN(created_at) cannot be NULL.
             # Assert loudly so a future schema/migration regression fails here
             # instead of silently advising the client to wait 1 hour.
             assert oldest is not None, (
                 f"MIN(created_at) is None despite COUNT(*) >= "
-                f"{CIVILIAN_REPORT_HOURLY_CAP}; citizen_reports schema regression"
+                f"{rate_limit_cap}; citizen_reports schema regression"
             )
             retry_after = RETRY_AFTER_CEILING_SECONDS
         _retry_minutes = max(1, math.ceil(retry_after / 60))
@@ -510,7 +529,8 @@ def submit_civilian_report(
             text("""
                 INSERT INTO wims.citizen_reports (
                     location, category, sub_category, reported_via, reported_at, device_id,
-                    ip_hash, trust_score, region_id, nearest_station_id, status,
+                    ip_hash, trust_score, region_id, nearest_station_id,
+                    contributor_user_id, status,
                     reporting_context, safety_status, phone_latitude, phone_longitude,
                     gps_distance_m, gps_warning_confirmed, witness_name, witness_phone,
                     previous_report_id, source_url, client_report_id
@@ -518,7 +538,7 @@ def submit_civilian_report(
                 VALUES (
                     ST_GeogFromText(:wkt), :category, :sub_category, 'WEB', :reported_at,
                     :device_id, :ip_hash, :trust_score, :region_id, :nearest_station_id,
-                    'PENDING', :reporting_context, :safety_status, :phone_latitude,
+                    :contributor_user_id, 'PENDING', :reporting_context, :safety_status, :phone_latitude,
                     :phone_longitude, :gps_distance_m, :gps_warning_confirmed,
                     :witness_name, :witness_phone, :previous_report_id, :source_url,
                     :client_report_id
@@ -537,6 +557,7 @@ def submit_civilian_report(
                 "trust_score": trust_score,
                 "region_id": region_id,
                 "nearest_station_id": nearest_station_id,
+                "contributor_user_id": contributor_user_id,
                 "reporting_context": body.reporting_context,
                 "safety_status": body.safety_status,
                 "phone_latitude": body.phone_latitude,
@@ -573,7 +594,8 @@ def submit_civilian_report(
             text("""
                 INSERT INTO wims.citizen_reports (
                     location, category, sub_category, reported_via, reported_at, device_id,
-                    ip_hash, trust_score, region_id, nearest_station_id, status,
+                    ip_hash, trust_score, region_id, nearest_station_id,
+                    contributor_user_id, status,
                     reporting_context, safety_status, phone_latitude, phone_longitude,
                     gps_distance_m, gps_warning_confirmed, witness_name, witness_phone,
                     previous_report_id, source_url
@@ -581,7 +603,7 @@ def submit_civilian_report(
                 VALUES (
                     ST_GeogFromText(:wkt), :category, :sub_category, 'WEB', :reported_at,
                     :device_id, :ip_hash, :trust_score, :region_id, :nearest_station_id,
-                    'PENDING', :reporting_context, :safety_status, :phone_latitude,
+                    :contributor_user_id, 'PENDING', :reporting_context, :safety_status, :phone_latitude,
                     :phone_longitude, :gps_distance_m, :gps_warning_confirmed,
                     :witness_name, :witness_phone, :previous_report_id, :source_url
                 )
@@ -597,6 +619,7 @@ def submit_civilian_report(
                 "trust_score": trust_score,
                 "region_id": region_id,
                 "nearest_station_id": nearest_station_id,
+                "contributor_user_id": contributor_user_id,
                 "reporting_context": body.reporting_context,
                 "safety_status": body.safety_status,
                 "phone_latitude": body.phone_latitude,
@@ -827,12 +850,18 @@ def suggest_duplicate_reports(
 
 
 @router.patch("/reports/{report_id}/append", response_model=CivilianReportResponse, status_code=201)
-def append_civilian_report(
+async def append_civilian_report(
     report_id: int,
     body: CivilianReportAppend,
+    request: Request,
     db: Annotated[Session, Depends(get_db)],
+    user: Annotated[dict | None, Depends(optional_auth)] = None,
 ) -> CivilianReportResponse:
     """Append a child report to an active parent report."""
+    # ── CAPTCHA guard for anonymous submitters ────────────────────────────
+    if user is None:
+        await verify_turnstile(body.turnstile_token, trusted_client_ip(request))
+
     _require_device_ownership(db, report_id, body.device_id)
     parent = db.execute(
         text("SELECT report_id, status FROM wims.citizen_reports WHERE report_id = :rid"),
@@ -1041,12 +1070,14 @@ def submit_civilian_followup(
     response_model=PhotoUploadResponse,
     status_code=201,
 )
-def upload_report_photo(
+async def upload_report_photo(
     report_id: int,
     db: Annotated[Session, Depends(get_photo_db)],
     user: Annotated[dict | None, Depends(optional_auth)],
+    request: Request,
     file: UploadFile = File(...),
     device_id: str | None = Form(default=None),
+    turnstile_token: str | None = Form(default=None),
     browser_gps_lat: float | None = Form(default=None),
     browser_gps_lon: float | None = Form(default=None),
     browser_gps_accuracy: float | None = Form(default=None),
@@ -1069,6 +1100,10 @@ def upload_report_photo(
     No SQL, crypto, EXIF, filesystem, or business logic here —
     all delegated to ``services.report_photos.upload_and_attach_photo``.
     """
+    # ── CAPTCHA guard for anonymous submitters ────────────────────────────
+    if user is None:
+        await verify_turnstile(turnstile_token, trusted_client_ip(request))
+
     # Validate EXIF fields if present
     if exif_gps_lat is not None and not (-90 <= exif_gps_lat <= 90):
         raise HTTPException(status_code=422, detail="exif_gps_lat must be in [-90, 90]")

@@ -16,6 +16,9 @@ TEST_WIMS_MASTER_KEY = "76/kA0LVDzvX/mQWIxx3UJZl0SrTSIO/k0KdRMdRxCU="
 if not os.environ.get("WIMS_MASTER_KEY"):
     os.environ["WIMS_MASTER_KEY"] = TEST_WIMS_MASTER_KEY
 
+# Phase-3 Turnstile: test key that always passes (set before app import).
+os.environ.setdefault("TURNSTILE_SECRET_KEY", "1x00000000000000000000000000000000AA")
+
 # =============================================================================
 # Pytest markers
 # =============================================================================

@@ -34,6 +34,11 @@ RETRY_AFTER_FLOOR_SECONDS: int = 1
 RETRY_AFTER_CEILING_SECONDS: int = 3600
 
 # ---------------------------------------------------------------------------
+# Registered civilian reporter rate limit (DB-backed; see civilian.py submit_civilian_report)
+# Registered CIVILIAN_REPORTER users get a higher cap (20/hr) than anonymous (3/hr).
+REGISTERED_REPORT_HOURLY_CAP: int = 20
+
+# ---------------------------------------------------------------------------
 # Per-report follow-up cap (DB-backed; see civilian.py submit_civilian_followup)
 # ---------------------------------------------------------------------------
 # Follow-ups are intentionally tighter than new reports to limit spam on a

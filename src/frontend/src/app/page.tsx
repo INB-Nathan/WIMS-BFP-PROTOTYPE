@@ -20,6 +20,7 @@ import type { OfflinePhotoGps, OfflinePhotoExif } from '@/lib/offlineStore';
 import { usePublicAutoSync } from '@/lib/usePublicAutoSync';
 import { useNetworkStatus } from '@/lib/useNetworkStatus';
 import type { CivilianCategory, CivilianDuplicateSuggestion, CivilianReportTrackingResponse, CivilianReportV2Payload, ReportingContext, SafetyStatus } from '@/lib/api';
+import { Turnstile } from '@marsidev/react-turnstile';
 import React from 'react';
 
 import {
@@ -505,6 +506,7 @@ export default function ReportPage() {
   // sync (the localId is the idempotency key, not the server id).
   const [queuedLocalId, setQueuedLocalId] = useState<string | null>(null);
   const [reviewBlockedReason, setReviewBlockedReason] = useState<string | null>(null);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
 
   // ── Photo upload state (memory-only, not persisted) ─────────────────────────
   const [photoFile, setPhotoFile] = useState<File | null>(null);
@@ -898,6 +900,7 @@ export default function ReportPage() {
       reported_at: observedTime ? new Date(observedTime).toISOString() : undefined,
       device_id: getDeviceId(),
       client_report_id: parentLocalIdRef.current ?? undefined,
+      turnstile_token: turnstileToken ?? undefined,
     };
   }
 
@@ -967,6 +970,7 @@ export default function ReportPage() {
           device_id: deviceId,
           reported_at: appendTimestamp ? new Date(appendTimestamp).toISOString() : undefined,
           description: appendDescription.trim(),
+          turnstile_token: turnstileToken ?? undefined,
         },
         deviceId
       );
@@ -1050,6 +1054,8 @@ export default function ReportPage() {
           deviceId,
           photoGps ?? undefined,
           photoExif ?? undefined,
+          undefined, // clientPhotoId — server report ID is known
+          turnstileToken ?? undefined,
         ).then(() => {
           setPhotoStatus('uploaded');
           setPhotoError(null);
@@ -1103,6 +1109,8 @@ export default function ReportPage() {
         deviceId,
         photoGps ?? undefined,
         photoExif ?? undefined,
+        undefined, // clientPhotoId — server report ID is known
+        turnstileToken ?? undefined,
       );
       setPhotoStatus('uploaded');
       setPhotoError(null);
@@ -1311,6 +1319,18 @@ export default function ReportPage() {
                 )}
               </div>
             )}
+
+            {/* Turnstile CAPTCHA for anonymous users */}
+            <div className="flex justify-center">
+              <Turnstile
+                siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? ''}
+                onSuccess={(token) => setTurnstileToken(token)}
+                options={{
+                  size: 'normal',
+                  theme: 'light',
+                }}
+              />
+            </div>
 
             <div className="flex gap-3">
               <button
@@ -2107,6 +2127,17 @@ export default function ReportPage() {
               <div className="space-y-3">
                 {isLifeSafety && category ? (
                   <>
+                    {/* Turnstile CAPTCHA for anonymous users */}
+                    <div className="flex justify-center">
+                      <Turnstile
+                        siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? ''}
+                        onSuccess={(token) => setAppendTurnstileToken(token)}
+                        options={{
+                          size: 'normal',
+                          theme: 'light',
+                        }}
+                      />
+                    </div>
                     {/* Row 1: two CTAs side by side */}
                     <div className="flex gap-3">
                       <button
@@ -2241,6 +2272,18 @@ export default function ReportPage() {
                   pendingCount={pendingPhotoCount}
                 />
 
+              </div>
+
+              {/* Turnstile CAPTCHA for anonymous users */}
+              <div className="flex justify-center">
+                <Turnstile
+                  siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? ''}
+                  onSuccess={(token) => setAppendTurnstileToken(token)}
+                  options={{
+                    size: 'normal',
+                    theme: 'light',
+                  }}
+                />
               </div>
 
               <div className="flex gap-3">

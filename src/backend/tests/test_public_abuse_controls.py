@@ -19,12 +19,28 @@ import os
 import time
 from datetime import datetime, timezone
 
+import pytest
+
 import redis
+from unittest.mock import patch
+
 from fastapi.testclient import TestClient
 
 from main import app
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def _mock_turnstile():
+    """Stub verify_turnstile for all tests in this module.
+
+    Individual CAPTCHA tests in test_captcha.py exercise the real
+    verification logic; these integration tests should not make
+    outbound HTTP calls to Cloudflare.
+    """
+    with patch("api.routes.civilian.verify_turnstile", return_value=True):
+        yield
 
 
 # ---------------------------------------------------------------------------
