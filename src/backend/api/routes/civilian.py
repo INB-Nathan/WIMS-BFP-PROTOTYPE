@@ -1318,8 +1318,6 @@ async def get_contributor_reports_route(
             status_code=403,
             detail="CIVILIAN_REPORTER role required to access contributor reports",
         )
-    if limit > 100:
-        limit = 100
     result = get_contributor_reports(user["user_id"], page=page, limit=limit, db=db)
     return ContributorReportsResponse(**result)
 
@@ -1354,8 +1352,6 @@ async def get_contributor_leaderboard(
             status_code=403,
             detail="CIVILIAN_REPORTER role required to access leaderboard",
         )
-    if limit > 100:
-        limit = 100
     entries = get_leaderboard(limit=limit, db=db)
     return [LeaderboardEntry(**entry) for entry in entries]
 
