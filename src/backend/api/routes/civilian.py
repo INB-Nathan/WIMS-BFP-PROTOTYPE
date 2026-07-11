@@ -32,7 +32,7 @@ from utils.rate_limit import (
     RETRY_AFTER_FLOOR_SECONDS,
 )
 
-from auth import get_photo_db, optional_auth
+from auth import get_current_wims_user, get_photo_db, optional_auth
 from schemas.civilian import (
     CivilianFollowupCreate,
     CivilianFollowupItem,
@@ -42,8 +42,12 @@ from schemas.civilian import (
     CivilianReportResponse,
     CivilianReportTimelineItem,
     CivilianReportTimelineResponse,
+    ContributorProfileResponse,
+    ContributorReportsResponse,
+    ContributorStatsResponse,
     DuplicateSuggestionResponse,
     DuplicateSuggestionItem,
+    LeaderboardEntry,
     MyReportItem,
     MyReportResponse,
     NotifyRegisterRequest,
@@ -51,6 +55,12 @@ from schemas.civilian import (
     PhotoUploadResponse,
     ReportClusterResponse,
     ReportClusterArea,
+)
+from services.contributor import (
+    get_contributor_profile as contributor_profile,
+    get_contributor_reports,
+    get_contributor_stats as contributor_stats,
+    get_leaderboard,
 )
 from services.report_photos import is_terminal_status, upload_and_attach_photo
 
@@ -1273,6 +1283,81 @@ def register_notification(
         status="registered" if row else "already_registered",
         report_id=report_id,
     )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Contributor routes — authenticated (CIVILIAN_REPORTER)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+@router.get("/contributor/me", response_model=ContributorProfileResponse)
+async def get_contributor_profile_route(
+    user: Annotated[dict, Depends(get_current_wims_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> ContributorProfileResponse:
+    """Return the authenticated contributor's profile: trust score, badge, lifetime stats."""
+    if user.get("role") != "CIVILIAN_REPORTER":
+        raise HTTPException(
+            status_code=403,
+            detail="CIVILIAN_REPORTER role required to access contributor profile",
+        )
+    profile = contributor_profile(user["user_id"], db)
+    return ContributorProfileResponse(**profile)
+
+
+@router.get("/contributor/reports", response_model=ContributorReportsResponse)
+async def get_contributor_reports_route(
+    page: int = 1,
+    limit: int = 20,
+    user: Annotated[dict, Depends(get_current_wims_user)] = None,
+    db: Annotated[Session, Depends(get_db)] = None,
+) -> ContributorReportsResponse:
+    """Return paginated root reports for the authenticated contributor."""
+    if user.get("role") != "CIVILIAN_REPORTER":
+        raise HTTPException(
+            status_code=403,
+            detail="CIVILIAN_REPORTER role required to access contributor reports",
+        )
+    if limit > 100:
+        limit = 100
+    result = get_contributor_reports(user["user_id"], page=page, limit=limit, db=db)
+    return ContributorReportsResponse(**result)
+
+
+@router.get("/contributor/stats", response_model=ContributorStatsResponse)
+async def get_contributor_stats_route(
+    user: Annotated[dict, Depends(get_current_wims_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> ContributorStatsResponse:
+    """Return contributor vanity metrics with monthly report count breakdown."""
+    if user.get("role") != "CIVILIAN_REPORTER":
+        raise HTTPException(
+            status_code=403,
+            detail="CIVILIAN_REPORTER role required to access contributor stats",
+        )
+    stats = contributor_stats(user["user_id"], db)
+    return ContributorStatsResponse(**stats)
+
+
+@router.get("/contributor/leaderboard", response_model=list[LeaderboardEntry])
+async def get_contributor_leaderboard(
+    limit: int = 20,
+    user: Annotated[dict, Depends(get_current_wims_user)] = None,
+    db: Annotated[Session, Depends(get_db)] = None,
+) -> list[LeaderboardEntry]:
+    """Return the top-N registered contributors by trust score.
+
+    Only contributors who have opted in to the leaderboard are included.
+    """
+    if user.get("role") != "CIVILIAN_REPORTER":
+        raise HTTPException(
+            status_code=403,
+            detail="CIVILIAN_REPORTER role required to access leaderboard",
+        )
+    if limit > 100:
+        limit = 100
+    entries = get_leaderboard(limit=limit, db=db)
+    return [LeaderboardEntry(**entry) for entry in entries]
 
 
 def _get_count_bucket(count: int) -> str:
