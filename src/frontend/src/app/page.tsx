@@ -2081,6 +2081,7 @@ export default function ReportPage() {
                   height={200}
                   zoom={11}
                   selectionMode={false}
+                  onGeolocationAvailable={(lat, lng) => setPhoneGeo({ lat, lng })}
                 />
               </div>
 
