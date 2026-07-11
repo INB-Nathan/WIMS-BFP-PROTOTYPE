@@ -1,4 +1,5 @@
 import os
+from unittest.mock import patch
 
 import pytest
 from dotenv import load_dotenv
@@ -18,6 +19,12 @@ if not os.environ.get("WIMS_MASTER_KEY"):
 
 # Phase-3 Turnstile: test key that always passes (set before app import).
 os.environ.setdefault("TURNSTILE_SECRET_KEY", "1x00000000000000000000000000000000AA")
+
+# Autouse patch: stub verify_turnstile for any test that hits the civilian route
+# layer (TestClient).  Individual CAPTCHA unit tests in test_captcha.py test the
+# real verification via respx and are not affected by this mock.
+_patcher = patch("api.routes.civilian.verify_turnstile", return_value=True)
+_patcher.start()
 
 # =============================================================================
 # Pytest markers

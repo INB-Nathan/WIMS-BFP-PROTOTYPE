@@ -507,6 +507,7 @@ export default function ReportPage() {
   const [queuedLocalId, setQueuedLocalId] = useState<string | null>(null);
   const [reviewBlockedReason, setReviewBlockedReason] = useState<string | null>(null);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const [appendTurnstileToken, setAppendTurnstileToken] = useState<string | null>(null);
 
   // ── Photo upload state (memory-only, not persisted) ─────────────────────────
   const [photoFile, setPhotoFile] = useState<File | null>(null);
@@ -970,7 +971,7 @@ export default function ReportPage() {
           device_id: deviceId,
           reported_at: appendTimestamp ? new Date(appendTimestamp).toISOString() : undefined,
           description: appendDescription.trim(),
-          turnstile_token: turnstileToken ?? undefined,
+          turnstile_token: appendTurnstileToken ?? undefined,
         },
         deviceId
       );

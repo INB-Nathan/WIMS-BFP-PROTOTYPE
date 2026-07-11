@@ -4,5 +4,37 @@
       "source": "npm:@dietrichgebert/ponytail@4.8.4",
       "extensions": []
     }
-  ]
+  ],
+  "subagents": {
+    "agentOverrides": {
+      "worker": {
+        "model": "opencode-go/deepseek-v4-flash",
+        "thinking": "high"
+      },
+      "reviewer": {
+        "model": "openai-codex/gpt-5.6-luna",
+        "thinking": "max"
+      },
+      "oracle": {
+        "model": "openai-codex/gpt-5.6-terra",
+        "thinking": "high"
+      },
+      "planner": {
+        "model": "openai-codex/gpt-5.6-terra",
+        "thinking": "max"
+      },
+      "scout": {
+        "model": "opencode-go/deepseek-v4-flash",
+        "thinking": "max"
+      },
+      "context-builder": {
+        "model": "opencode-go/deepseek-v4-flash",
+        "thinking": "max"
+      },
+      "researcher": {
+        "model": "openai-codex/gpt-5.6-terra",
+        "thinking": "high"
+      }
+    }
+  }
 }
