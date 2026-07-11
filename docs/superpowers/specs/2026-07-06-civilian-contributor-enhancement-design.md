@@ -1,7 +1,8 @@
 # Civilian Contributor Enhancement — Design Spec
 
 **Date:** 2026-07-06
-**Status:** Draft
+**Updated:** 2026-07-11
+**Status:** Draft — Phase 5 design aligned after product-voice review
 **Sources:** Defense panel feedback, design grill with wims-route + grill-with-docs skills, Oracle subagent consultations
 **Glossary:** See `CONTEXT.md` (terms: Civilian Contributor, Anonymous Contributor, Registered Contributor, Contributor Trust Score, Routing Distance, Photo Metadata Analysis)
 
@@ -35,11 +36,11 @@ All workstreams share the same core API surface — auth detection determines gu
 
 | Tier | Audience | What they see |
 |------|----------|---------------|
-| 1 — Tracking page | Anyone with report ID (no auth) | Report status, station name/phone, road distance, ETA range |
+| 1 — Tracking page | Anyone holding a valid tracking capability (no account required) | Report status, station name/phone, road distance, ETA range |
 | 2 — Registered dashboard | Authenticated `CIVILIAN_REPORTER` | Full report history, trust score, contribution stats, per-report routing + photos |
 | 3 — Validator panel | `NATIONAL_VALIDATOR` | Routing data + photo metadata flags + ability to enrich feedback |
 
-The tracking page (`GET /api/civilian/reports/{id}`) already exists. Tiers 2 and 3 are new.
+The tracking page uses an unguessable, expiring tracking capability rather than report-ID enumeration. Public lookups return neutral `404` responses for missing, expired, or unauthorized capabilities, are throttled, and never expose exact civilian coordinates or reverse-geocodable location data. Routing output is limited to the approved station/distance/ETA fields. Tiers 2 and 3 are new.
 
 ---
 
@@ -103,24 +104,37 @@ Both paths are always available. Auth detection at the endpoint level determines
 | **Report visibility** | Single tracking page | Full dashboard with history |
 | **Trust scoring** | Single-report score only | Accumulated 0-100 score |
 | **Routing data** | Station name + phone + distance + ETA | Same + dispatch history |
-| **Community page** | Read-only announcements + station directory | Deferred to Phase 5 |
+| **Community page** | Read-only safety content, announcements, events, and station directory | Public; registered users also link to `/contributor` |
 
 ---
 
 ## 6. Contributor Trust Score
 
-### 6.1 Formula (Hybrid Model)
+### 6.1 Formula (Normalized Reliability Model)
+
+Each component is normalized to `[0, 1]` before applying its weight:
 
 ```
-trust_score = max(0, min(100, volume_credit + accuracy_bonus + photo_bonus - decay))
+trust_score = clamp(
+    0,
+    100,
+    20 * volume_progress
+  + 45 * outcome_accuracy
+  + 20 * evidence_quality
+  + 15 * consistency
+  - decay
+)
 ```
 
-| Component | Detail | Cap |
-|-----------|--------|-----|
-| **Volume** | +2 per report submitted | 40 (20 reports) |
-| **Accuracy** | +5 per report that reaches `ACTIONED` status | No cap |
-| **Photo bonus** | +5 per report with photos, +10 if GPS consensus matches, +5 if photo near fire | 20 per report |
-| **Decay** | −2 per month of inactivity | Floor 0 (score never negative) |
+| Component | Weight | Definition |
+|-----------|-------:|------------|
+| **Outcome accuracy** | 45 | Actioned decided reports divided by all decided reports, scaled by `min(1, decided_reports / 10)` confidence. |
+| **Volume progress** | 20 | `min(1, log(1 + root_reports) / log(21))`; root reports only, with diminishing returns. |
+| **Evidence quality** | 20 | Normalized quality of supporting evidence: photo exists (0.25), GPS verified (0.35), photo near report (0.20), timestamp consistent (0.20), clamped to 1.0. |
+| **Consistency** | 15 | `active_months / 6`, where active months are distinct calendar months in the previous six calendar months containing at least one submitted root report. Appends do not count. |
+| **Decay** | — | `min(20, inactive_months * 2)`; gradual inactivity penalty, clamped by the final score floor of 0. |
+
+Outcome accuracy considers only decided reports. The canonical decided set is `ACTIONED`, `REJECTED_BOGUS`, `REJECTED_DUPLICATE`, `REJECTED_INSUFFICIENT`, and `REJECTED_TIMEOUT`; pending, under-review, linked, archived, and unknown future statuses are excluded. An accuracy of 100% after one decided report receives only 10% confidence; full confidence begins at 10 decided reports. The six-month consistency window measures persistence rather than report volume: it is the current UTC calendar month plus the five preceding UTC calendar months; multiple root reports in one month still count as one active month, and appends are excluded. Score calculations must be reproducible after outcome corrections and must record the formula version used for persisted snapshots.
 
 ### 6.2 Badge Levels
 
@@ -131,25 +145,28 @@ trust_score = max(0, min(100, volume_credit + accuracy_bonus + photo_bonus - dec
 | 50–79 | Trusted |
 | 80–100 | Guardian |
 
-### 6.3 Photo Bonus Detail
+### 6.3 Evidence Quality Detail
 
-Per Oracle recommendation — photos directly improve the report's trust score:
+Evidence quality is a normalized supporting signal, not a substitute for operational outcome accuracy. Per report:
 
-```python
-# Per-report photo bonus (aggregated across all photos on the report)
-if photo_count > 0:
-    score += 5
-    if best_photo_gps_consensus == "both_match":
-        score += 10  # EXIF + browser GPS agree
-    if worst_photo_distance_to_fire < 500:
-        score += 5   # photo taken near the reported location
-```
+- +0.25 when at least one photo exists
+- +0.35 when GPS is verified
+- +0.20 when the photo is near the reported location
+- +0.20 when the photo timestamp is consistent with the report
 
-Maximum photo bonus per report: 20 points.
+The evidence score is clamped to 1.0 per report and aggregated across the contributor's eligible root reports. Multiple photos must not create unbounded score growth. “Photo near” uses the PostGIS distance between the photo's verified metadata point and the report location with the existing 500m threshold; timestamp consistency uses a 24-hour absolute server-side tolerance, and unavailable metadata contributes zero for that signal.
+
+Sensitive EXIF/browser GPS, timestamps, device metadata, and original filenames are encrypted with the established versioned AES-GCM/OpenBao provider and photo-ID-bound AAD. Only minimized derived flags and distances required by authorized validator views may remain plaintext. Validators see trust information as non-authoritative context, access is role-restricted and audited, and contributor-facing score history is private.
 
 ### 6.4 Storage
 
-Trust score is **computed live** from report history at read time (simple aggregation query). No dedicated score table needed for the prototype — the computation is 3-5 SQL aggregations and a 10-line Python function. Cache with Redis if query latency becomes an issue.
+Trust score is **computed live** from report history at read time. The persisted contributor row is a cache/snapshot only; the score must remain reproducible from the report, outcome, evidence, and activity history. Cache with Redis if query latency becomes an issue.
+
+### 6.5 Performance Validation
+
+Before introducing caching, benchmark the live contributor profile aggregation against representative data volumes (target fixture: approximately 10,000 contributors and 100,000 reports, including root reports, appends, decided outcomes, and photo evidence).
+
+The implementation must define and record an acceptable latency target for the profile/stats request, measure query latency and database load at that scale, and include the benchmark in the implementation validation evidence. If the live-derived query exceeds the target, document Redis or materialized-view caching as a follow-up justified by the benchmark; do not add speculative caching before measurement.
 
 ---
 
@@ -179,18 +196,19 @@ Server pipeline:
   2. Read raw bytes
   3. Extract EXIF from raw bytes  ← BEFORE strip
   4. Strip EXIF via strip_image_exif()
-  5. Compute MD5 hash of stripped bytes
+  5. Compute SHA-256 hashes of original and sanitized bytes
   6. Encrypt stripped bytes with AES-256-GCM (reusing get_crypto_provider())
   7. Write encrypted file to disk
-  8. Insert report_photos row with EXIF data + browser GPS + metadata
+  8. Insert report_photos row with encrypted metadata envelope and minimized derived evidence flags
     │
     ▼
 Returns { photo_id: "uuid-..." }
     │
     ▼
 POST /api/civilian/reports { ..., photo_ids: ["uuid-1", "uuid-2"] }
-  → Backend validates photo_ids belong to this uploader (device_id or user_id)
-  → Sets report_photos.report_id, computes gps_consensus + photo_reported_distance_m
+  → Backend validates every photo_id belongs to this uploader (anonymous_session capability or user_id)
+  → Locks the complete photo batch, rejects mixed/partial ownership, and atomically sets report_id + attached_at
+  → Computes gps_consensus + photo_reported_distance_m from encrypted metadata via the authorized service path
 ```
 
 ### 7.2 `report_photos` Table
@@ -200,9 +218,9 @@ CREATE TABLE IF NOT EXISTS wims.report_photos (
     photo_id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     report_id           INT REFERENCES wims.citizen_reports(report_id),
     
-    -- Uploader identity (one of these is set; the other is NULL)
-    uploader_user_id    UUID REFERENCES wims.users(user_id),       -- for registered
-    uploader_device_id  TEXT,                                       -- for anonymous
+    -- Uploader identity (exactly one owner branch is set)
+    uploader_user_id      UUID REFERENCES wims.users(user_id),
+    anonymous_session_id  UUID REFERENCES wims.anonymous_sessions(anonymous_session_id),
 
     -- File metadata
     original_filename   TEXT NOT NULL,
@@ -211,27 +229,21 @@ CREATE TABLE IF NOT EXISTS wims.report_photos (
     mime_type           TEXT NOT NULL,
     image_width         INTEGER,
     image_height        INTEGER,
-    md5_hash            TEXT NOT NULL,
+    original_sha256     TEXT NOT NULL,
+    sanitized_sha256    TEXT NOT NULL,
 
     -- Encryption metadata (AES-256-GCM, reuses incident_attachments pattern)
     encryption_iv           TEXT,
     encryption_key_version  TEXT,
 
-    -- EXIF GPS (extracted before strip)
-    exif_gps_lat        NUMERIC(10,7),
-    exif_gps_lon        NUMERIC(10,7),
-    exif_datetime_original TIMESTAMPTZ,
-    exif_data           JSONB,
-
-    -- Browser GPS (captured at photo selection time)
-    browser_gps_lat     NUMERIC(10,7),
-    browser_gps_lon     NUMERIC(10,7),
-    browser_gps_accuracy NUMERIC,
-    browser_gps_captured_at TIMESTAMPTZ,
-
-    -- Computed at submission time
-    photo_reported_distance_m NUMERIC,
-    gps_consensus       TEXT,   -- both_match | exif_only | browser_only | both_disagree | unavailable
+    -- Sensitive EXIF/browser GPS, filename, device metadata, and timestamps
+    -- are stored only in the encrypted metadata envelope. These derived fields
+    -- are the only plaintext evidence signals.
+    exif_gps_status              TEXT NOT NULL DEFAULT 'unavailable',
+    browser_gps_status           TEXT NOT NULL DEFAULT 'unavailable',
+    photo_reported_distance_m   NUMERIC,
+    gps_consensus                TEXT,   -- both_match | exif_only | browser_only | both_disagree | unavailable
+    timestamp_consistent         BOOLEAN NOT NULL DEFAULT FALSE
 
     -- Tracking
     created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -241,6 +253,7 @@ CREATE TABLE IF NOT EXISTS wims.report_photos (
 CREATE INDEX idx_report_photos_report_id ON wims.report_photos(report_id);
 CREATE INDEX idx_report_photos_orphans ON wims.report_photos(created_at) WHERE report_id IS NULL;
 CREATE INDEX idx_report_photos_uploader ON wims.report_photos(uploader_user_id) WHERE uploader_user_id IS NOT NULL;
+CREATE INDEX idx_report_photos_anonymous_session ON wims.report_photos(anonymous_session_id) WHERE anonymous_session_id IS NOT NULL;
 ```
 
 ### 7.3 Validation Logic
@@ -265,15 +278,17 @@ Encryption metadata (`encryption_iv`, `encryption_key_version`) is stored on eac
 
 ### 7.5 Ownership Enforcement
 
-The `uploader_user_id` and `uploader_device_id` columns ensure:
-- Anonymous photo uploads are bound to the caller's `device_id`
-- Registered photo uploads are bound to their `user_id`
-- The report submission endpoint validates that every `photo_id` in the request belongs to the caller's device_id or user_id
-- Photo caps (anonymous max 1, registered max 5) are enforced by counting existing photos with matching uploader identity AND null report_id
+The ownership columns ensure:
+- Registered uploads are bound to `uploader_user_id`.
+- Anonymous uploads are bound to `anonymous_session_id`, which references a hash-backed, expiring anonymous session; client device IDs are not authorization credentials.
+- The report submission endpoint validates every `photo_id` against the authenticated user or the same anonymous session capability in one transaction.
+- Photo caps (anonymous max 1, registered max 5) are enforced by an owner-scoped, locked query over pending rows.
+
+Anonymous session capabilities are high-entropy bearer tokens returned once at session creation, never placed in URLs or logs, and stored only as SHA-256 hashes. Sessions have idle and absolute expiry plus revocation. A narrowly scoped fixed-`search_path` `SECURITY DEFINER` helper validates the bearer hash and performs pending-photo create/read/delete and all-or-nothing attach; it accepts no caller-supplied owner ID and is not a general RLS bypass.
 
 ### 7.6 Orphan Cleanup
 
-A Celery beat task (`tasks.cleanup_orphan_photos`) deletes photos where `report_id IS NULL AND created_at < now() - interval '24 hours'`. Both the DB row and the encrypted physical file are removed.
+A Celery beat task (`tasks.cleanup_orphan_photos`) removes only photos where `report_id IS NULL AND created_at < now() - interval '24 hours'`. Cleanup uses an explicit task identity or narrowly scoped helper, validates storage paths, removes the DB row and encrypted artifacts with retry/compensation behavior, and writes an append-only audit event for each success or failure. Cleanup must be idempotent and must never perform arbitrary filesystem deletion.
 
 ---
 
@@ -283,20 +298,9 @@ A Celery beat task (`tasks.cleanup_orphan_photos`) deletes photos where `report_
 
 The existing `get_current_user` dependency raises 401 when no auth cookie is present — it cannot be used for endpoints that serve both anonymous and authenticated callers.
 
-A new **`optional_auth`** dependency is needed for civilian routes. Unlike `get_current_user`, it catches the missing-auth condition silently and returns `None`:
+A new **`optional_auth`** dependency is needed for civilian routes. It may return `None` only when no credential is supplied. If a credential is present but expired, malformed, invalid, or fails audience/role validation, it must return `401`; invalid credentials must never be downgraded to anonymous behavior.
 
-```python
-async def optional_auth(request: Request, db: Session = Depends(get_db)):
-    """Like get_current_wims_user but returns None instead of 401 on missing auth."""
-    try:
-        return await get_current_wims_user(request, db)
-    except HTTPException as exc:
-        if exc.status_code == 401:
-            return None
-        raise
-```
-
-This allows a single endpoint to branch on whether the caller is a registered contributor.
+This allows a single endpoint to branch on whether the caller is a registered contributor without weakening authentication semantics. Add tests for missing, valid civilian, valid non-contributor, expired, malformed, and invalid-audience credentials.
 
 ### 8.2 Same Endpoints, Auth Detection Pattern
 
@@ -331,20 +335,49 @@ async def submit_civilian_report(
 |--------|----------|---------|
 | `POST` | `/api/civilian/photos/upload` | Pre-upload photo (CAPTCHA required for anon) |
 | `POST` | `/api/civilian/reports` | Submit report (CAPTCHA required for anon) |
-| `GET` | `/api/civilian/reports/{id}` | Tracking page |
-| `PATCH` | `/api/civilian/reports/{id}/append` | Append to report (CAPTCHA for anon) |
-| `GET` | `/api/civilian/announcements` | BFP announcements |
+| `GET` | `/api/civilian/reports/{id}` | Tracking page projection; requires a valid unguessable tracking capability token |
+| `PATCH` | `/api/civilian/reports/{id}/append` | Append to report (CAPTCHA for anon and device/capability ownership check) |
+| `GET` | `/api/civilian/community/content` | Published safety articles, announcements, events, and optional urgent banner |
+| `GET` | `/api/civilian/community/content/{slug}` | Published article, announcement, or event detail |
 | `GET` | `/api/ref/fire-stations` | Station directory (exists already) |
+
+**Authenticated CMS administration (requires `SYSTEM_ADMIN` JWT):**
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| `GET` | `/api/admin/community/content` | List drafts, published, and archived content |
+| `POST` | `/api/admin/community/content` | Create a draft |
+| `PATCH` | `/api/admin/community/content/{id}` | Edit or archive content |
+| `POST` | `/api/admin/community/content/{id}/preview` | Render a private preview |
+| `POST` | `/api/admin/community/content/{id}/publish` | Publish a reviewed draft |
+| `POST` | `/api/admin/community/content/{id}/rollback` | Restore a previous published version |
+
+All CMS transitions are authorized server-side, limited to one authorized system administrator role, and append audit records.
 
 **Authenticated (requires `CIVILIAN_REPORTER` JWT):**
 | Method | Endpoint | Purpose |
 |--------|----------|---------|
 | `GET` | `/api/civilian/contributor/me` | Profile + trust score + badge |
 | `GET` | `/api/civilian/contributor/reports` | Paginated report history |
-| `GET` | `/api/civilian/contributor/stats` | Vanity metrics + chart data |
-| `GET` | `/api/civilian/contributor/leaderboard` | Top contributors |
+| `GET` | `/api/civilian/contributor/stats` | Private self-tracking metrics + chart data |
 
-### 8.4 Photo ID References
+### 8.4 Community Hub and CMS
+
+The public Community Safety Hub is separate from the anonymous emergency-reporting landing page:
+
+- `/` remains the anonymous report flow. After emergency guidance, it may show a neutral concise contributor invitation: `Sign in` is primary, `Create account` secondary, and anonymous reporting remains explicitly available.
+- `/community` is public and safety-first. Its order is: optional urgent banner, safety quick-action cards (`During a fire`, `Report safely`, `Prepare`), separate Announcements and Upcoming Events sections, then the station directory. Signed-in users receive a link to `/contributor`.
+- `/contributor` is authenticated and private. It shows personal trust score and breakdown, badge, report history, outcome/activity metrics, and photo contribution counts. It is not a public ranking.
+- `/community/announcements/[slug]` and `/community/events/[slug]` are dedicated, shareable detail routes. Events are informational listings only; there is no RSVP workflow.
+
+CMS content types are safety articles, announcements, and events. Only one authorized system administrator may create, edit, publish, archive, or roll back content through a dedicated server-side `SYSTEM_ADMIN` dependency; cookie-authenticated mutations require the established CSRF and privileged-session/MFA controls. Each item follows `Draft → Published → Archived`; invalid transitions are rejected, publishing requires a public preview, and publish/rollback actions create atomic audit records and preserve immutable version history. Optimistic version IDs prevent stale edits from overwriting newer content; repeat publish/rollback requests are idempotent.
+
+The CMS migration contract includes a content-item table, immutable content-version table, publication pointer, unique slugs, content type, English/Filipino fields, last-reviewed/expiry timestamps, one-active-urgent-banner constraint, and indexes for public type/status/expiry queries. Rollback creates a new version pointing to the selected prior content; it does not mutate or delete historical versions. Public reads filter `status = Published` and `expires_at IS NULL OR expires_at > now()` synchronously, even if the expiry task is delayed. All CMS content is stored as structured/plain text or sanitized with a strict HTML allowlist; templates, scripts, event handlers, unsafe URLs, and SSTI are prohibited.
+
+Safety articles require English and Filipino content plus a last-reviewed date before publishing. Announcements and events may use an English fallback when Filipino is unavailable and require an expiration date; expired items are archived and removed from public views. The urgent banner is optional, bilingual, admin-controlled, audit-logged, and automatically expires. Public views need explicit loading, empty, expired, translation-fallback, and error states.
+
+Station discovery is list-first with search and an optional map toggle. The map is collapsed by default. Selecting a station opens the map, centers and highlights that station, and retains all station pins; list and map filters stay synchronized. Keyboard and mobile interaction must not require location permission, and map failure falls back to the searchable list.
+
+### 8.5 Photo ID References
 
 Photos use UUIDs natively. PostgreSQL accepts `UUID[]` and `ANY(:ids)` for bulk updates:
 
@@ -468,9 +501,9 @@ ALTER TABLE wims.citizen_reports ADD COLUMN contributor_user_id      UUID REFERE
 
 As specified in §7.2.
 
-**RLS:** New `report_photos` table needs RLS policies bound to `wims.current_user_id` GUC, matching the pattern used by `citizen_reports`. The unauthenticated photo upload endpoint requires a SECURITY DEFINER helper or `BYPASSRLS` since there's no `current_user_id` at that point — same pattern as the existing public DMZ endpoints.
+**RLS:** New `report_photos` rows require `FORCE ROW LEVEL SECURITY`. Registered pending rows are bound to `wims.current_user_uuid()`. Anonymous pending rows are not authorized by a client device ID or a caller-set GUC; they are accessed only through narrowly scoped fixed-`search_path` `SECURITY DEFINER` helpers that validate the hash-backed anonymous session capability, enforce expiry/revocation, lock all requested rows, and perform all-or-nothing attach. Direct anonymous table writes remain denied; no general `BYPASSRLS` domain session is permitted. The helpers must have explicit signatures, revoked `PUBLIC` execute, strict owner/cap/size checks, and cross-session denial tests.
 
-**Audit:** Photo uploads and photo-report attachments produce `PHOTO_UPLOAD` and `PHOTO_ATTACH_` action entries in `wims.audit_log`.
+**Audit:** Photo pre-upload, attach, orphan deletion, failed authorization, session issuance, revocation, and rotation use the established append-only `wims.system_audit_trails` path and canonical actions (`PHOTO_UPLOAD_PREUPLOAD`, `PHOTO_UPLOAD_ATTACH`, `PHOTO_ORPHAN_DELETE`, `PHOTO_AUTHORIZATION_FAILURE`, and session actions). Sensitive payloads and raw tokens are excluded; actor/session-safe identifiers, hashed client metadata, request ID, outcome, and relevant record IDs are retained. Final-schema append-only enforcement must be verified.
 
 ### 12.3 `users` — no change
 
@@ -486,13 +519,15 @@ Business logic is placed in services, not routes, following WIMS architecture co
 |--------------|----------------|
 | `services/routing.py` | OSRM API calls, PostGIS fallback, write routing columns |
 | `services/report_photos.py` | EXIF extraction, encryption, upload + attach logic, orphan cleanup |
-| `services/contributor.py` | Trust score computation, leaderboard queries, dashboard aggregation |
+| `services/contributor.py` | Trust score computation and private self-tracking dashboard aggregation |
+| `services/community_content.py` | Published community content projection, expiry, locale fallback, and CMS lifecycle operations |
 
 Celery tasks:
 | Task | Purpose |
 |------|---------|
 | `tasks.routing.retry_routing(report_id)` | Async OSRM retry when sync call fails |
 | `tasks.routing.cleanup_orphan_photos()` | Delete unattached photos >24h old |
+| `tasks.community.expire_content()` | Archive expired announcements/events and urgent banners |
 
 ---
 
@@ -514,17 +549,21 @@ Celery tasks:
 | Route geometry storage | Not useful — stale snapshot, future dispatch needs fresh routing |
 | Forum/discussion on community page | Scope reduction for prototype |
 | Badges/achievements | Scope reduction for prototype |
-| Community page (leaderboard, safety content, events) | Deferred to Phase 5; registered users see announcements + station directory only until then |
+| Public leaderboard | Removed from Phase 5: ranking emergency contributors risks gamification, privacy exposure, and duplicate/low-value reporting |
 | Nginx bot-blocker (bad bots) | Separate issue — nginx-ultimate-bad-bot-blocker |
 | ETA with time-of-day factor | Over-engineered for prototype — ±30% traffic buffer is sufficient |
 
 ---
 
-## 16. Implementation Order
+## 16. Phase 5 Prerequisites and Implementation Order
+
+Before Phase 5, Phase 4 trust-score code and tests must be migrated from the legacy fixed-point formula to §6's normalized formula, and the legacy leaderboard route/service/schema/tests must be removed or explicitly proven unreachable. The public tracking contract must also be reconciled with the existing capability-token implementation before any new public content routes are exposed.
+
+
 
 1. **Phase 1 — Schema + OSRM routing** (5 new columns, routing service, OSRM call, Celery fallback)
 2. **Phase 2 — Photo upload pipeline** (new table, EXIF extraction, encryption, upload + attach endpoints, orphan cleanup)
 3. **Phase 3 — CAPTCHA** (Turnstile frontend + backend verification, `optional_auth` dependency)
-4. **Phase 4 — Registered contributor endpoints** (dashboard, profile, stats, leaderboard)
-5. **Phase 5 — Community page** (leaderboard, safety content, events)
+4. **Phase 4 — Registered contributor endpoints** (profile, reports, stats, private self-tracking dashboard)
+5. **Phase 5 — Community Safety Hub** (CMS-managed safety content, announcements, events, urgent banner, station list/map toggle, dedicated detail routes)
 6. **Separate issue — Nginx bot-blocker**

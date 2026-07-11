@@ -91,6 +91,30 @@ class CivilianReportResponse(BaseModel):
     created_at: datetime
 
 
+class CivilianTrackingResponse(BaseModel):
+    """Capability-token tracking response; deliberately excludes civilian location and PII."""
+
+    report_id: int
+    category: str | None = None
+    sub_category: str | None = None
+    reporting_context: str | None = None
+    safety_status: str | None = None
+    status: str
+    status_explanation: str | None = None
+    guidance: str | None = None
+    escalation_guidance: str | None = None
+    related_cluster_status: str | None = None
+    nearest_station_name: str | None = None
+    nearest_station_phone: str | None = None
+    routing_distance_m: float | None = None
+    routing_duration_s: float | None = None
+    routing_data_source: str | None = None
+    photo_count: int = 0
+    submitter_type: str = "anonymous"
+    link_count: int = 0
+    created_at: datetime
+
+
 class CivilianReportTimelineItem(BaseModel):
     report_id: int
     status: str
@@ -309,17 +333,6 @@ class ContributorReportsResponse(BaseModel):
     pages: int
 
 
-class LeaderboardEntry(BaseModel):
-    """A single entry on the contributor leaderboard."""
-
-    rank: int
-    user_id: str
-    display_name: str | None = None
-    trust_score: int
-    badge: str
-    report_count: int
-
-
 class ContributorStatsResponse(BaseModel):
     """Contributor vanity metrics with monthly trend data."""
 
@@ -329,6 +342,26 @@ class ContributorStatsResponse(BaseModel):
     actioned_reports: int
     pending_reports: int
     monthly_report_counts: list[dict] = []
+
+
+class PendingPhotoUploadResponse(BaseModel):
+    """Contract for an encrypted pre-upload row before report attachment.
+
+    Registered contributors may create these rows. Anonymous requests remain
+    fail-closed until a dedicated capability-bound insert helper is deployed.
+    """
+
+    photo_id: str | None = None
+    report_id: int | None = None
+    duplicate: bool = False
+    file_size_bytes: int
+    mime_type: str
+    image_width: int
+    image_height: int
+    exif_gps_status: str
+    browser_gps_status: str
+    gps_consensus: str | None = None
+    photo_reported_distance_m: float | None = None
 
 
 class PhotoUploadResponse(BaseModel):

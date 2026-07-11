@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import DataError
 
 from database import get_db, _SessionLocal, set_rls_context
+from services.anonymous_sessions import validate_anonymous_session
 from utils.session import session_manager
 
 logger = logging.getLogger("wims.auth")
@@ -308,14 +309,10 @@ async def optional_auth(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
 ) -> dict | None:
-    """Return WIMS user dict when auth cookie is valid; return None when missing/invalid.
+    """Return the authenticated WIMS user; only an absent cookie is anonymous.
 
-    Unlike get_current_user / get_current_wims_user which raise 401/403,
-    this dependency silently returns None so civilian routes can branch on
-    auth detection without requiring authentication.
-
-    Treats authentication-resolution 401 and 403 as anonymous. Preserves 500/503
-    identity-provider/database failures so they propagate as server errors.
+    Supplied credentials are fail-closed: invalid tokens and identities raise
+    the authentication error rather than being downgraded to anonymous.
 
     Usage:
         async def my_endpoint(
@@ -329,9 +326,10 @@ async def optional_auth(
     try:
         token_payload = await authenticator.validate_token(token)
         return await get_current_wims_user(request, token_payload, db)
-    except HTTPException as exc:
-        if exc.status_code in (401, 403):
-            return None
+    except HTTPException:
+        # A supplied credential must never silently become anonymous.  This
+        # prevents malformed, expired, or unauthorized tokens bypassing routes
+        # that branch on optional authentication.
         raise
 
 
@@ -631,6 +629,32 @@ def get_photo_db(
         yield db
     finally:
         db.close()
+
+
+def get_anonymous_session_id(
+    request: Request,
+    db: Annotated[Session, Depends(get_photo_db)],
+) -> uuid.UUID | None:
+    """Resolve an optional Authorization bearer to a derived session UUID.
+
+    Anonymous requests without an Authorization header remain anonymous.  A
+    supplied capability is fail-closed: malformed, expired, revoked, or
+    unknown capabilities receive the same neutral 404 used by photo ownership
+    operations.  The raw bearer never leaves this dependency.
+    """
+    authorization = request.headers.get("authorization")
+    if not authorization:
+        return None
+
+    scheme, separator, raw_token = authorization.partition(" ")
+    raw_token = raw_token.strip()
+    if scheme.lower() != "bearer" or not separator or not raw_token:
+        raise HTTPException(status_code=404, detail="Photo not found")
+
+    session_id = validate_anonymous_session(db, raw_token)
+    if session_id is None:
+        raise HTTPException(status_code=404, detail="Photo not found")
+    return session_id
 
 
 def get_db_with_rls(

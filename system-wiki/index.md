@@ -1,8 +1,8 @@
 # WIMS-BFP System Wiki Index
 
-Last updated: 2026-07-10
+Last updated: 2026-07-12
 Indexed wiki pages: 52
-Last changes: Civilian photo capture enhancement v5 — camera shortcut, EXIF extraction, OffscreenCanvas compression, offline AES-256-GCM photo queue, atomic idempotency (client_report_id + client_photo_id), IndexedDB v7 upgrade, sync engine extension. Updated subsystems/civilian-reporting-phase2, frontend/frontend-infrastructure, backend/api-route-map, database/schema-overview, security/security-baseline.
+Last changes: Registered contributor pending photo upload is now wired through the encrypted service pipeline; anonymous pending insertion remains fail-closed until its dedicated capability-bound helper exists.
 Purpose: project-local knowledgebase for agents routing themselves to relevant WIMS-BFP context.
 
 ## Start Here

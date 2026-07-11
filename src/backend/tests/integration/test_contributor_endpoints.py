@@ -6,7 +6,6 @@ Covers:
 - 403 with wrong role
 - 200 with CIVILIAN_REPORTER role
 - Profile returns correct fields
-- Leaderboard ordering
 
 Run:
   cd src && docker compose run --rm backend pytest tests/integration/test_contributor_endpoints.py -v
@@ -58,11 +57,11 @@ def reporter_user(db_session: Session):
     row = result.fetchone()
     user_id = row[0]
 
-    # Also insert into civilian_contributors so leaderboard queries succeed
+    # Also insert into civilian_contributors for contributor endpoint queries
     db_session.execute(
         text("""
-            INSERT INTO wims.civilian_contributors (user_id, trust_score, badge, opt_in_leaderboard)
-            VALUES (:uid, 0, 'NOVICE', TRUE)
+            INSERT INTO wims.civilian_contributors (user_id, trust_score, badge)
+            VALUES (:uid, 0, 'NOVICE')
             ON CONFLICT (user_id) DO NOTHING
         """),
         {"uid": user_id},
@@ -185,10 +184,6 @@ class TestUnauthenticated:
         response = client_no_auth.get("/api/civilian/contributor/stats")
         assert response.status_code == 401
 
-    def test_leaderboard_returns_401(self, client_no_auth):
-        response = client_no_auth.get("/api/civilian/contributor/leaderboard")
-        assert response.status_code == 401
-
 
 # ---------------------------------------------------------------------------
 # Test: 403 with wrong role (REGIONAL_ENCODER)
@@ -208,10 +203,6 @@ class TestWrongRole:
 
     def test_stats_returns_403(self, client_with_encoder):
         response = client_with_encoder.get("/api/civilian/contributor/stats")
-        assert response.status_code == 403
-
-    def test_leaderboard_returns_403(self, client_with_encoder):
-        response = client_with_encoder.get("/api/civilian/contributor/leaderboard")
         assert response.status_code == 403
 
 
@@ -343,78 +334,9 @@ class TestContributorStats:
         assert data["monthly_report_counts"] == []
 
 
-class TestContributorLeaderboard:
-    """GET /api/civilian/contributor/leaderboard with valid reporter auth."""
+class TestContributorLeaderboardRemoved:
+    """The retired leaderboard endpoint must not be publicly exposed."""
 
-    def test_leaderboard_returns_200(self, client_with_reporter):
+    def test_leaderboard_route_is_not_registered(self, client_with_reporter):
         response = client_with_reporter.get("/api/civilian/contributor/leaderboard")
-        assert response.status_code == 200
-
-    def test_leaderboard_has_expected_structure(self, client_with_reporter):
-        response = client_with_reporter.get("/api/civilian/contributor/leaderboard")
-        data = response.json()
-        assert isinstance(data, list)
-        if data:
-            entry = data[0]
-            assert "rank" in entry
-            assert "user_id" in entry
-            assert "display_name" in entry
-            assert "trust_score" in entry
-            assert "badge" in entry
-            assert "report_count" in entry
-
-    def test_leaderboard_ordering(self, client_with_reporter, db_session):
-        """Create two contributors and verify ordering by trust_score DESC."""
-        # Create first contributor with higher trust score
-        kid1 = uuid.uuid4()
-        uid1 = db_session.execute(
-            text("""
-                INSERT INTO wims.users (keycloak_id, username, role)
-                VALUES (:kid, :uname, 'CIVILIAN_REPORTER')
-                RETURNING user_id
-            """),
-            {"kid": kid1, "uname": f"leader_a_{kid1.hex[:8]}"},
-        ).scalar()
-        db_session.execute(
-            text("""
-                INSERT INTO wims.civilian_contributors (user_id, trust_score, badge, opt_in_leaderboard)
-                VALUES (:uid, 75, 'TRUSTED', TRUE)
-                ON CONFLICT (user_id) DO NOTHING
-            """),
-            {"uid": uid1},
-        )
-
-        # Create second contributor with lower trust score
-        kid2 = uuid.uuid4()
-        uid2 = db_session.execute(
-            text("""
-                INSERT INTO wims.users (keycloak_id, username, role)
-                VALUES (:kid, :uname, 'CIVILIAN_REPORTER')
-                RETURNING user_id
-            """),
-            {"kid": kid2, "uname": f"leader_b_{kid2.hex[:8]}"},
-        ).scalar()
-        db_session.execute(
-            text("""
-                INSERT INTO wims.civilian_contributors (user_id, trust_score, badge, opt_in_leaderboard)
-                VALUES (:uid, 25, 'REGULAR', TRUE)
-                ON CONFLICT (user_id) DO NOTHING
-            """),
-            {"uid": uid2},
-        )
-        db_session.commit()
-
-        response = client_with_reporter.get("/api/civilian/contributor/leaderboard")
-        assert response.status_code == 200
-        data = response.json()
-        # Find our test users
-        entries = [e for e in data if e["user_id"] in (str(uid1), str(uid2))]
-        if len(entries) >= 2:
-            assert entries[0]["trust_score"] >= entries[1]["trust_score"]
-
-    def test_leaderboard_limit(self, client_with_reporter):
-        response = client_with_reporter.get("/api/civilian/contributor/leaderboard?limit=5")
-        assert response.status_code == 200
-        data = response.json()
-        assert isinstance(data, list)
-        assert len(data) <= 5
+        assert response.status_code == 404

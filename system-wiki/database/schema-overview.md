@@ -1,10 +1,10 @@
 ---
 title: Database Schema Overview
 created: 2026-05-14
-updated: 2026-06-22
+updated: 2026-07-12
 type: database
 tags: [wims-bfp, database, schema, rls, audit-log, implementation-map, alembic]
-sources: [raw/codebase/codebase-snapshot-2026-05-14.md, src/postgres-init, src/backend/alembic, src/backend/entrypoint.sh]
+sources: [raw/codebase/codebase-snapshot-2026-05-14.md, src/postgres-init, src/postgres-init/86_civilian_contributor_snapshot.sql, src/postgres-init/87_photo_preupload_schema.sql, src/postgres-init/88_anonymous_photo_ownership.sql, src/backend/alembic, src/backend/alembic/versions/0007_contributor_snapshot_cleanup.py, src/backend/alembic/versions/0008_photo_preupload_schema.py, src/backend/alembic/versions/0009_anonymous_photo_ownership_helpers.py, src/backend/entrypoint.sh]
 status: draft
 ---
 
@@ -66,6 +66,7 @@ PostgreSQL/PostGIS clean-volume schema is bootstrapped by ordered SQL files in
 | `wims.scheduled_reports` | `13_export_reports.sql` |
 | `wims.incident_verification_history` | `15_validator_workflow.sql` |
 | `wims.reference_sequence` | `27_reference_sequence.sql` |
+| `wims.civilian_contributors` | `86_civilian_contributor_snapshot.sql`; persistent upgrade `0006`/`0007` |
 
 ## Schema Clusters
 - Reference geography: `wims.ref_regions`, `wims.ref_provinces`, `wims.ref_cities`, `wims.ref_barangays`.
@@ -74,7 +75,7 @@ PostgreSQL/PostGIS clean-volume schema is bootstrapped by ordered SQL files in
 - Verification/immutability: `wims.incident_verification_history` has final-schema UPDATE/DELETE blocking rules. `wims.system_audit_trails` is required to be append-only, but `72_partition_audit_trail.sql` replaces the table after migration 17 and does not recreate `no_update_audit`/`no_delete_audit`; this is an open enforcement gap in [[gaps/frs-codebase-gap-register]].
 - Analytics: `wims.analytics_incident_facts`, materialized view SQL, export/scheduled report tables. Migration `28_analytics_geography_denorm.sql` adds denormalized `municipality_name` and `province_name` fields for analyst filters/top-N views, plus export task/file metadata on `analytics_export_log`. Scheduled reports remain deferred outside the National Analyst dashboard phase.
 - Security: `wims.security_threat_logs`, `wims.system_audit_trails`, `wims.ip_blocklist`, public keys.
-- Civilian reporting: `wims.citizen_reports` stores device-UUID-owned reports. The `location` column is a PostGIS `geography` type — when extracting latitude/longitude via `ST_Y`/`ST_X`, the column must be cast to `geometry`: `ST_Y(location::geometry)` or `ST_X(location::geometry)`. The Phase 2 update flow uses `GET /api/civilian/reports?device_id=` to enumerate a device's owned reports before allowing an append.
+- Civilian reporting: `wims.citizen_reports` stores device-UUID-owned reports. The `location` column is a PostGIS `geography` type — when extracting latitude/longitude via `ST_Y`/`ST_X`, the column must be cast to `geometry`: `ST_Y(location::geometry)` or `ST_X(location::geometry)`. The Phase 2 update flow uses `GET /api/civilian/reports?device_id=` to enumerate a device's owned reports before allowing an append. `wims.civilian_contributors` stores the trust-score snapshot/cache with `formula_version` defaulting to `reliability-v1`; the retired `opt_in_leaderboard` column is absent. Clean-volume bootstrap is canonicalized by `86_civilian_contributor_snapshot.sql`, while Alembic `0007` upgrades databases that already ran `0006`.
 - Operations board: `wims.operations` stores validator-maintained active and archived fire operations. `keep_overnight` is a one-reset carryover flag; daily/manual resets write `wims.operation_reset_batches` and soft-archive non-kept rows via `is_archived`/`archived_at` metadata.
 
 ## DB-Enforced vs App-Enforced Invariants
@@ -103,12 +104,14 @@ enforcing `col IS NULL OR col >= 0`:
 - `wims.incident_sensitive_details`: `pii_blob_consistency` (pii_blob_enc ↔ encryption_iv)
 - `wims.security_threat_logs`: `suricata_sid` > 0
 
-### Civilian photo v5 migrations (2026-07-10)
+### Civilian photo migrations (2026-07-10–12)
 - **83_photo_exif_metadata.sql** (`wims.report_photos`): Adds `exif_gps_lat NUMERIC(10,7)`, `exif_gps_lon NUMERIC(10,7)`, `exif_gps_altitude NUMERIC`, `exif_datetime_original TIMESTAMPTZ`, `exif_data_source TEXT` with comments.
 - **84_photo_idempotency_key.sql** (`wims.report_photos`): Adds `client_photo_id UUID` with partial unique index `idx_report_photos_client_id WHERE client_photo_id IS NOT NULL`.
 - **85_citizen_report_idempotency.sql** (`wims.citizen_reports`): Adds `client_report_id UUID` with partial unique index `idx_citizen_reports_client_id WHERE client_report_id IS NOT NULL`.
-- Application path: startup SQL patches (main.py) and Alembic revision 0003.
-- `wims.report_photos` RLS: `FORCE ROW LEVEL SECURITY` preserved. Idempotent INSERT uses `ON CONFLICT DO NOTHING RETURNING` to avoid SELECT under ANONYMOUS RLS.
+- **87_photo_preupload_schema.sql** (`wims.report_photos`, Alembic `0008`): Makes `report_id` nullable for pending rows while retaining its FK, adds `attached_at`, backfills legacy attached rows from `created_at`, enforces pending/attached timestamp consistency, and adds the partial pending-owner index. Existing encrypted artifact columns and uploader XOR ownership remain unchanged.
+- **88_anonymous_photo_ownership.sql** (`wims.anonymous_sessions`/`wims.citizen_reports`/`wims.report_photos`, Alembic `0009`): Adds absolute expiry and revocation state, validates lowercase 64-character SHA-256 token hashes, removes direct application session-table DML, and binds reports and new photo rows to `anonymous_session_id` while preserving legacy NULL/device-attached rows. Fixed-search-path helpers issue/validate/revoke bearers, authorize pending rows, and lock/atomically attach complete same-session photo sets; report submission must set the validated session owner before attach.
+- Application path: 83–85 also have legacy startup SQL patch coverage; persistent 87/88 upgrades use Alembic `0008`/`0009`, while clean bootstrap applies numbered SQL through 88.
+- `wims.report_photos` remains `FORCE ROW LEVEL SECURITY`: staff access to attached rows is unchanged, registered users can access only their own pending rows, and anonymous pending access is helper-bound rather than a permissive RLS exception. No broad `BYPASSRLS`/`TRUE` policy is introduced.
 
 ### App-Enforced Only (Pydantic / application logic)
 

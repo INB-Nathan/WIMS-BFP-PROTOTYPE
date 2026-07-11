@@ -1,7 +1,7 @@
 ---
 title: Backend API Route Map
 created: 2026-05-14
-updated: 2026-07-10
+updated: 2026-07-12
 type: backend
 tags: [wims-bfp, backend, api, implementation-map]
 sources: [raw/codebase/codebase-snapshot-2026-05-14.md, src/backend/api/routes]
@@ -24,6 +24,7 @@ FastAPI route ownership snapshot from `src/backend/api/routes`.
 | `civilian.py` | `GET` | `/report-clusters` | `get_report_clusters` | Public-safe root-map areas from durable civilian report clusters; no raw cluster/report IDs. |
 | `civilian.py` | `POST` | `/reports/{report_id}/followup` | `submit_civilian_followup` | Public text follow-up linked to existing report (Issue #62). Terminal reports blocked. |
 | `civilian.py` | `POST` | `/reports/{report_id}/photos` | `upload_report_photo` | Post-submit multipart photo attachment; delegates validation, EXIF sanitization, encryption, ownership, RLS, and audit to `services.report_photos`. |
+| `civilian.py` | `POST` | `/photos/upload` | `upload_pending_civilian_photo` | Registered CIVILIAN_REPORTER-only encrypted pending upload; report/device IDs are not accepted. Anonymous requests return explicit 501 until a dedicated capability-bound pending INSERT helper exists. |
 | `sessions.py` | `GET` | `/sessions/{user_id}` | `list_user_sessions` |
 | `sessions.py` | `DELETE` | `/sessions/{user_id}/{session_id}` | `terminate_user_session` |
 | `user.py` | `GET` | `/me/profile` | `get_my_profile` |
@@ -167,7 +168,11 @@ FastAPI route ownership snapshot from `src/backend/api/routes`.
 - Planned post-grill analyst export module: selected-record/full-AFOR exports should be implemented as separate `incidents.py` analyst export endpoints (`POST /api/incidents/analyst/export`, `GET /api/incidents/analyst/export/{task_id}`), not as extensions of the aggregate analytics export endpoint. A status endpoint is deferred until after the MVP dashboard.
 - `public_dmz.py` is the unauthenticated public submission surface; fail closed on all adjacent changes and read [[security/security-baseline]].
 - `ref.py` is the reference data read API tied to `wims.ref_*` tables in [[database/schema-overview]].
-- The civilian photo route deliberately uses `get_photo_db()` from `src/backend/auth.py`, not the admin `get_db()` dependency: anonymous requests leave the RLS user GUC unset, while registered requests set it from the authenticated user. `wims.report_photos` remains the final authorization boundary under `FORCE ROW LEVEL SECURITY`; ownership failures are normalized to a neutral 404.
+- The civilian photo route deliberately uses `get_photo_db()` from `src/backend/auth.py`, not the admin `get_db()` dependency: anonymous requests leave the RLS user GUC unset, while registered requests set it from the authenticated user. `wims.report_photos` remains the final authorization boundary under `FORCE ROW LEVEL SECURITY`; ownership failures are normalized to a neutral 404. `get_anonymous_session_id()` reads only an Authorization bearer, validates via `services/anonymous_sessions.py`, and exposes only the derived session UUID; absent capability remains anonymous.
+
+## Civilian Photo Upload (v6 — 2026-07-12)
+- `POST /api/civilian/photos/upload` creates an encrypted pending row for a registered `CIVILIAN_REPORTER`, with `uploader_user_id` set and `report_id`, `attached_at`, `uploader_device_id`, and `anonymous_session_id` NULL. It reuses the existing magic-byte/size validation, EXIF-before-strip processing, hashes, AES-GCM/OpenBao artifacts, safe paths, idempotency key, owner-scoped pending cap, and fail-closed artifact cleanup.
+- Anonymous requests to the same route return the explicit feature-unavailable response; capability validation remains available but anonymous pending insertion is deferred to a dedicated helper. The route accepts no report ID.
 
 ## Civilian Photo Upload (v5 — 2026-07-10)
 - `POST /api/civilian/reports` now accepts `client_report_id` (UUID string) in the JSON body for idempotent report submission. Parsed before rate-limit check: if `client_report_id` matches an existing row, returns 200 with the existing report without consuming per-IP quota.

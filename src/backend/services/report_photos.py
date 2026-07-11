@@ -44,7 +44,8 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
-from schemas.civilian import BrowserGPSFields, PhotoUploadResponse
+from schemas.civilian import BrowserGPSFields, PendingPhotoUploadResponse, PhotoUploadResponse
+from services.anonymous_sessions import resolve_pending_photo_owner
 from services.kms import get_crypto_provider
 from utils.audit import log_system_audit
 from utils.crypto import SecurityProviderError
@@ -253,13 +254,273 @@ def _cleanup_files(paths: list[str], storage_dir: Path | None = None) -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# Pre-upload operation
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def upload_pending_photo(
+    db: Session,
+    file: UploadFile,
+    registered_user: dict | None,
+    anonymous_session_id: uuid.UUID | None,
+    browser_gps_lat: float | None = None,
+    browser_gps_lon: float | None = None,
+    browser_gps_accuracy: float | None = None,
+    browser_gps_captured_at: datetime | None = None,
+    exif_gps_lat: float | None = None,
+    exif_gps_lon: float | None = None,
+    exif_gps_altitude: float | None = None,
+    exif_datetime_original: datetime | None = None,
+    client_photo_id: uuid.UUID | None = None,
+    **_: Any,
+) -> PendingPhotoUploadResponse:
+    """Validate, encrypt, and create a registered pending photo row.
+
+    Anonymous callers are deliberately rejected before touching the upload or
+    database.  The anonymous capability/session helpers currently support
+    validation and attach authorization, but not a safe pending INSERT helper;
+    that helper is the next dependency for anonymous pre-upload.
+    """
+    if registered_user is None:
+        # Resolve (without using) a supplied capability so ownership remains
+        # capability-derived if this path is enabled in a future slice.
+        try:
+            resolve_pending_photo_owner(
+                registered_user=None,
+                anonymous_session_id=anonymous_session_id,
+            )
+        except ValueError:
+            pass
+        raise HTTPException(
+            status_code=501,
+            detail="Anonymous pre-upload is not enabled until capability-bound RLS is deployed",
+        )
+    if registered_user.get("role") != "CIVILIAN_REPORTER":
+        raise HTTPException(status_code=403, detail="CIVILIAN_REPORTER role required")
+
+    result = upload_and_attach_photo(
+        db=db,
+        report_id=None,
+        file=file,
+        device_id=None,
+        browser_gps_lat=browser_gps_lat,
+        browser_gps_lon=browser_gps_lon,
+        browser_gps_accuracy=browser_gps_accuracy,
+        browser_gps_captured_at=browser_gps_captured_at,
+        registered_user=registered_user,
+        exif_gps_lat=exif_gps_lat,
+        exif_gps_lon=exif_gps_lon,
+        exif_gps_altitude=exif_gps_altitude,
+        exif_datetime_original=exif_datetime_original,
+        client_photo_id=client_photo_id,
+        pending=True,
+    )
+    if not isinstance(result, PendingPhotoUploadResponse):
+        raise RuntimeError("pending upload returned an attached-photo response")
+    return result
+
+
+def _insert_pending_photo(
+    db: Session,
+    photo_id: str,
+    uploader_id: str,
+    client_photo_id: uuid.UUID | None,
+    expected_mime: str,
+    ext: str,
+    content: bytes,
+    sanitized: Any,
+    original_sha256: str,
+    sanitized_sha256: str,
+    orig_path: str,
+    orig_enc_meta: dict[str, Any],
+    sanitized_path: str,
+    sanitized_enc_meta: dict[str, Any],
+    ct_b64: str,
+    metadata_enc_meta: dict[str, Any],
+    exif_gps_status: str,
+    browser_gps_status: str,
+    exif_data_source: str | None,
+    consensus: str | None,
+    uploaded_paths: list[str],
+    storage_dir: Path,
+) -> PendingPhotoUploadResponse:
+    """Insert a registered pending row under the existing RLS session."""
+    try:
+        # Serialize pending-cap checks per registered owner. The query remains
+        # RLS-scoped; no admin session or BYPASSRLS path is used.
+        db.execute(
+            text("SELECT pg_advisory_xact_lock(hashtext('rl:civilian-pending-photo:' || :uid))"),
+            {"uid": uploader_id},
+        )
+        if client_photo_id:
+            existing = db.execute(
+                text(
+                    "SELECT 1 FROM wims.report_photos "
+                    "WHERE client_photo_id = :client_photo_id "
+                    "AND uploader_user_id = :uid AND report_id IS NULL"
+                ),
+                {"client_photo_id": client_photo_id, "uid": uploader_id},
+            ).scalar()
+            if existing is not None:
+                _cleanup_files(uploaded_paths, storage_dir)
+                return PendingPhotoUploadResponse(
+                    photo_id=None,
+                    report_id=None,
+                    duplicate=True,
+                    file_size_bytes=0,
+                    mime_type=expected_mime,
+                    image_width=0,
+                    image_height=0,
+                    exif_gps_status="unavailable",
+                    browser_gps_status="unavailable",
+                    gps_consensus=None,
+                    photo_reported_distance_m=None,
+                )
+
+        pending_count = db.execute(
+            text(
+                "SELECT COUNT(*) FROM wims.report_photos "
+                "WHERE report_id IS NULL AND uploader_user_id = :uid"
+            ),
+            {"uid": uploader_id},
+        ).scalar()
+        if pending_count is not None and int(pending_count) >= REGISTERED_PHOTO_CAP:
+            _cleanup_files(uploaded_paths, storage_dir)
+            raise HTTPException(
+                status_code=409,
+                detail=f"Pending photo cap reached (max {REGISTERED_PHOTO_CAP})",
+            )
+
+        columns = (
+            "photo_id, report_id, attached_at, uploader_user_id, uploader_device_id, "
+            "anonymous_session_id, media_type, file_extension, image_width, image_height, "
+            "file_size_bytes, original_storage_path, original_file_size_bytes, original_sha256, "
+            "orig_encryption_iv, orig_key_version, orig_crypto_provider, orig_kms_key_name, "
+            "sanitized_storage_path, sanitized_file_size_bytes, sanitized_sha256, "
+            "sanitized_encryption_iv, sanitized_key_version, sanitized_crypto_provider, "
+            "sanitized_kms_key_name, sensitive_metadata_blob_enc, metadata_encryption_iv, "
+            "metadata_key_version, metadata_crypto_provider, metadata_kms_key_name, "
+            "exif_gps_status, browser_gps_status, gps_consensus, exif_data_source"
+        )
+        values = (
+            ":photo_id, NULL, NULL, :uploader_user_id, NULL, NULL, :media_type, :file_extension, "
+            ":image_width, :image_height, :file_size_bytes, :original_storage_path, "
+            ":original_file_size_bytes, :original_sha256, :orig_encryption_iv, :orig_key_version, "
+            ":orig_crypto_provider, :orig_kms_key_name, :sanitized_storage_path, "
+            ":sanitized_file_size_bytes, :sanitized_sha256, :sanitized_encryption_iv, "
+            ":sanitized_key_version, :sanitized_crypto_provider, :sanitized_kms_key_name, "
+            ":sensitive_metadata_blob_enc, :metadata_encryption_iv, :metadata_key_version, "
+            ":metadata_crypto_provider, :metadata_kms_key_name, :exif_gps_status, "
+            ":browser_gps_status, :gps_consensus, :exif_data_source"
+        )
+        suffix = ""
+        if client_photo_id:
+            columns += ", client_photo_id"
+            values += ", :client_photo_id"
+            suffix = " ON CONFLICT (client_photo_id) WHERE client_photo_id IS NOT NULL DO NOTHING"
+        row = db.execute(
+            text(
+                f"INSERT INTO wims.report_photos ({columns}) VALUES ({values}){suffix} RETURNING photo_id"
+            ),
+            {
+                "photo_id": photo_id,
+                "uploader_user_id": uploader_id,
+                "media_type": expected_mime,
+                "file_extension": ext,
+                "image_width": sanitized.width,
+                "image_height": sanitized.height,
+                "file_size_bytes": len(content),
+                "original_storage_path": orig_path,
+                "original_file_size_bytes": len(content),
+                "original_sha256": original_sha256,
+                "orig_encryption_iv": orig_enc_meta["encryption_iv"],
+                "orig_key_version": orig_enc_meta["key_version"],
+                "orig_crypto_provider": orig_enc_meta["crypto_provider"],
+                "orig_kms_key_name": orig_enc_meta["kms_key_name"],
+                "sanitized_storage_path": sanitized_path,
+                "sanitized_file_size_bytes": len(sanitized.data),
+                "sanitized_sha256": sanitized_sha256,
+                "sanitized_encryption_iv": sanitized_enc_meta["encryption_iv"],
+                "sanitized_key_version": sanitized_enc_meta["key_version"],
+                "sanitized_crypto_provider": sanitized_enc_meta["crypto_provider"],
+                "sanitized_kms_key_name": sanitized_enc_meta["kms_key_name"],
+                "sensitive_metadata_blob_enc": ct_b64,
+                "metadata_encryption_iv": metadata_enc_meta["encryption_iv"],
+                "metadata_key_version": metadata_enc_meta["key_version"],
+                "metadata_crypto_provider": metadata_enc_meta["crypto_provider"],
+                "metadata_kms_key_name": metadata_enc_meta["kms_key_name"],
+                "exif_gps_status": exif_gps_status,
+                "browser_gps_status": browser_gps_status,
+                "gps_consensus": consensus,
+                "exif_data_source": exif_data_source,
+                "client_photo_id": client_photo_id,
+            },
+        ).scalar()
+        if row is None:
+            _cleanup_files(uploaded_paths, storage_dir)
+            return PendingPhotoUploadResponse(
+                photo_id=None,
+                report_id=None,
+                duplicate=True,
+                file_size_bytes=0,
+                mime_type=expected_mime,
+                image_width=0,
+                image_height=0,
+                exif_gps_status="unavailable",
+                browser_gps_status="unavailable",
+                gps_consensus=None,
+                photo_reported_distance_m=None,
+            )
+
+        log_system_audit(
+            db=db,
+            user_id=uploader_id,
+            action_type="PHOTO_UPLOAD_PREUPLOAD",
+            table_affected="wims.report_photos",
+            record_id=None,
+            new_values={"photo_id": photo_id},
+            sensitive=True,
+        )
+        db.commit()
+    except HTTPException:
+        db.rollback()
+        raise
+    except DBAPIError as exc:
+        _cleanup_files(uploaded_paths, storage_dir)
+        db.rollback()
+        original = getattr(exc, "orig", None)
+        sqlstate = getattr(original, "pgcode", None) or getattr(original, "sqlstate", None)
+        if sqlstate == "42501":
+            raise HTTPException(status_code=404, detail="Photo not found") from exc
+        raise HTTPException(status_code=500, detail="Failed to insert photo record") from exc
+    except Exception as exc:
+        _cleanup_files(uploaded_paths, storage_dir)
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to save photo record") from exc
+
+    return PendingPhotoUploadResponse(
+        photo_id=photo_id,
+        report_id=None,
+        duplicate=False,
+        file_size_bytes=len(content),
+        mime_type=expected_mime,
+        image_width=sanitized.width,
+        image_height=sanitized.height,
+        exif_gps_status=exif_gps_status,
+        browser_gps_status=browser_gps_status,
+        gps_consensus=consensus,
+        photo_reported_distance_m=None,
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # Main upload-and-attach operation
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
 def upload_and_attach_photo(
     db: Session,
-    report_id: int,
+    report_id: int | None,
     file: UploadFile,
     device_id: str | None,
     browser_gps_lat: float | None,
@@ -272,7 +533,8 @@ def upload_and_attach_photo(
     exif_gps_altitude: float | None = None,
     exif_datetime_original: datetime | None = None,
     client_photo_id: uuid.UUID | None = None,
-) -> PhotoUploadResponse:
+    pending: bool = False,
+) -> PhotoUploadResponse | PendingPhotoUploadResponse:
     """Upload, validate, encrypt, and attach a photo to a civilian report.
 
     This is the main service entry point called by the thin route handler.
@@ -307,7 +569,24 @@ def upload_and_attach_photo(
     photo_id: str | None = None
     anonymous_device_uuid: uuid.UUID | None = None
 
-    if is_registered:
+    if pending:
+        if not is_registered:
+            raise HTTPException(
+                status_code=501,
+                detail="Anonymous pre-upload is not enabled until capability-bound RLS is deployed",
+            )
+        try:
+            pending_owner_id, pending_session_id = resolve_pending_photo_owner(
+                registered_user=registered_user,
+                anonymous_session_id=None,
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=403, detail="CIVILIAN_REPORTER identity required"
+            ) from exc
+        if pending_owner_id is None or pending_session_id is not None:
+            raise HTTPException(status_code=403, detail="CIVILIAN_REPORTER identity required")
+    elif is_registered:
         if registered_user.get("role") != "CIVILIAN_REPORTER":
             raise HTTPException(status_code=404, detail="Report not found")
     else:
@@ -445,7 +724,9 @@ def upload_and_attach_photo(
         "original_filename": safe_name,
         "exif_gps_lat": extracted.gps.latitude if extracted.gps else None,
         "exif_gps_lon": extracted.gps.longitude if extracted.gps else None,
-        "exif_datetime_original": extracted.datetime_original,
+        "exif_datetime_original": (
+            extracted.datetime_original.isoformat() if extracted.datetime_original else None
+        ),
         "exif_offset_time": extracted.offset_time,
         "exif_make": extracted.make,
         "exif_model": extracted.model,
@@ -468,6 +749,38 @@ def upload_and_attach_photo(
     # ── 8. Compute hashes ─────────────────────────────────────────────────
     original_sha256 = hashlib.sha256(content).hexdigest()
     sanitized_sha256 = hashlib.sha256(sanitized.data).hexdigest()
+
+    if pending:
+        return _insert_pending_photo(
+            db=db,
+            photo_id=photo_id,
+            uploader_id=str(pending_owner_id),
+            client_photo_id=client_photo_id,
+            expected_mime=expected_mime,
+            ext=ext,
+            content=content,
+            sanitized=sanitized,
+            original_sha256=original_sha256,
+            sanitized_sha256=sanitized_sha256,
+            orig_path=orig_path,
+            orig_enc_meta=orig_enc_meta,
+            sanitized_path=sanitized_path,
+            sanitized_enc_meta=sanitized_enc_meta,
+            ct_b64=ct_b64,
+            metadata_enc_meta=metadata_enc_meta,
+            exif_gps_status="present" if extracted.gps_present else "unavailable",
+            browser_gps_status="present" if browser_gps_present else "unavailable",
+            exif_data_source=exif_data_source,
+            consensus=compute_gps_consensus(
+                photo_gps if (server_exif_available or client_exif_available) else extracted.gps,
+                browser_gps_lat if browser_gps_present else None,
+                browser_gps_lon if browser_gps_present else None,
+                browser_gps_accuracy if browser_gps_present else None,
+                None,
+            ),
+            uploaded_paths=uploaded_paths,
+            storage_dir=storage_dir,
+        )
 
     # ── 9. PostGIS distances (will compute after DB lock) ──────────────────
     # We'll compute these within the locked transaction using PostGIS.

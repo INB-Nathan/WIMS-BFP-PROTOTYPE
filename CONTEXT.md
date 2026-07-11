@@ -24,6 +24,10 @@ _Avoid_: Severity, risk level, validator priority
 A BFP-managed incident record created through the internal workflow. It is distinct from civilian reports and should not be implied by public cluster map labels.
 _Avoid_: Civilian report, public signal
 
+**Community Safety Hub**:
+The public `/community` page for safety guidance, announcements, informational events, and BFP station discovery. It is separate from the anonymous emergency-reporting flow at `/` and does not rank contributors.
+_Avoid_: Public leaderboard, social forum
+
 ## Flagged Ambiguities
 
 **"incident" on the public root map**:

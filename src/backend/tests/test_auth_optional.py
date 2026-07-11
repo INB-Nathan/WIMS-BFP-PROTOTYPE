@@ -31,13 +31,11 @@ async def _payload(_token):
 
 
 @pytest.mark.asyncio
-async def test_optional_auth_treats_401_and_403_identity_resolution_as_anonymous(monkeypatch):
-    monkeypatch.setattr(auth.authenticator, "validate_token", _payload)
-    for status_code in (401, 403):
-        monkeypatch.setattr(
-            auth, "get_current_wims_user", lambda *_args, **_kwargs: _raise(status_code)
-        )
-        assert await auth.optional_auth(_request_with_cookie(), object()) is None
+async def test_optional_auth_invalid_cookie_propagates_http_exception(monkeypatch):
+    monkeypatch.setattr(auth.authenticator, "validate_token", lambda _token: _raise(401))
+    with pytest.raises(HTTPException) as exc_info:
+        await auth.optional_auth(_request_with_cookie("invalid"), object())
+    assert exc_info.value.status_code == 401
 
 
 @pytest.mark.asyncio
