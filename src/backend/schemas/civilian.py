@@ -275,6 +275,62 @@ class BrowserGPSFields(BaseModel):
         return values
 
 
+class ContributorProfileResponse(BaseModel):
+    """Registered contributor profile with trust score, badge, and lifetime stats."""
+
+    trust_score: int
+    badge: str
+    total_reports: int
+    actioned_reports: int
+    pending_reports: int
+    first_report_at: datetime | None = None
+    last_report_at: datetime | None = None
+
+
+class ContributorReportItem(BaseModel):
+    """A single report entry in a contributor's paginated history."""
+
+    report_id: int
+    created_at: datetime
+    category: str | None = None
+    sub_category: str | None = None
+    status: str
+    latitude: float
+    longitude: float
+
+
+class ContributorReportsResponse(BaseModel):
+    """Paginated contributor report history."""
+
+    reports: list[ContributorReportItem]
+    total: int
+    page: int
+    limit: int
+    pages: int
+
+
+class LeaderboardEntry(BaseModel):
+    """A single entry on the contributor leaderboard."""
+
+    rank: int
+    user_id: str
+    display_name: str | None = None
+    trust_score: int
+    badge: str
+    report_count: int
+
+
+class ContributorStatsResponse(BaseModel):
+    """Contributor vanity metrics with monthly trend data."""
+
+    trust_score: int
+    badge: str
+    total_reports: int
+    actioned_reports: int
+    pending_reports: int
+    monthly_report_counts: list[dict] = []
+
+
 class PhotoUploadResponse(BaseModel):
     """Response body for successful photo upload (201) or duplicate (200).
 
