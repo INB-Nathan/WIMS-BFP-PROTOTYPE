@@ -14,6 +14,26 @@
 - **Offline:** Photos selectable while offline (camera/gallery always enabled). `syncPublicOfflineOps` calls `storePhotoLink`/`updatePhotoReportLink` after submit success. `syncPendingPhotos` skips null-linked photos.
 - **Fix PR:** [#544](https://github.com/x1n4te/WIMS-BFP-PROTOTYPE/pull/544) — 28 files, +2834/-227.
 
+## [2026-07-11] fix: repair migration 0004 — civilian contributor schema alignment + add 0005 fixup
+
+- **Scope:** Fixed 3 BLOCKER issues in the initial 0004 migration for civilian
+  contributor schema: (1) `report_tracking_tokens` table now uses BIGSERIAL PK
+  with `token_type`, `is_active`, `revoked_at`, `regenerated_from_id` columns
+  matching postgres-init SQL 80; (2) added missing `validate_tracking_token`
+  SECURITY DEFINER function; (3) added missing GRANT on `anonymous_sessions` to
+  `wims_app`. Corrected RLS policy drift on `tracking_tokens_select`/`update` to
+  match canonical definitions. Scoped sequence grant from ALL SEQUENCES to just
+  `report_tracking_tokens_tracking_token_id_seq`. Added 3-attempt retry loop in
+  entrypoint for migration failures.
+- **Migration 0005:** New fixup migration for databases (like VPS) that already
+  ran the buggy 0004. Applies ALTER corrections (missing columns, constraint
+  fixes, index replacement, RLS policies, function) that are no-ops on the
+  corrected 0004 schema, converging both paths to the same final state.
+- **Tests:** Added `test_0004_civilian_contributor_schema.py` with 20+ contract
+  tests covering table columns, RLS policies, function, and grants.
+- **Synthesis:** PR-level review by 5 voice agents (architect, security, qa,
+  devops, product) plus reviewer subagent, all blockers resolved.
+
 ## [2026-07-10] feat(civilian): complete Phase 2 photo-pipeline handoff validation
 
 - **Scope:** Fixed `PhotoUpload` preview lifecycle: removed the effect-driven preview state that triggered `react-hooks/set-state-in-effect`, corrected the undefined preview guard, and assigns the object URL to the preview image from the file-change effect while revoking it on replacement/unmount.

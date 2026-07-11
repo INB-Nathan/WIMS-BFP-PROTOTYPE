@@ -1,4 +1,4 @@
-"""Catch up civilian contributor schema (migrations 80-81)
+"""Catch up civilian contributor schema (migrations 80-82)
 
 Applies the missing civilian contributor schema patches that were only
 run via postgres-init (fresh databases) or the disabled startup handler.
@@ -6,6 +6,7 @@ run via postgres-init (fresh databases) or the disabled startup handler.
 - Migration 80: anonymous_sessions table, report_tracking_tokens table
 - Migration 81: routing columns + contributor_user_id + anonymous_session_id
   on citizen_reports, tightened ANONYMOUS SELECT policy
+- Migration 82: CIVILIAN_REPORTER self-row access on citizen_reports_select
 
 Idempotent — safe for databases that already have these objects.
 
@@ -73,27 +74,39 @@ def _migration_80_anonymous_sessions() -> None:
         " USING (wims.current_user_role() = 'SYSTEM_ADMIN')"
     )
 
+    op.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON wims.anonymous_sessions TO wims_app")
+
 
 def _migration_80_tracking_tokens() -> None:
     """report_tracking_tokens table (migration 80)."""
     op.execute(
         """
         CREATE TABLE IF NOT EXISTS wims.report_tracking_tokens (
-            tracking_token_id      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            tracking_token_id      BIGSERIAL PRIMARY KEY,
             report_id              INTEGER NOT NULL REFERENCES wims.citizen_reports(report_id) ON DELETE CASCADE,
-            token_hash             TEXT NOT NULL UNIQUE,
-            expires_at             TIMESTAMPTZ NOT NULL DEFAULT now() + interval '90 days',
+            token_hash             TEXT NOT NULL,
+            token_type             TEXT NOT NULL DEFAULT 'public' CHECK (token_type IN ('public', 'anonymous')),
+            is_active              BOOLEAN NOT NULL DEFAULT TRUE,
+            expires_at             TIMESTAMPTZ,
+            revoked_at             TIMESTAMPTZ,
+            regenerated_from_id    BIGINT REFERENCES wims.report_tracking_tokens(tracking_token_id),
             created_at             TIMESTAMPTZ NOT NULL DEFAULT now()
         )
         """
+    )
+    op.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_uq_active_token_per_report"
+        " ON wims.report_tracking_tokens(report_id)"
+        " WHERE is_active = TRUE"
     )
     op.execute(
         "CREATE INDEX IF NOT EXISTS idx_tracking_tokens_report"
         " ON wims.report_tracking_tokens(report_id)"
     )
     op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_tracking_tokens_expires"
-        " ON wims.report_tracking_tokens(expires_at)"
+        "CREATE INDEX IF NOT EXISTS idx_tracking_tokens_hash"
+        " ON wims.report_tracking_tokens(token_hash)"
+        " WHERE is_active = TRUE"
     )
     op.execute("ALTER TABLE wims.report_tracking_tokens ENABLE ROW LEVEL SECURITY")
     op.execute("ALTER TABLE wims.report_tracking_tokens FORCE ROW LEVEL SECURITY")
@@ -102,13 +115,14 @@ def _migration_80_tracking_tokens() -> None:
         (
             "tracking_tokens_select",
             "SELECT",
-            "USING (wims.current_user_role() IN ('SYSTEM_ADMIN', 'CIVILIAN_REPORTER', 'ANONYMOUS'))",
+            "USING (wims.current_user_role() IN ('SYSTEM_ADMIN', 'NATIONAL_VALIDATOR', 'NATIONAL_ANALYST'))",
         ),
         ("tracking_tokens_insert", "INSERT", "WITH CHECK (TRUE)"),
         (
             "tracking_tokens_update",
             "UPDATE",
-            "USING (wims.current_user_role() = 'SYSTEM_ADMIN') WITH CHECK (wims.current_user_role() = 'SYSTEM_ADMIN')",
+            "USING (wims.current_user_role() IN ('SYSTEM_ADMIN', 'NATIONAL_VALIDATOR'))"
+            " WITH CHECK (wims.current_user_role() IN ('SYSTEM_ADMIN', 'NATIONAL_VALIDATOR'))",
         ),
         ("tracking_tokens_delete", "DELETE", "USING (wims.current_user_role() = 'SYSTEM_ADMIN')"),
     ]:
@@ -117,7 +131,40 @@ def _migration_80_tracking_tokens() -> None:
 
     # Grant
     op.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON wims.report_tracking_tokens TO wims_app")
-    op.execute("GRANT USAGE ON ALL SEQUENCES IN SCHEMA wims TO wims_app")
+    # Scope sequence grant to only the tracking_token_id sequence (BIGSERIAL).
+    # Avoid the broad GRANT USAGE ON ALL SEQUENCES that could unintentionally
+    # expose restricted sequences (e.g., audit sequences).
+    op.execute(
+        "GRANT USAGE ON SEQUENCE wims.report_tracking_tokens_tracking_token_id_seq TO wims_app"
+    )
+
+    # ── SECURITY DEFINER helper for tracking token validation ──────────────
+    op.execute(
+        """
+        CREATE OR REPLACE FUNCTION wims.validate_tracking_token(
+            p_report_id INTEGER,
+            p_token_hash TEXT
+        )
+        RETURNS BOOLEAN
+        LANGUAGE sql
+        STABLE
+        SECURITY DEFINER
+        SET search_path = wims, pg_temp
+        AS $$
+            SELECT EXISTS (
+                SELECT 1
+                FROM wims.report_tracking_tokens
+                WHERE report_id = p_report_id
+                  AND token_hash = p_token_hash
+                  AND is_active = TRUE
+                  AND revoked_at IS NULL
+                  AND (expires_at IS NULL OR expires_at > now())
+            );
+        $$;
+        """
+    )
+    op.execute("REVOKE ALL ON FUNCTION wims.validate_tracking_token(INTEGER, TEXT) FROM PUBLIC")
+    op.execute("GRANT EXECUTE ON FUNCTION wims.validate_tracking_token(INTEGER, TEXT) TO wims_app")
 
 
 def _migration_81_routing_columns() -> None:
@@ -193,5 +240,11 @@ def downgrade() -> None:
         "routing_distance_m",
     ):
         op.execute(f"ALTER TABLE wims.citizen_reports DROP COLUMN IF EXISTS {col}")
+    op.execute("REVOKE ALL ON wims.report_tracking_tokens FROM wims_app")
+    op.execute("ALTER TABLE wims.anonymous_sessions NO FORCE ROW LEVEL SECURITY")
+    op.execute("ALTER TABLE wims.anonymous_sessions DISABLE ROW LEVEL SECURITY")
+    op.execute("ALTER TABLE wims.report_tracking_tokens NO FORCE ROW LEVEL SECURITY")
+    op.execute("ALTER TABLE wims.report_tracking_tokens DISABLE ROW LEVEL SECURITY")
+    op.execute("DROP FUNCTION IF EXISTS wims.validate_tracking_token(INTEGER, TEXT) CASCADE")
     op.execute("DROP TABLE IF EXISTS wims.report_tracking_tokens CASCADE")
     op.execute("DROP TABLE IF EXISTS wims.anonymous_sessions CASCADE")

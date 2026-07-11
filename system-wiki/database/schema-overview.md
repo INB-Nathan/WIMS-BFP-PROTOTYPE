@@ -24,10 +24,11 @@ PostgreSQL/PostGIS clean-volume schema is bootstrapped by ordered SQL files in
   database bootstrap file.
 - Revision `0002_startup_schema_patches.py` moved the former repeated startup DDL
   into a one-shot persistent migration.
-- `src/backend/entrypoint.sh` runs with Uvicorn lifespan disabled, verifies that the
-  database's current Alembic revision matches `alembic heads`, and resynchronizes
-  the IP blocklist. The legacy `main.py::apply_schema_patches()` startup handler is
-  not the normal container upgrade path under this entrypoint.
+- `src/backend/entrypoint.sh` runs with Uvicorn lifespan disabled, auto-applies any
+  pending migrations via `alembic upgrade head` (with 3-attempt retry loop), logs
+  the resulting revision, and resynchronizes the IP blocklist. The legacy
+  `main.py::apply_schema_patches()` startup handler is not the normal container
+  upgrade path under this entrypoint.
 
 
 | Table | Source file |
