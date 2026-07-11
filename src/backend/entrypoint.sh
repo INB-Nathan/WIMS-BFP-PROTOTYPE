@@ -22,7 +22,19 @@ _SKIP="${SKIP_MIGRATION_CHECK:-0}"
 
 if [ "$1" = "uvicorn" ] && [ "$_SKIP" != "1" ]; then
     echo "[entrypoint] === Running Alembic migrations ==="
-    alembic upgrade head
+    for i in 1 2 3; do
+        echo "[entrypoint] Attempt $i/3: Running Alembic migrations..."
+        if alembic upgrade head; then
+            break
+        fi
+        if [ "$i" -lt 3 ]; then
+            echo "[entrypoint] Migration attempt $i failed, retrying in 5s..."
+            sleep 5
+        else
+            echo "[entrypoint] FATAL: Migration failed after 3 attempts" >&2
+            exit 1
+        fi
+    done
     echo "[entrypoint] === Migration status ==="
     alembic current
 
