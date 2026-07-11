@@ -1079,6 +1079,7 @@ def apply_incident_field_updates(db: Session, incident_id: int, body: Any) -> No
 
 def build_audit_log_query(
     *,
+    actor_user_id: str,
     date_from: str | None,
     date_to: str | None,
     region_id: int | None,
@@ -1086,9 +1087,19 @@ def build_audit_log_query(
     role: str | None,
     action: str | None,
 ) -> tuple[str, dict[str, Any]]:
-    """Compose a parameterized WHERE clause for audit log queries."""
-    where_clauses = ["ivh.target_type = 'OFFICIAL'"]
-    params: dict[str, Any] = {}
+    """Compose a parameterized WHERE clause for audit log queries.
+
+    ``actor_user_id`` is a REQUIRED forced scope, not an optional filter: every
+    audit-log endpoint using this helper must only ever show the calling
+    user's own actions (RP-25 confidentiality — a validator/encoder/analyst
+    must never see another user's audit trail by leaving a filter blank).
+    The remaining params are additional narrowing on top of that forced scope.
+    """
+    where_clauses = [
+        "ivh.target_type = 'OFFICIAL'",
+        "ivh.action_by_user_id = CAST(:actor_user_id AS uuid)",
+    ]
+    params: dict[str, Any] = {"actor_user_id": actor_user_id}
     if date_from:
         where_clauses.append("ivh.action_timestamp >= CAST(:date_from AS timestamptz)")
         params["date_from"] = date_from
