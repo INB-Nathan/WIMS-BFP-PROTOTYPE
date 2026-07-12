@@ -63,10 +63,13 @@ class TestCreateUserNeverExposesPassword:
         app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
         app.dependency_overrides[get_db] = lambda: MagicMock()
 
-        with patch(
-            "api.routes.admin.users.create_keycloak_user",
-            return_value=("kc-uuid-1", True),
-        ), patch("api.routes.admin.users.log_system_audit"):
+        with (
+            patch(
+                "api.routes.admin.users.create_keycloak_user",
+                return_value=("kc-uuid-1", True),
+            ),
+            patch("api.routes.admin.users.log_system_audit"),
+        ):
             response = client.post("/api/admin/users", json=_new_user_payload())
 
         assert response.status_code == 201
@@ -84,10 +87,13 @@ class TestCreateUserNeverExposesPassword:
         app.dependency_overrides[auth.get_current_wims_user] = mock_admin_user
         app.dependency_overrides[get_db] = lambda: MagicMock()
 
-        with patch(
-            "api.routes.admin.users.create_keycloak_user",
-            return_value=("kc-uuid-2", False),
-        ), patch("api.routes.admin.users.log_system_audit"):
+        with (
+            patch(
+                "api.routes.admin.users.create_keycloak_user",
+                return_value=("kc-uuid-2", False),
+            ),
+            patch("api.routes.admin.users.log_system_audit"),
+        ):
             response = client.post("/api/admin/users", json=_new_user_payload())
 
         assert response.status_code == 201
