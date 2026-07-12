@@ -2,7 +2,7 @@
 
 import { AlertTriangle, CheckCircle2, MapPin, RadioTower } from 'lucide-react';
 import type { TriageReportEntry } from '@/lib/api';
-import { isValidPhilippinesCoordinate } from './triageGeometry';
+import { hasLifeSafetySignal, isValidPhilippinesCoordinate, statusTone } from './triageGeometry';
 import { isTerminalStatus, stripHtml } from './useTriageModalState';
 import { trustLevel, TRUST_COLORS } from '@/lib/trustColors';
 
@@ -13,19 +13,6 @@ export interface TriageEvidenceCardProps {
   compact?: boolean;
   onClick?: (reportId: number) => void;
   onStartCorrection?: (report: TriageReportEntry) => void;
-}
-
-const LIFE_SAFETY_STATUSES = new Set(['I_NEED_HELP', 'SOMEONE_ELSE_NEEDS_HELP']);
-
-function hasLifeSafetySignal(report: TriageReportEntry): boolean {
-  return LIFE_SAFETY_STATUSES.has(report.safety_status ?? '');
-}
-
-function statusTone(report: TriageReportEntry): string {
-  if (hasLifeSafetySignal(report)) return 'border-red-300 bg-red-50 text-red-900';
-  if (report.is_timeout_risk) return 'border-amber-300 bg-amber-50 text-amber-900';
-  if (report.trust_breakdown.score >= 75) return 'border-emerald-300 bg-emerald-50 text-emerald-900';
-  return 'border-slate-200 bg-white text-slate-900';
 }
 
 export function TriageEvidenceCard({

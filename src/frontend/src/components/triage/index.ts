@@ -8,8 +8,10 @@ export { TriageLegend } from './TriageLegend';
 export {
   deriveClusterGeometry,
   getTriageItemIdentity,
+  hasLifeSafetySignal,
   isValidPhilippinesCoordinate,
   sortTriageItemsByPriority,
+  statusTone,
 } from './triageGeometry';
 export type { ClusterGeometry, TriageItemIdentity, TriageItemType, ValidReportCoordinate } from './triageGeometry';
 

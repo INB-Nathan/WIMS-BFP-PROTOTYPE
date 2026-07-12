@@ -6,6 +6,39 @@
 - **Tests:** `tests/test_keycloak_admin.py` updated for the new tuple return (existing 8 tests still green, plus explicit `email_sent` assertions on the success/failure paths). New `tests/test_admin_user_credentials.py` (6 tests) asserts the create-user response never contains `temporary_password`/`note`, does contain `email_sent` (both `True`/`False` paths), and the resend endpoint is admin-gated and returns `email_sent`. No existing frontend test asserted the old password modal, so none broke; `admin-system-governance.test.tsx` (17 tests) still passes unmodified.
 - **Scope-out note:** the stale remote branch `fix/admin-onboarding-rls-and-schema` (86+ commits behind master, pre-dates the `admin.py` → `admin/` package split) touches an unrelated part of `keycloak_admin.py` (the `_get_admin_client()` auth-connection mechanism) — no overlap with this fix, not merged.
 
+## [2026-07-12] fix(ux): triage Investigation Board — table instead of cards (#521)
+
+- **Scope:** `TriageInvestigationBoard.tsx`'s selected-item evidence list (`selectedItem.reports.map(...)`,
+  previously `TriageEvidenceCard` per report) is now a 15-column table matching the issue's exact spec:
+  Report ID, Category/Sub, Context, Safety Status, Location, Trust Score, Signals Found, Missing Signals,
+  GPS Mismatch, Dup Device Count, Station, Distance, Status, Reported At, Aging/Timeout. Pure frontend
+  change — the `/api/triage/queue` response already carried every field the table needed; no backend/type
+  changes.
+- **Reuse, not reinvention:** extracted `hasLifeSafetySignal()`/`statusTone()` out of `TriageEvidenceCard.tsx`
+  into `triageGeometry.ts` (single source of truth, now shared by the card and the new table rows) rather
+  than duplicating the severity/trust-tone thresholds. Trust-score coloring reuses `src/lib/trustColors.ts`
+  unchanged; terminal-status styling reuses `isTerminalStatus()` from `useTriageModalState.ts`; the
+  "Reported At" column reuses `formatIncidentDate()` from `lib/incident-utils.ts` (previously only used by
+  the Encoder/Validator dashboards).
+- **Parity preserved:** row click still only calls `onSelectReport(report_id)` (selection, no navigation);
+  selected row gets `aria-selected` + a red ring (was the card's ring/border); life-safety badge and
+  no-usable-location text preserved; `data-testid` pattern changed `triage-evidence-card-{id}` →
+  `triage-evidence-row-{id}`.
+- **Untouched, per issue scope:** the "Ranked queue" sidebar (still the pre-existing button-list, not
+  converted), the "Inspect / Act" modal flow, `TriageActionTabs.tsx`, the parent page's fetch/poll/filter
+  logic, and all backend routes.
+- **Dead code not reproduced:** `TriageEvidenceCard`'s `suggested` prop and `onStartCorrection`/"Correct
+  terminal status" button were never passed at the board's call site (confirmed via full-codebase grep) —
+  not carried into the table; real correction lives in the separate Inspect/Act modal.
+- **Sequencing:** open PR #533 (`feat/auto-refresh-sse-518`) also edits the parent `triage/page.tsx` (SSE
+  hook + toast) but does not touch `TriageInvestigationBoard.tsx`/`TriageEvidenceCard.tsx` — no component
+  conflict; whichever PR merges second does a trivial rebase.
+- **Tests:** `TriageInvestigationBoard.test.tsx` updated (row testid, same visible-text assertions) plus
+  2 new tests (comma-separated signals + trust-tone class; row click calls `onSelectReport`) — 3/3 passing.
+  `triageGeometry.test.ts` (4/4) and `TriageCanvasMapInner.test.tsx` (2/2) unaffected.
+- **Validation:** ESLint and `tsc --noEmit` clean on all 5 touched files (pre-existing unrelated errors in
+  `ClusterMapInner.test.tsx` confirmed present on master too).
+
 ## [2026-07-10] docs(agents): rebuild scoped agent instruction hierarchy
 
 - **Scope:** Rewrote the six existing first-party `AGENTS.md` files and added `.pi/AGENTS.md` plus `src/AGENTS.md`, yielding eight maintained instruction scopes. The root now owns durable evidence/security rules; nested files own Pi, source/infrastructure, backend, frontend, docs, and wiki procedures.
