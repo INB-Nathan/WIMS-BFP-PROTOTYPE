@@ -27,6 +27,7 @@ import { IncidentConflictMergePanel } from '@/components/IncidentConflictMergePa
 import type { Incident } from '@/lib/edgeFunctions';
 import { getShortRegionName } from '@/lib/ph-regions';
 import { extractRegionalIncidentRouteId } from '@/lib/regionalIncidentRoute';
+import { reverseGeocode } from '@/lib/geocode';
 
 // Read-only map zoomed in on the pinned coordinates (M4 Bug 8-B/8-C)
 const IncidentLocationMap = dynamic(
@@ -490,6 +491,11 @@ export default function RegionalIncidentDetailPage() {
   const [showMissingFieldsModal, setShowMissingFieldsModal] = useState(false);
   const [missingFieldsList, setMissingFieldsList] = useState<string[]>([]);
   const [missingFieldKeys, setMissingFieldKeys] = useState<string[]>([]);
+  // Fallback live-geocode result — only used when the incident has no stored
+  // street_address/incident_address. undefined = not started/pending,
+  // null = geocode returned nothing usable, string = composed address.
+  const [fallbackGeocodedAddress, setFallbackGeocodedAddress] = useState<string | null | undefined>(undefined);
+  const fallbackGeocodeAttemptedForRef = useRef<string | null>(null);
   const [activeSectionId, setActiveSectionId] = useState<string>(SECTION_NAV_LINKS[0].id);
 
   // OCC conflict merge state
@@ -716,6 +722,27 @@ export default function RegionalIncidentDetailPage() {
     window.history.replaceState(null, '', window.location.pathname);
     void handleSubmit({});
   }, [detail]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fallback: only live-geocode when this incident has no stored street_address/
+  // incident_address at all (e.g. an older record). Never re-geocode when a
+  // stored address exists — that's the preferred, already-available value.
+  useEffect(() => {
+    if (!detail) return;
+    const sensLocal = detail.sensitive as Record<string, unknown> | undefined;
+    const nsLocal = detail.nonsensitive as Record<string, unknown> | undefined;
+    const storedAddress =
+      (sensLocal?.street_address as string | undefined) ?? (nsLocal?.incident_address as string | undefined);
+    if (storedAddress) return;
+    if (detail.latitude == null || detail.longitude == null) return;
+    const attemptKey = `${detail.incident_id ?? localIncidentId}:${detail.latitude}:${detail.longitude}`;
+    if (fallbackGeocodeAttemptedForRef.current === attemptKey) return;
+    fallbackGeocodeAttemptedForRef.current = attemptKey;
+    setFallbackGeocodedAddress(undefined);
+    reverseGeocode(detail.latitude, detail.longitude).then((geo) => {
+      const composed = geo ? [geo.barangay, geo.city, geo.province].filter(Boolean).join(', ') : '';
+      setFallbackGeocodedAddress(composed || null);
+    });
+  }, [detail, localIncidentId]);
 
   const MISSING_FIELD_KEY_MAP: Record<string, string> = {
     'Type of Responder': 'responder_type',
@@ -1018,6 +1045,10 @@ export default function RegionalIncidentDetailPage() {
   const categoryDisplay = ns?.sub_category ?? ns?.type_of_involved_general_category;
   const locationDisplay = [ns?.city_municipality, ns?.province_district, ns?.region].filter(Boolean).join(', ') || null;
   const completeAddress = sens?.street_address ?? ns?.incident_address;
+  // Fire-scene address to display: prefer the stored value; only fall back to
+  // the live-geocode result (undefined = pending, null = unresolved) when
+  // nothing was ever recorded.
+  const fireSceneAddress = completeAddress || fallbackGeocodedAddress;
   const isPendingSyncIncident = Boolean(localIncidentId && detail?.verification_status === 'PENDING_SYNC');
   const incidentTitle = isPendingSyncIncident
     ? 'Pending Sync Incident'
@@ -1731,10 +1762,21 @@ export default function RegionalIncidentDetailPage() {
             </DetailGrid>
           </Section>
 
-          <Section title="H. Fire Scene Location" sectionId="sec-geo" tone="emerald" subtitle="Recorded geographic coordinates and map pin.">
+          <Section title="H. Fire Scene Location" sectionId="sec-geo" tone="emerald" subtitle="Recorded address, coordinates, and map pin.">
             <DetailGrid>
-              <DetailField label="Latitude" value={detail.latitude != null ? detail.latitude.toFixed(6) : null} valueClassName="font-mono" />
-              <DetailField label="Longitude" value={detail.longitude != null ? detail.longitude.toFixed(6) : null} valueClassName="font-mono" />
+              <DetailField
+                label="Address"
+                value={
+                  fireSceneAddress === undefined
+                    ? 'Resolving address…'
+                    : (fireSceneAddress as string | null | undefined) ?? null
+                }
+                className="lg:col-span-2"
+              />
+            </DetailGrid>
+            <DetailGrid>
+              <DetailField label="📌 Latitude" value={detail.latitude != null ? detail.latitude.toFixed(6) : null} valueClassName="font-mono" />
+              <DetailField label="📌 Longitude" value={detail.longitude != null ? detail.longitude.toFixed(6) : null} valueClassName="font-mono" />
             </DetailGrid>
             {detail.latitude != null && detail.longitude != null ? (
               <div className="overflow-hidden border border-slate-200 bg-slate-100">
