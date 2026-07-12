@@ -7,6 +7,7 @@ import {
     fetchAdminUsers,
     updateAdminUser,
     createAdminUser,
+    resendAdminUserCredentials,
     fetchAdminSecurityLogs,
     fetchAuditLogsOfflineAware,
     analyzeSecurityLog,
@@ -52,9 +53,6 @@ import {
     XCircle,
     Sparkles,
     UserPlus,
-    Copy,
-    Eye,
-    EyeOff,
     LogOut,
     Monitor,
     Activity,
@@ -248,9 +246,8 @@ export default function AdminSystemPage() {
         contact_number: '',
     });
     const [isCreating, setIsCreating] = useState(false);
-    const [createdUser, setCreatedUser] = useState<{ username: string; temporary_password: string; note?: string } | null>(null);
-    const [showTempPassword, setShowTempPassword] = useState(false);
-    const [copySuccess, setCopySuccess] = useState(false);
+    const [createdUser, setCreatedUser] = useState<{ username: string; keycloak_id: string; email: string; email_sent: boolean } | null>(null);
+    const [isResending, setIsResending] = useState(false);
 
     // Scheduled Reports state (Issue #88 / #353)
     const [scheduledReports, setScheduledReports] = useState<ScheduledReport[]>([]);
@@ -799,7 +796,7 @@ export default function AdminSystemPage() {
                 contact_number: payload.contact_number || undefined,
                 assigned_region_id: payload.assigned_region_id,
             });
-            setCreatedUser({ username: result.username, temporary_password: result.temporary_password, note: result.note });
+            setCreatedUser({ username: result.username, keycloak_id: result.keycloak_id, email: result.email, email_sent: result.email_sent });
             setCreateForm({ first_name: '', last_name: '', email: '', username: '', role: 'REGIONAL_ENCODER', contact_number: '', assigned_region_id: '' });
             await loadUsers();
             setToast({ type: 'success', text: `User ${payload.username.trim()} created.` });
@@ -810,11 +807,22 @@ export default function AdminSystemPage() {
         }
     };
 
-    const handleCopyPassword = () => {
+    const handleResendCredentials = async () => {
         if (!createdUser) return;
-        navigator.clipboard.writeText(createdUser.temporary_password);
-        setCopySuccess(true);
-        setTimeout(() => setCopySuccess(false), 2000);
+        setIsResending(true);
+        try {
+            const result = await resendAdminUserCredentials(createdUser.keycloak_id);
+            setCreatedUser({ ...createdUser, email_sent: result.email_sent });
+            setToast(
+                result.email_sent
+                    ? { type: 'success', text: 'Set-password email resent.' }
+                    : { type: 'error', text: 'Email delivery failed again. Try again later.' }
+            );
+        } catch (e: unknown) {
+            setToast({ type: 'error', text: (e as { message?: string })?.message ?? 'Failed to resend credentials' });
+        } finally {
+            setIsResending(false);
+        }
     };
 
     const handleAnalyze = async (log: SecurityLog) => {
@@ -2351,35 +2359,40 @@ export default function AdminSystemPage() {
                         </div>
 
                         {createdUser ? (
-                            /* Success state — show the temporary password */
+                            /* Success state — confirm credential delivery, never show a password */
                             <div className="p-6 space-y-4">
                                 <div className="flex items-center gap-2 text-green-700 font-semibold">
                                     <CheckCircle className="w-5 h-5" />
                                     <span>User created successfully!</span>
                                 </div>
-                                <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 space-y-3">
-                                    <p className="text-sm text-amber-800 font-medium">{createdUser.note ?? '⚠ Distribute this temporary password to the user securely. They must change it on first login.'}</p>
-                                    <div>
-                                        <p className="text-xs text-gray-500 mb-1">Username</p>
-                                        <p className="text-sm bg-white border border-gray-200 rounded px-3 py-1.5">{createdUser.username}</p>
-                                    </div>
-                                    <div>
-                                        <p className="text-xs text-gray-500 mb-1">Temporary Password</p>
-                                        <div className="flex items-center gap-2">
-                                            <p className="text-sm bg-white border border-gray-200 rounded px-3 py-1.5 flex-1 tracking-widest">
-                                                {showTempPassword ? createdUser.temporary_password : '••••••••••••••'}
-                                            </p>
-                                            <button onClick={() => setShowTempPassword(!showTempPassword)} className="p-2 text-gray-500 hover:text-gray-700">
-                                                {showTempPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                                            </button>
-                                            <button onClick={handleCopyPassword} className="flex items-center gap-1 px-3 py-1.5 text-sm rounded-md font-medium" style={{ backgroundColor: copySuccess ? '#16a34a' : 'var(--sidebar-bg)', color: 'white' }}>
-                                                <Copy className="w-4 h-4" />{copySuccess ? 'Copied!' : 'Copy'}
-                                            </button>
+                                {createdUser.email_sent ? (
+                                    <div className="bg-green-50 border border-green-200 rounded-lg p-4 space-y-2">
+                                        <div className="flex items-center gap-2 text-green-800 font-medium text-sm">
+                                            <Mail className="w-4 h-4" />
+                                            <span>Set-password link emailed to {createdUser.email}</span>
                                         </div>
+                                        <p className="text-xs text-gray-500">Username: {createdUser.username}. The user must set their password via that link before logging in.</p>
                                     </div>
-                                </div>
+                                ) : (
+                                    <div className="bg-red-50 border border-red-200 rounded-lg p-4 space-y-3">
+                                        <div className="flex items-center gap-2 text-red-800 font-medium text-sm">
+                                            <AlertTriangle className="w-4 h-4" />
+                                            <span>Email delivery failed for {createdUser.email}</span>
+                                        </div>
+                                        <p className="text-xs text-gray-500">Username: {createdUser.username}. Resend the set-password link once the issue is resolved.</p>
+                                        <button
+                                            onClick={handleResendCredentials}
+                                            disabled={isResending}
+                                            className="flex items-center gap-2 px-3 py-1.5 text-sm rounded-md font-medium text-white disabled:opacity-50"
+                                            style={{ backgroundColor: 'var(--sidebar-bg)' }}
+                                        >
+                                            <RefreshCw className={`w-4 h-4 ${isResending ? 'animate-spin' : ''}`} />
+                                            {isResending ? 'Resending…' : 'Resend set-password email'}
+                                        </button>
+                                    </div>
+                                )}
                                 <button
-                                    onClick={() => { setShowCreateUser(false); setCreatedUser(null); setShowTempPassword(false); }}
+                                    onClick={() => { setShowCreateUser(false); setCreatedUser(null); }}
                                     className="w-full py-2 rounded-md text-white font-medium"
                                     style={{ backgroundColor: 'var(--sidebar-bg)' }}
                                 >
@@ -2471,7 +2484,7 @@ export default function AdminSystemPage() {
                                         />
                                     </div>
                                 </div>
-                                <p className="text-xs text-gray-500">A temporary password will be automatically generated and shown to you after creation. The user will be required to change it on first login.</p>
+                                <p className="text-xs text-gray-500">A set-password link will be emailed directly to the user after creation. They must set their password via that link before logging in.</p>
                                 <div className="flex gap-3 pt-2">
                                     <button
                                         onClick={handleCreateUser}

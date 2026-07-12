@@ -261,7 +261,12 @@ export async function updateAdminUser(
   });
 }
 
-/** Create a new user (admin onboarding) - POST /admin/users */
+/** Create a new user (admin onboarding) - POST /admin/users
+ *
+ * Never returns a password — Keycloak emails a set-password link directly to
+ * the new user. `email_sent` reports whether that dispatch succeeded; on
+ * false, use resendAdminUserCredentials() to retry.
+ */
 export async function createAdminUser(payload: {
   email: string;
   first_name: string;
@@ -275,12 +280,22 @@ export async function createAdminUser(payload: {
   keycloak_id: string;
   username: string;
   role: string;
-  temporary_password: string;
-  note: string;
+  email: string;
+  email_sent: boolean;
 }> {
   return apiFetch('/admin/users', {
     method: 'POST',
     body: JSON.stringify(payload),
+  });
+}
+
+/** Resend the Keycloak set-password-link email for an existing user
+ * - POST /admin/users/{keycloak_id}/resend-credentials */
+export async function resendAdminUserCredentials(
+  keycloakId: string
+): Promise<{ email_sent: boolean }> {
+  return apiFetch(`/admin/users/${keycloakId}/resend-credentials`, {
+    method: 'POST',
   });
 }
 
