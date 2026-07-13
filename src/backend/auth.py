@@ -776,6 +776,22 @@ async def get_analyst_or_admin(
     return current_user
 
 
+async def get_national_analyst(
+    current_user: Annotated[dict, Depends(get_current_wims_user)],
+) -> dict:
+    """
+    Require NATIONAL_ANALYST role, strictly (unlike get_analyst_or_admin).
+
+    Used for the analyst's own-actions audit-log endpoint, which mirrors the
+    NATIONAL_VALIDATOR/REGIONAL_ENCODER self-scoped audit endpoints — kept
+    single-role so SYSTEM_ADMIN doesn't pick up a redundant self-audit view
+    on top of their existing unfiltered /api/admin/audit-logs endpoint.
+    """
+    if current_user.get("role") != "NATIONAL_ANALYST":
+        raise HTTPException(status_code=403, detail="NATIONAL_ANALYST privileges required")
+    return current_user
+
+
 async def get_regional_user(
     current_user: Annotated[dict, Depends(get_current_wims_user)],
     db: Annotated[Session, Depends(get_db)],

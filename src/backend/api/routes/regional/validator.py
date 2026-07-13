@@ -924,8 +924,13 @@ def get_validator_audit_logs(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ):
-    """Paginated audit-log query over wims.incident_verification_history."""
+    """Paginated audit-log query over wims.incident_verification_history.
+
+    Scoped to the calling validator's own actions only (RP-25) — see
+    build_audit_log_query() for the forced actor_user_id scope.
+    """
     where_sql, params = _build_audit_log_query(
+        actor_user_id=str(user["user_id"]),
         date_from=date_from,
         date_to=date_to,
         region_id=region_id,
@@ -1011,8 +1016,11 @@ def export_validator_audit_logs(
     """Return an audit-log CSV. Honors the same filters as the list endpoint.
 
     RP-23: the export action itself is recorded in the audit trail.
+    RP-25: scoped to the calling validator's own actions only — see
+    build_audit_log_query() for the forced actor_user_id scope.
     """
     where_sql, params = _build_audit_log_query(
+        actor_user_id=str(user["user_id"]),
         date_from=date_from,
         date_to=date_to,
         region_id=region_id,

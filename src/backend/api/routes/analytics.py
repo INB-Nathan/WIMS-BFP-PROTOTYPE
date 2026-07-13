@@ -17,9 +17,11 @@ from pydantic import BaseModel, field_validator, model_validator
 from sqlalchemy.orm import Session
 
 from celery_config import celery_app
-from auth import get_analyst_or_admin
+from auth import get_analyst_or_admin, get_national_analyst
 from auth import get_db_with_rls
+from sqlalchemy import text
 from services.analytics.filters import build_analytics_filters
+from services.regional_incidents.helpers import build_audit_log_query
 from services.analytics_read_model import (
     count_in_range,
     get_filter_options,
@@ -759,3 +761,95 @@ def top_n_route(
         damage_max=damage_max,
     )
     return data
+
+
+@router.get("/audit-logs")
+def get_analyst_audit_logs(
+    user: Annotated[dict, Depends(get_national_analyst)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    region_id: Optional[int] = None,
+    actor_username: Optional[str] = None,
+    role: Optional[str] = None,
+    action: Optional[str] = None,
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+):
+    """Paginated audit-log query over wims.incident_verification_history.
+
+    Mirrors the NATIONAL_VALIDATOR/REGIONAL_ENCODER audit-log endpoints —
+    scoped to the calling analyst's own actions only (RP-25), never all
+    users' actions. See build_audit_log_query() for the forced
+    actor_user_id scope.
+    """
+    where_sql, params = build_audit_log_query(
+        actor_user_id=str(user["user_id"]),
+        date_from=date_from,
+        date_to=date_to,
+        region_id=region_id,
+        actor_username=actor_username,
+        role=role,
+        action=action,
+    )
+    list_params = {**params, "limit": limit, "offset": offset}
+
+    rows = db.execute(
+        text(
+            f"""
+            SELECT
+                ivh.history_id, ivh.target_id, fi.region_id,
+                ivh.action_by_user_id, ivh.previous_status, ivh.new_status,
+                ivh.notes, ivh.action_timestamp,
+                u.username AS actor_username,
+                rr.region_name AS region_display,
+                ivh.action_label
+            FROM wims.incident_verification_history ivh
+            JOIN wims.fire_incidents fi ON fi.incident_id = ivh.target_id
+            LEFT JOIN wims.users u ON u.user_id = ivh.action_by_user_id
+            LEFT JOIN wims.ref_regions rr ON rr.region_id = fi.region_id
+            WHERE {where_sql}
+            ORDER BY ivh.action_timestamp DESC
+            LIMIT :limit OFFSET :offset
+            """
+        ),
+        list_params,
+    ).fetchall()
+
+    total = (
+        db.execute(
+            text(
+                f"""
+            SELECT COUNT(*)
+            FROM wims.incident_verification_history ivh
+            JOIN wims.fire_incidents fi ON fi.incident_id = ivh.target_id
+            LEFT JOIN wims.users u ON u.user_id = ivh.action_by_user_id
+            WHERE {where_sql}
+            """
+            ),
+            params,
+        ).scalar()
+        or 0
+    )
+
+    return {
+        "items": [
+            {
+                "history_id": r[0],
+                "incident_id": r[1],
+                "region_id": r[2],
+                "action_by_user_id": str(r[3]) if r[3] else None,
+                "previous_status": r[4],
+                "new_status": r[5],
+                "notes": r[6],
+                "action_timestamp": r[7].isoformat() if r[7] else None,
+                "actor_username": r[8],
+                "region_display": r[9],
+                "action_label": r[10],
+            }
+            for r in rows
+        ],
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    }
