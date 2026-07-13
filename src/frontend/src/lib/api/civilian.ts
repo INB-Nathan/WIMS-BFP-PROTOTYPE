@@ -18,6 +18,7 @@ export type {
   SafetyStatus,
 } from './legacy';
 import { publicApiFetch, fetchWithOptionalAuth } from './public-transport';
+import type { CivilianReportTrackingResponse } from './legacy';
 
 export interface ReportClusterCenter {
   latitude: number;

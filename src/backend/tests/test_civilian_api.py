@@ -20,7 +20,8 @@ from schemas.civilian import CivilianReportCreate
 
 def test_report_post_route_wires_anonymous_capability_dependency():
     route = next(
-        route for route in civilian.router.routes
+        route
+        for route in civilian.router.routes
         if route.path == "/api/civilian/reports" and "POST" in route.methods
     )
     dependency_calls = {dependency.call for dependency in route.dependant.dependencies}
@@ -31,7 +32,8 @@ def test_report_post_route_wires_optional_authenticated_user_dependency():
     """Slice D: the report route must also accept an optional authenticated
     CIVILIAN_REPORTER via optional_auth, while still allowing anonymous posts."""
     route = next(
-        route for route in civilian.router.routes
+        route
+        for route in civilian.router.routes
         if route.path == "/api/civilian/reports" and "POST" in route.methods
     )
     dependency_calls = {dependency.call for dependency in route.dependant.dependencies}

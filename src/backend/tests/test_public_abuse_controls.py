@@ -318,9 +318,7 @@ class TestNeutral404:
             assert resp.status_code == 404, resp.text
             data = resp.json()
             assert "detail" in data
-            assert data["detail"] == "Not Found", (
-                f"Expected 'Not Found', got {data['detail']}"
-            )
+            assert data["detail"] == "Not Found", f"Expected 'Not Found', got {data['detail']}"
         finally:
             clear()
 
