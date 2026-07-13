@@ -53,7 +53,7 @@ function cluster(overrides: Partial<TriageClusterEntry>): TriageClusterEntry {
 }
 
 describe('TriageInvestigationBoard', () => {
-  it('renders selected cluster summary, evidence cards, no-location hint, and inspect CTA', async () => {
+  it('renders selected cluster summary, evidence table rows, no-location hint, and inspect CTA', async () => {
     const onInspect = vi.fn();
     const onSelectReport = vi.fn();
 
@@ -73,10 +73,65 @@ describe('TriageInvestigationBoard', () => {
 
     expect(screen.getByText('Cluster #42')).toBeInTheDocument();
     expect(screen.getByText(/Life safety/)).toBeInTheDocument();
-    expect(screen.getByTestId('triage-evidence-card-10')).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByTestId('triage-evidence-row-10')).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByText(/No usable location/)).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: /Inspect \/ Act/ }));
     expect(onInspect).toHaveBeenCalledWith(cluster({}));
+  });
+
+  it('renders comma-separated signals found/missing and reflects trust-score coloring', () => {
+    render(
+      <TriageInvestigationBoard
+        items={[cluster({})]}
+        selectedItem={cluster({
+          reports: [
+            report({
+              report_id: 20,
+              trust_breakdown: {
+                score: 82,
+                included_signals: ['gps_match', 'device_history'],
+                missing_signals: ['photo_evidence'],
+                gps_mismatch: false,
+                duplicate_device_count_30m: 0,
+              },
+            }),
+          ],
+        })}
+        selectedReportId={null}
+        role="NATIONAL_VALIDATOR"
+        claiming={null}
+        onInspect={vi.fn()}
+        onSelectItem={vi.fn()}
+        onSelectReport={vi.fn()}
+        onClaimCluster={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('gps_match, device_history')).toBeInTheDocument();
+    expect(screen.getByText('photo_evidence')).toBeInTheDocument();
+    // score >= 75 -> emerald tone on the row (statusTone), reused from triageGeometry.
+    expect(screen.getByTestId('triage-evidence-row-20').className).toContain('emerald');
+  });
+
+  it('clicking a row selects the report via onSelectReport, not navigation', async () => {
+    const onSelectReport = vi.fn();
+
+    render(
+      <TriageInvestigationBoard
+        items={[cluster({})]}
+        selectedItem={cluster({})}
+        selectedReportId={null}
+        role="NATIONAL_VALIDATOR"
+        claiming={null}
+        onInspect={vi.fn()}
+        onSelectItem={vi.fn()}
+        onSelectReport={onSelectReport}
+        onClaimCluster={vi.fn()}
+      />,
+    );
+
+    await userEvent.click(screen.getByTestId('triage-evidence-row-10'));
+    expect(onSelectReport).toHaveBeenCalledWith(10);
   });
 });
