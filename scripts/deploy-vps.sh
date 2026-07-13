@@ -128,7 +128,12 @@ done
 # Deploy stack
 # ---------------------------------------------------------------------------
 echo "Starting production stack..."
-MAX_RETRIES=2
+# Docker Compose can hit a "No such container" race during live recreate when a
+# previous `up` failed mid-recreate and left a renamed "<hash>_wims-<service>"
+# container whose ID no longer matches Compose's internal view. A full
+# `compose down --remove-orphans` resets that view so the next `up` starts clean.
+# (See system-wiki/operations/vps-deploy-debug-guide.md, "stale container" section.)
+MAX_RETRIES=3
 BUILD_ATTEMPT=0
 while [ $BUILD_ATTEMPT -lt $MAX_RETRIES ]; do
   BUILD_ATTEMPT=$((BUILD_ATTEMPT + 1))
@@ -137,12 +142,15 @@ while [ $BUILD_ATTEMPT -lt $MAX_RETRIES ]; do
     echo "Compose stack is up (attempt $BUILD_ATTEMPT)"
     break
   fi
-  echo "Compose up failed (attempt $BUILD_ATTEMPT/$MAX_RETRIES) — cleaning stale containers and retrying..."
+  echo "Compose up failed (attempt $BUILD_ATTEMPT/$MAX_RETRIES) — resetting compose state and retrying..."
   if [ $BUILD_ATTEMPT -ge $MAX_RETRIES ]; then
     echo "Compose up failed after $MAX_RETRIES attempts — aborting deploy"
     exit 1
   fi
-  cleanup_stale_compose_renames
+  # Hard reset: fully remove Compose-managed containers to clear stale IDs left
+  # by the failed recreate, then let the next `up` recreate them cleanly.
+  # Volumes are preserved (no -v), so data is safe.
+  compose down --remove-orphans || true
   sleep 5
 done
 
