@@ -1078,41 +1078,41 @@ export function SuricataAlertModal({ log, onClose, onDecisionComplete }: Suricat
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               {parsedNarrative.anomalyDescription && (
-                <div className="bg-white dark:bg-gray-900 rounded-lg border border-purple-200 dark:border-purple-800 p-3">
+                <div className="bg-white dark:bg-gray-900 rounded-lg border border-purple-200 dark:border-purple-800 p-3 min-w-0">
                   <p className="text-[10px] font-bold text-purple-700 dark:text-purple-300 uppercase tracking-wider mb-1">
                     Anomaly Description
                   </p>
-                  <p className="text-sm text-[var(--foreground)] leading-relaxed">
+                  <p className="text-sm text-[var(--foreground)] leading-relaxed break-words">
                     {parsedNarrative.anomalyDescription}
                   </p>
                 </div>
               )}
               {parsedNarrative.riskAssessment && (
-                <div className="bg-white dark:bg-gray-900 rounded-lg border border-purple-200 dark:border-purple-800 p-3">
+                <div className="bg-white dark:bg-gray-900 rounded-lg border border-purple-200 dark:border-purple-800 p-3 min-w-0">
                   <p className="text-[10px] font-bold text-purple-700 dark:text-purple-300 uppercase tracking-wider mb-1">
                     Risk Assessment
                   </p>
-                  <p className="text-sm text-[var(--foreground)] leading-relaxed">
+                  <p className="text-sm text-[var(--foreground)] leading-relaxed break-words">
                     {parsedNarrative.riskAssessment}
                   </p>
                 </div>
               )}
               {parsedNarrative.logEvidence && (
-                <div className="bg-white dark:bg-gray-900 rounded-lg border border-purple-200 dark:border-purple-800 p-3">
+                <div className="bg-white dark:bg-gray-900 rounded-lg border border-purple-200 dark:border-purple-800 p-3 min-w-0">
                   <p className="text-[10px] font-bold text-purple-700 dark:text-purple-300 uppercase tracking-wider mb-1">
                     Log Evidence
                   </p>
-                  <p className="text-sm text-[var(--foreground)] leading-relaxed">
+                  <p className="text-sm text-[var(--foreground)] leading-relaxed break-words">
                     {parsedNarrative.logEvidence}
                   </p>
                 </div>
               )}
               {parsedNarrative.recommendedAction && (
-                <div className="bg-white dark:bg-gray-900 rounded-lg border border-purple-200 dark:border-purple-800 p-3">
+                <div className="bg-white dark:bg-gray-900 rounded-lg border border-purple-200 dark:border-purple-800 p-3 min-w-0">
                   <p className="text-[10px] font-bold text-purple-700 dark:text-purple-300 uppercase tracking-wider mb-1">
                     Recommended Action
                   </p>
-                  <p className="text-sm text-[var(--foreground)] leading-relaxed">
+                  <p className="text-sm text-[var(--foreground)] leading-relaxed break-words">
                     {parsedNarrative.recommendedAction}
                   </p>
                 </div>
@@ -1740,41 +1740,41 @@ export function SuricataAlertModal({ log, onClose, onDecisionComplete }: Suricat
             parsedNarrative.recommendedAction ? (
               <div className="grid grid-cols-2 gap-4">
                 {parsedNarrative.anomalyDescription && (
-                  <div className="bg-white dark:bg-gray-900 rounded-lg border border-purple-200 dark:border-purple-800 p-4">
+                  <div className="bg-white dark:bg-gray-900 rounded-lg border border-purple-200 dark:border-purple-800 p-4 min-w-0">
                     <p className="text-[10px] font-bold text-purple-700 dark:text-purple-300 uppercase tracking-wider mb-1">
                       Anomaly Description
                     </p>
-                    <p className="text-sm text-[var(--foreground)] leading-relaxed">
+                    <p className="text-sm text-[var(--foreground)] leading-relaxed break-words">
                       {parsedNarrative.anomalyDescription}
                     </p>
                   </div>
                 )}
                 {parsedNarrative.riskAssessment && (
-                  <div className="bg-white dark:bg-gray-900 rounded-lg border border-purple-200 dark:border-purple-800 p-4">
+                  <div className="bg-white dark:bg-gray-900 rounded-lg border border-purple-200 dark:border-purple-800 p-4 min-w-0">
                     <p className="text-[10px] font-bold text-purple-700 dark:text-purple-300 uppercase tracking-wider mb-1">
                       Risk Assessment
                     </p>
-                    <p className="text-sm text-[var(--foreground)] leading-relaxed">
+                    <p className="text-sm text-[var(--foreground)] leading-relaxed break-words">
                       {parsedNarrative.riskAssessment}
                     </p>
                   </div>
                 )}
                 {parsedNarrative.logEvidence && (
-                  <div className="bg-white dark:bg-gray-900 rounded-lg border border-purple-200 dark:border-purple-800 p-4">
+                  <div className="bg-white dark:bg-gray-900 rounded-lg border border-purple-200 dark:border-purple-800 p-4 min-w-0">
                     <p className="text-[10px] font-bold text-purple-700 dark:text-purple-300 uppercase tracking-wider mb-1">
                       Log Evidence
                     </p>
-                    <p className="text-sm text-[var(--foreground)] leading-relaxed">
+                    <p className="text-sm text-[var(--foreground)] leading-relaxed break-words">
                       {parsedNarrative.logEvidence}
                     </p>
                   </div>
                 )}
                 {parsedNarrative.recommendedAction && (
-                  <div className="bg-white dark:bg-gray-900 rounded-lg border border-purple-200 dark:border-purple-800 p-4">
+                  <div className="bg-white dark:bg-gray-900 rounded-lg border border-purple-200 dark:border-purple-800 p-4 min-w-0">
                     <p className="text-[10px] font-bold text-purple-700 dark:text-purple-300 uppercase tracking-wider mb-1">
                       Recommended Action
                     </p>
-                    <p className="text-sm text-[var(--foreground)] leading-relaxed">
+                    <p className="text-sm text-[var(--foreground)] leading-relaxed break-words">
                       {parsedNarrative.recommendedAction}
                     </p>
                   </div>
