@@ -151,8 +151,64 @@ def _create_photo_bonus_function() -> None:
     op.execute("GRANT EXECUTE ON FUNCTION wims.photo_bonus_for_report(INTEGER) TO wims_app")
 
 
+def _ensure_report_photos_gps_columns() -> None:
+    """Add the GPS-consensus columns to wims.report_photos.
+
+    These columns are created by postgres-init/82_civilian_report_photos.sql
+    for fresh databases, but were never added to the Alembic chain. A
+    database migrated purely via ``alembic upgrade`` therefore lacks them,
+    which breaks both the photo_bonus_for_report function below and the
+    civilian photo service INSERT. Definitions mirror the SQL-init CHECK
+    constraints.
+    """
+    op.execute(
+        "ALTER TABLE wims.report_photos ADD COLUMN IF NOT EXISTS "
+        "exif_gps_status TEXT NOT NULL DEFAULT 'unavailable' "
+        "CHECK (exif_gps_status IN ('present', 'unavailable'))"
+    )
+    op.execute(
+        "ALTER TABLE wims.report_photos ADD COLUMN IF NOT EXISTS "
+        "browser_gps_status TEXT NOT NULL DEFAULT 'unavailable' "
+        "CHECK (browser_gps_status IN ('present', 'unavailable'))"
+    )
+    op.execute(
+        "ALTER TABLE wims.report_photos ADD COLUMN IF NOT EXISTS "
+        "gps_consensus TEXT CHECK (gps_consensus IN "
+        "('both_match', 'both_disagree', 'exif_only', 'browser_only', 'unavailable'))"
+    )
+    op.execute(
+        "ALTER TABLE wims.report_photos ADD COLUMN IF NOT EXISTS "
+        "exif_to_report_distance_m FLOAT "
+        "CHECK (exif_to_report_distance_m IS NULL OR exif_to_report_distance_m >= 0)"
+    )
+    op.execute(
+        "ALTER TABLE wims.report_photos ADD COLUMN IF NOT EXISTS "
+        "browser_to_report_distance_m FLOAT "
+        "CHECK (browser_to_report_distance_m IS NULL OR browser_to_report_distance_m >= 0)"
+    )
+    op.execute(
+        "ALTER TABLE wims.report_photos ADD COLUMN IF NOT EXISTS "
+        "photo_reported_distance_m FLOAT "
+        "CHECK (photo_reported_distance_m IS NULL OR photo_reported_distance_m >= 0)"
+    )
+
+
+def _drop_report_photos_gps_columns() -> None:
+    """Reverse of _ensure_report_photos_gps_columns (best-effort)."""
+    for col in (
+        "photo_reported_distance_m",
+        "browser_to_report_distance_m",
+        "exif_to_report_distance_m",
+        "gps_consensus",
+        "browser_gps_status",
+        "exif_gps_status",
+    ):
+        op.execute(f"ALTER TABLE wims.report_photos DROP COLUMN IF EXISTS {col}")
+
+
 def upgrade() -> None:
     _create_civilian_contributors_table()
+    _ensure_report_photos_gps_columns()
     _create_photo_bonus_function()
 
 
@@ -160,3 +216,4 @@ def downgrade() -> None:
     # Best-effort reversal
     op.execute("DROP FUNCTION IF EXISTS wims.photo_bonus_for_report(INTEGER) CASCADE")
     op.execute("DROP TABLE IF EXISTS wims.civilian_contributors CASCADE")
+    _drop_report_photos_gps_columns()
