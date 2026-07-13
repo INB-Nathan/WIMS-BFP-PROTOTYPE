@@ -49,8 +49,8 @@ function TriageEvidenceRow({ report, selected, onClick }: TriageEvidenceRowProps
       <td className="px-3 py-2 align-top font-semibold text-slate-950">
         {report.category ?? 'Unclassified'}{report.sub_category ? ` / ${report.sub_category}` : ''}
       </td>
-      <td className="px-3 py-2 align-top text-slate-700">{report.reporting_context ?? '—'}</td>
-      <td className="px-3 py-2 align-top text-slate-700">
+      <td className="hidden px-3 py-2 align-top text-slate-700 sm:table-cell">{report.reporting_context ?? '—'}</td>
+      <td className="hidden px-3 py-2 align-top text-slate-700 sm:table-cell">
         {lifeSafety && (
           <span className="mb-1 inline-flex items-center gap-1 rounded-md bg-red-100 px-2 py-0.5 font-bold text-red-800">
             <AlertTriangle className="h-3 w-3" /> Life safety
@@ -58,7 +58,7 @@ function TriageEvidenceRow({ report, selected, onClick }: TriageEvidenceRowProps
         )}
         <div>{report.safety_status ?? '—'}</div>
       </td>
-      <td className="whitespace-nowrap px-3 py-2 align-top text-slate-700">
+      <td className="hidden whitespace-nowrap px-3 py-2 align-top text-slate-700 sm:table-cell">
         {hasLocation ? `${report.latitude.toFixed(4)}, ${report.longitude.toFixed(4)}` : 'No usable location'}
       </td>
       <td className="whitespace-nowrap px-3 py-2 align-top">
@@ -69,20 +69,20 @@ function TriageEvidenceRow({ report, selected, onClick }: TriageEvidenceRowProps
           {report.trust_breakdown.score}/100
         </span>
       </td>
-      <td className="max-w-[220px] px-3 py-2 align-top text-slate-700">
+      <td className="hidden max-w-[220px] px-3 py-2 align-top text-slate-700 sm:table-cell">
         {formatSignalList(report.trust_breakdown.included_signals)}
       </td>
-      <td className="max-w-[220px] px-3 py-2 align-top text-slate-700">
+      <td className="hidden max-w-[220px] px-3 py-2 align-top text-slate-700 sm:table-cell">
         {formatSignalList(report.trust_breakdown.missing_signals)}
       </td>
-      <td className="px-3 py-2 align-top">
+      <td className="hidden px-3 py-2 align-top sm:table-cell">
         <span className={report.trust_breakdown.gps_mismatch ? 'font-bold text-red-700' : 'text-slate-700'}>
           {report.trust_breakdown.gps_mismatch ? 'Yes' : 'No'}
         </span>
       </td>
-      <td className="px-3 py-2 align-top text-slate-700">{report.trust_breakdown.duplicate_device_count_30m}</td>
-      <td className="px-3 py-2 align-top text-slate-700">{report.station.name ?? 'No station'}</td>
-      <td className="whitespace-nowrap px-3 py-2 align-top text-slate-700">
+      <td className="hidden px-3 py-2 align-top text-slate-700 sm:table-cell">{report.trust_breakdown.duplicate_device_count_30m}</td>
+      <td className="hidden px-3 py-2 align-top text-slate-700 sm:table-cell">{report.station.name ?? 'No station'}</td>
+      <td className="hidden whitespace-nowrap px-3 py-2 align-top text-slate-700 sm:table-cell">
         {formatStationDistance(report.station.distance_m)}
       </td>
       <td className="whitespace-nowrap px-3 py-2 align-top">
@@ -90,10 +90,10 @@ function TriageEvidenceRow({ report, selected, onClick }: TriageEvidenceRowProps
           {report.status}
         </span>
       </td>
-      <td className="whitespace-nowrap px-3 py-2 align-top text-slate-700">
+      <td className="hidden whitespace-nowrap px-3 py-2 align-top text-slate-700 sm:table-cell">
         {formatIncidentDate(report.reported_at ?? report.created_at)}
       </td>
-      <td className="whitespace-nowrap px-3 py-2 align-top">
+      <td className="hidden whitespace-nowrap px-3 py-2 align-top sm:table-cell">
         <div className="flex flex-wrap gap-1">
           {report.is_aging && <span className="rounded-md bg-slate-200 px-2 py-0.5 font-bold text-slate-700">Aging</span>}
           {report.is_timeout_risk && (
@@ -211,19 +211,19 @@ export function TriageInvestigationBoard({
                 <tr className="border-b border-slate-200 bg-slate-50">
                   <th className="whitespace-nowrap px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Report ID</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Category / Sub</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Context</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Safety Status</th>
-                  <th className="whitespace-nowrap px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Location</th>
+                  <th className="hidden px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 sm:table-cell">Context</th>
+                  <th className="hidden px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 sm:table-cell">Safety Status</th>
+                  <th className="hidden whitespace-nowrap px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 sm:table-cell">Location</th>
                   <th className="whitespace-nowrap px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Trust Score</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Signals Found</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Missing Signals</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">GPS Mismatch</th>
-                  <th className="whitespace-nowrap px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Dup Device Count</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Station</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Distance</th>
+                  <th className="hidden px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 sm:table-cell">Signals Found</th>
+                  <th className="hidden px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 sm:table-cell">Missing Signals</th>
+                  <th className="hidden px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 sm:table-cell">GPS Mismatch</th>
+                  <th className="hidden whitespace-nowrap px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 sm:table-cell">Dup Device Count</th>
+                  <th className="hidden px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 sm:table-cell">Station</th>
+                  <th className="hidden px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 sm:table-cell">Distance</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Status</th>
-                  <th className="whitespace-nowrap px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Reported At</th>
-                  <th className="whitespace-nowrap px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Aging / Timeout</th>
+                  <th className="hidden whitespace-nowrap px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 sm:table-cell">Reported At</th>
+                  <th className="hidden whitespace-nowrap px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 sm:table-cell">Aging / Timeout</th>
                 </tr>
               </thead>
               <tbody>

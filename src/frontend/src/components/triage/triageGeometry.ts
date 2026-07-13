@@ -36,9 +36,8 @@ const SEVERITY_SCORE: Record<TriageSeverity, number> = {
   LOW: 1,
 };
 
-// Single source of truth for the life-safety/severity tone thresholds shared
-// by TriageEvidenceCard and the Investigation Board's table rows — do not
-// drift these independently.
+// Single source of truth for the life-safety/severity tone thresholds used by
+// the Investigation Board's table rows — do not drift these independently.
 const LIFE_SAFETY_STATUSES = new Set(['I_NEED_HELP', 'SOMEONE_ELSE_NEEDS_HELP']);
 
 export function hasLifeSafetySignal(report: TriageReportEntry): boolean {
