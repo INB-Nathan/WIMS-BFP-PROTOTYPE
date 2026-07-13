@@ -48,9 +48,16 @@ def _apply_photo_shape() -> None:
     op.execute("ALTER TABLE wims.report_photos ALTER COLUMN report_id DROP NOT NULL")
     op.execute("ALTER TABLE wims.report_photos ADD COLUMN IF NOT EXISTS attached_at TIMESTAMPTZ")
 
-    # Ensure created_at exists — databases that ran a prior version of
-    # migration 0003 (before the column was added to the CREATE TABLE)
-    # won't have this column. migration 0008's UPDATE below needs it.
+    # Ensure all base columns exist — databases that ran a prior version of
+    # migration 0003 (before the columns were added to the CREATE TABLE)
+    # won't have uploader_user_id, uploader_device_id, or created_at.
+    # Migration 0008 uses all three below (UPDATE, CREATE INDEX, RLS policies).
+    op.execute(
+        "ALTER TABLE wims.report_photos"
+        " ADD COLUMN IF NOT EXISTS uploader_user_id UUID"
+        " REFERENCES wims.users(user_id)"
+    )
+    op.execute("ALTER TABLE wims.report_photos ADD COLUMN IF NOT EXISTS uploader_device_id UUID")
     op.execute(
         "ALTER TABLE wims.report_photos"
         " ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now()"
