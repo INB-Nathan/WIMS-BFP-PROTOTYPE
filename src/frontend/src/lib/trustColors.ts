@@ -2,9 +2,8 @@
  * Shared trust score color utilities for triage UI.
  *
  * Defines consistent color thresholds and Tailwind class mappings
- * used across TriageEvidenceCard, TriageCanvasMapInner, and
- * TriageInvestigationBoard — single source of truth to prevent
- * the threshold-drift maintenance risk.
+ * used across TriageCanvasMapInner and TriageInvestigationBoard —
+ * single source of truth to prevent the threshold-drift maintenance risk.
  */
 
 export const TRUST_SCORE_HIGH = 70;

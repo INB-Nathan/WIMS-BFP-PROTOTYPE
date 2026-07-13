@@ -36,6 +36,22 @@ const SEVERITY_SCORE: Record<TriageSeverity, number> = {
   LOW: 1,
 };
 
+// Single source of truth for the life-safety/severity tone thresholds used by
+// the Investigation Board's table rows — do not drift these independently.
+const LIFE_SAFETY_STATUSES = new Set(['I_NEED_HELP', 'SOMEONE_ELSE_NEEDS_HELP']);
+
+export function hasLifeSafetySignal(report: TriageReportEntry): boolean {
+  return LIFE_SAFETY_STATUSES.has(report.safety_status ?? '');
+}
+
+/** Severity/trust tone classes: life-safety red > timeout amber > high-trust emerald > default. */
+export function statusTone(report: TriageReportEntry): string {
+  if (hasLifeSafetySignal(report)) return 'border-red-300 bg-red-50 text-red-900';
+  if (report.is_timeout_risk) return 'border-amber-300 bg-amber-50 text-amber-900';
+  if (report.trust_breakdown.score >= 75) return 'border-emerald-300 bg-emerald-50 text-emerald-900';
+  return 'border-slate-200 bg-white text-slate-900';
+}
+
 export function isValidPhilippinesCoordinate(lat: unknown, lng: unknown): lat is number {
   if (typeof lat !== 'number' || typeof lng !== 'number') return false;
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;

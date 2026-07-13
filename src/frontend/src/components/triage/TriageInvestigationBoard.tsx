@@ -1,10 +1,112 @@
 'use client';
 
 import { AlertTriangle, ClipboardList, Clock, ShieldCheck } from 'lucide-react';
-import type { TriageClusterEntry } from '@/lib/api';
-import { TriageEvidenceCard } from './TriageEvidenceCard';
+import type { TriageClusterEntry, TriageReportEntry } from '@/lib/api';
+import { formatIncidentDate } from '@/lib/incident-utils';
 import { trustLevel, TRUST_COLORS } from '@/lib/trustColors';
-import { deriveClusterGeometry, getTriageItemIdentity, sortTriageItemsByPriority } from './triageGeometry';
+import {
+  deriveClusterGeometry,
+  getTriageItemIdentity,
+  hasLifeSafetySignal,
+  isValidPhilippinesCoordinate,
+  sortTriageItemsByPriority,
+  statusTone,
+} from './triageGeometry';
+import { isTerminalStatus } from './useTriageModalState';
+
+function formatSignalList(signals: string[]): string {
+  return signals.length ? signals.join(', ') : '—';
+}
+
+function formatStationDistance(distanceMeters: number | null): string {
+  if (distanceMeters == null) return '—';
+  return distanceMeters >= 1000 ? `${(distanceMeters / 1000).toFixed(1)} km` : `${Math.round(distanceMeters)} m`;
+}
+
+interface TriageEvidenceRowProps {
+  report: TriageReportEntry;
+  selected: boolean;
+  onClick?: (reportId: number) => void;
+}
+
+function TriageEvidenceRow({ report, selected, onClick }: TriageEvidenceRowProps) {
+  const hasLocation = isValidPhilippinesCoordinate(report.latitude, report.longitude);
+  const terminal = isTerminalStatus(report.status);
+  const lifeSafety = hasLifeSafetySignal(report);
+
+  return (
+    <tr
+      data-testid={`triage-evidence-row-${report.report_id}`}
+      aria-selected={selected}
+      className={`cursor-pointer border-b text-xs transition ${statusTone(report)} ${
+        selected ? 'ring-2 ring-inset ring-red-700' : ''
+      }`}
+      onClick={() => onClick?.(report.report_id)}
+    >
+      <td className="whitespace-nowrap px-3 py-2 align-top font-mono font-bold text-slate-500">
+        #{report.report_id}
+      </td>
+      <td className="px-3 py-2 align-top font-semibold text-slate-950">
+        {report.category ?? 'Unclassified'}{report.sub_category ? ` / ${report.sub_category}` : ''}
+      </td>
+      <td className="hidden px-3 py-2 align-top text-slate-700 sm:table-cell">{report.reporting_context ?? '—'}</td>
+      <td className="hidden px-3 py-2 align-top text-slate-700 sm:table-cell">
+        {lifeSafety && (
+          <span className="mb-1 inline-flex items-center gap-1 rounded-md bg-red-100 px-2 py-0.5 font-bold text-red-800">
+            <AlertTriangle className="h-3 w-3" /> Life safety
+          </span>
+        )}
+        <div>{report.safety_status ?? '—'}</div>
+      </td>
+      <td className="hidden whitespace-nowrap px-3 py-2 align-top text-slate-700 sm:table-cell">
+        {hasLocation ? `${report.latitude.toFixed(4)}, ${report.longitude.toFixed(4)}` : 'No usable location'}
+      </td>
+      <td className="whitespace-nowrap px-3 py-2 align-top">
+        <span
+          className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 font-bold ${TRUST_COLORS[trustLevel(report.trust_breakdown.score)].bg} ${TRUST_COLORS[trustLevel(report.trust_breakdown.score)].text}`}
+          title="Trust score: higher = more reliable. Calculated from device history, proximity, and report consistency."
+        >
+          {report.trust_breakdown.score}/100
+        </span>
+      </td>
+      <td className="hidden max-w-[220px] px-3 py-2 align-top text-slate-700 sm:table-cell">
+        {formatSignalList(report.trust_breakdown.included_signals)}
+      </td>
+      <td className="hidden max-w-[220px] px-3 py-2 align-top text-slate-700 sm:table-cell">
+        {formatSignalList(report.trust_breakdown.missing_signals)}
+      </td>
+      <td className="hidden px-3 py-2 align-top sm:table-cell">
+        <span className={report.trust_breakdown.gps_mismatch ? 'font-bold text-red-700' : 'text-slate-700'}>
+          {report.trust_breakdown.gps_mismatch ? 'Yes' : 'No'}
+        </span>
+      </td>
+      <td className="hidden px-3 py-2 align-top text-slate-700 sm:table-cell">{report.trust_breakdown.duplicate_device_count_30m}</td>
+      <td className="hidden px-3 py-2 align-top text-slate-700 sm:table-cell">{report.station.name ?? 'No station'}</td>
+      <td className="hidden whitespace-nowrap px-3 py-2 align-top text-slate-700 sm:table-cell">
+        {formatStationDistance(report.station.distance_m)}
+      </td>
+      <td className="whitespace-nowrap px-3 py-2 align-top">
+        <span className={terminal ? 'rounded-full bg-slate-900 px-2 py-0.5 font-bold text-white' : 'text-slate-700'}>
+          {report.status}
+        </span>
+      </td>
+      <td className="hidden whitespace-nowrap px-3 py-2 align-top text-slate-700 sm:table-cell">
+        {formatIncidentDate(report.reported_at ?? report.created_at)}
+      </td>
+      <td className="hidden whitespace-nowrap px-3 py-2 align-top sm:table-cell">
+        <div className="flex flex-wrap gap-1">
+          {report.is_aging && <span className="rounded-md bg-slate-200 px-2 py-0.5 font-bold text-slate-700">Aging</span>}
+          {report.is_timeout_risk && (
+            <span className="inline-flex items-center gap-1 rounded-md bg-amber-100 px-2 py-0.5 font-bold text-amber-800">
+              <Clock className="h-3 w-3" /> Timeout risk
+            </span>
+          )}
+          {!report.is_aging && !report.is_timeout_risk && '—'}
+        </div>
+      </td>
+    </tr>
+  );
+}
 
 interface TriageInvestigationBoardProps {
   items: TriageClusterEntry[];
@@ -103,15 +205,38 @@ export function TriageInvestigationBoard({
 
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
         {selectedItem ? (
-          <div className="space-y-3">
-            {selectedItem.reports.map((report) => (
-              <TriageEvidenceCard
-                key={report.report_id}
-                report={report}
-                selected={report.report_id === selectedReportId}
-                onClick={onSelectReport}
-              />
-            ))}
+          <div className="overflow-x-auto rounded-xl border border-slate-200">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50">
+                  <th className="whitespace-nowrap px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Report ID</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Category / Sub</th>
+                  <th className="hidden px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 sm:table-cell">Context</th>
+                  <th className="hidden px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 sm:table-cell">Safety Status</th>
+                  <th className="hidden whitespace-nowrap px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 sm:table-cell">Location</th>
+                  <th className="whitespace-nowrap px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Trust Score</th>
+                  <th className="hidden px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 sm:table-cell">Signals Found</th>
+                  <th className="hidden px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 sm:table-cell">Missing Signals</th>
+                  <th className="hidden px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 sm:table-cell">GPS Mismatch</th>
+                  <th className="hidden whitespace-nowrap px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 sm:table-cell">Dup Device Count</th>
+                  <th className="hidden px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 sm:table-cell">Station</th>
+                  <th className="hidden px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 sm:table-cell">Distance</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Status</th>
+                  <th className="hidden whitespace-nowrap px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 sm:table-cell">Reported At</th>
+                  <th className="hidden whitespace-nowrap px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 sm:table-cell">Aging / Timeout</th>
+                </tr>
+              </thead>
+              <tbody>
+                {selectedItem.reports.map((report) => (
+                  <TriageEvidenceRow
+                    key={report.report_id}
+                    report={report}
+                    selected={report.report_id === selectedReportId}
+                    onClick={onSelectReport}
+                  />
+                ))}
+              </tbody>
+            </table>
           </div>
         ) : (
           <div className="rounded-xl border border-dashed border-slate-300 p-6 text-center text-sm text-slate-500">
