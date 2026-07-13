@@ -348,6 +348,29 @@ def publish_verification_event_sync(
         logger.warning("Failed to publish (sync) %s", event_type, exc_info=True)
 
 
+def publish_system_event_sync(
+    event_type: str,
+    payload: dict[str, Any] | None = None,
+) -> None:
+    """Publish a system-level event synchronously (for sync admin endpoints and Celery tasks)."""
+    try:
+        r = _get_sync_redis()
+        message = json.dumps(
+            {
+                "channel": CHANNELS["system"],
+                "event_type": event_type,
+                "payload": payload or {},
+                "actor_id": None,
+                "actor_role": None,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+        r.publish(CHANNELS["system"], message)
+        logger.debug("Published (sync) %s → %s", event_type, CHANNELS["system"])
+    except Exception:
+        logger.warning("Failed to publish (sync) %s", event_type, exc_info=True)
+
+
 def publish_security_event_sync(
     event_type: str,
     *,

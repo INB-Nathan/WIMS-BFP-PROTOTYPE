@@ -8,6 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from auth import get_db_with_rls, get_system_admin
+from services.event_bus import publish_system_event_sync
 from utils.audit import log_system_audit
 
 router = APIRouter()
@@ -204,5 +205,12 @@ def update_config(
         new_values={"config_value": str(body.value)},
     )
     db.commit()
+
+    # Fire-and-forget: notify any open admin/system pages to auto-refresh.
+    # publish_system_event_sync already guards its own Redis errors.
+    publish_system_event_sync(
+        "system.config_changed",
+        {"key": key, "value": body.value},
+    )
 
     return {"key": key, "value": body.value, "status": "ok"}

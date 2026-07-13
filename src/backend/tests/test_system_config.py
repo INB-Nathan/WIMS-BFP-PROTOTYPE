@@ -23,6 +23,15 @@ def _reset_overrides():
     app.dependency_overrides.clear()
 
 
+@pytest.fixture(autouse=True)
+def _mock_system_event_publish():
+    """update_config() fire-and-forgets a system.config_changed event via a
+    pooled Redis connection separate from the mocked DB session — stub it out
+    so these unit tests never attempt a real network call."""
+    with patch("api.routes.admin.config.publish_system_event_sync") as mock_publish:
+        yield mock_publish
+
+
 # =============================================================================
 # Helpers
 # =============================================================================

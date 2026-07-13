@@ -21,6 +21,8 @@ import {
   type TriageQueueResponse,
   type TriageReportEntry,
 } from '@/lib/api';
+import { useAutoRefresh } from '@/lib/useAutoRefresh';
+import { AutoRefreshToast } from '@/components/ui/AutoRefreshToast';
 
 const FILTERS = [
   { key: 'needs_help', label: 'Needs Help' },
@@ -99,6 +101,18 @@ export default function TriagePage() {
     }, 30000);
     return () => window.clearInterval(interval);
   }, [authLoading, canAccess, openCluster]);
+
+  // SSE-driven auto-refresh: fires when new civilian reports arrive or triage
+  // actions are taken, so the queue stays current without manual clicks.
+  const { pending: autoRefreshPending, refreshing: autoRefreshing, justRefreshed: autoRefreshDone } = useAutoRefresh({
+    eventTypes: [
+      'civilian.report_submitted',
+      'verification.cluster_claimed',
+      'verification.terminal_action',
+    ],
+    onRefresh: loadQueue,
+    notification: 'Triage queue updated — refreshing…',
+  });
 
   function toggleFilter(key: string) {
     const next = new URLSearchParams(searchParams.toString());
@@ -235,6 +249,7 @@ export default function TriagePage() {
 
   return (
     <div className="space-y-5">
+      <AutoRefreshToast pending={autoRefreshPending} refreshing={autoRefreshing} justRefreshed={autoRefreshDone} />
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h1 className="text-2xl font-semibold text-slate-950">Civilian Triage Queue</h1>

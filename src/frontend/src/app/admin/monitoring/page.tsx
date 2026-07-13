@@ -17,9 +17,11 @@ import {
 } from '@/lib/api/offlineAdmin';
 import { blockSourceIp, deleteSecurityLog, bulkActionSecurityLogs, blockByFilter } from '@/lib/api/securityActions';
 import { StaleCacheBanner } from '@/components/ui/StaleCacheBanner';
+import { AutoRefreshToast } from '@/components/ui/AutoRefreshToast';
 import type { SecurityLogFilter } from '@/types/api';
 import { ShieldAlert, RefreshCw, AlertTriangle, Info, WifiOff } from 'lucide-react';
 import { BlockedIpsPanel } from './BlockedIpsPanel';
+import { useAutoRefresh } from '@/lib/useAutoRefresh';
 
 type SeverityLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 
@@ -210,6 +212,20 @@ export default function SecurityMonitoringPage() {
     };
   }, [loadMonitoring, loadThreats]);
 
+  // SSE-driven refresh: fires immediately on new security events so threat
+  // data stays current without waiting up to 30 s for the next interval tick.
+  const { pending: autoRefreshPending, refreshing: autoRefreshing, justRefreshed: autoRefreshDone } = useAutoRefresh({
+    eventTypes: [
+      'security.threat_detected',
+      'security.ai_analysis_complete',
+      'security.hitl_confirmed',
+    ],
+    onRefresh: async () => {
+      await Promise.all([loadMonitoring(), loadThreats()]);
+    },
+    notification: 'New security event — refreshing…',
+  });
+
   const toggleSeverity = (sev: SeverityLevel) => {
     setActiveSeverities((prev) => {
       const next = new Set(prev);
@@ -388,6 +404,7 @@ export default function SecurityMonitoringPage() {
 
   return (
     <div className="space-y-6">
+      <AutoRefreshToast pending={autoRefreshPending} refreshing={autoRefreshing} justRefreshed={autoRefreshDone} />
       {/* T11: Friendly offline-unavailable banner when wrapper throws + we're offline */}
       {offlineUnavailable && (
         <div

@@ -64,6 +64,8 @@ import {
 } from '@/components/ui/GhostAnalystPanel';
 import { useDashboardWidgets } from '@/hooks/useDashboardWidgets';
 import { buildTopNDrilldownFilters, type TopNDimension } from '@/lib/topNDrilldown';
+import { useAutoRefresh } from '@/lib/useAutoRefresh';
+import { AutoRefreshToast } from '@/components/ui/AutoRefreshToast';
 
 const HeatmapViewer = dynamic(
   () => import('@/components/analytics/HeatmapViewer').then((m) => m.HeatmapViewer),
@@ -466,6 +468,15 @@ export default function AnalystDashboardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- initial load only; Apply button triggers refresh
   }, [role]);
 
+  // SSE-driven auto-refresh: fires when verified incidents arrive so analytics
+  // data stays current without polling.
+  const { pending: autoRefreshPending, refreshing: autoRefreshing, justRefreshed: autoRefreshDone } = useAutoRefresh({
+    eventTypes: ['incident.verified', 'incident.corrected'],
+    onRefresh: async () => { await loadData(); },
+    notification: 'New verified incident data — refreshing analytics…',
+    debounceMs: 5000, // analytics queries are heavier; use a longer debounce
+  });
+
   useEffect(() => {
     if (!topNData || topNData.length === 0) {
       setTopNSelectedName(null);
@@ -681,6 +692,8 @@ export default function AnalystDashboardPage() {
 
   return (
     <div className="space-y-6">
+      <AutoRefreshToast pending={autoRefreshPending} refreshing={autoRefreshing} justRefreshed={autoRefreshDone} />
+
       {/* ── Offline banner ── */}
       {exportUnavailableOffline && (
         <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">

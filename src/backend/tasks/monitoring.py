@@ -8,6 +8,7 @@ from celery import shared_task
 from sqlalchemy import text
 
 from database import get_session
+from services.event_bus import publish_system_event_sync
 from utils.audit import log_system_audit
 
 logger = logging.getLogger("wims.monitoring")
@@ -81,7 +82,7 @@ def worker_heartbeat() -> int:
             {"wid": f"celery@{hostname}", "host": hostname},
         )
 
-        db.execute(
+        stale_result = db.execute(
             text(f"""
                 UPDATE wims.worker_heartbeat
                 SET status = 'STALE'
@@ -91,13 +92,16 @@ def worker_heartbeat() -> int:
             """)
         )
 
-        db.execute(
+        offline_result = db.execute(
             text(f"""
                 UPDATE wims.worker_heartbeat
                 SET status = 'OFFLINE'
                 WHERE last_seen < now() - INTERVAL '{offline_secs} seconds'
                   AND status != 'OFFLINE'
             """)
+        )
+        status_transitioned = bool(
+            (stale_result.rowcount or 0) > 0 or (offline_result.rowcount or 0) > 0
         )
 
         # Auto-prune OFFLINE workers older than retention threshold.
@@ -151,6 +155,19 @@ def worker_heartbeat() -> int:
 
         db.commit()
         logger.info("Worker heartbeat recorded for celery@%s", hostname)
+
+        # Notify open admin/system pages only on an actual status change —
+        # avoids emitting an event every 30s tick when nothing changed.
+        if status_transitioned or deleted > 0:
+            publish_system_event_sync(
+                "system.worker_status",
+                {
+                    "stale_count": stale_result.rowcount or 0,
+                    "offline_count": offline_result.rowcount or 0,
+                    "pruned_count": deleted,
+                },
+            )
+
         return 1
 
     except Exception as e:

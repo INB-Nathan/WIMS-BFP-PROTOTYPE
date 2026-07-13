@@ -41,6 +41,8 @@ import { IncidentTableRow } from "@/components/validator/IncidentTableRow";
 import type { ValidatorIncident, ActionType } from "@/components/validator/types";
 import { GhostStatCard } from "@/components/ui/GhostIncidentCard";
 import { GhostValidatorTable } from "@/components/ui/GhostValidatorRow";
+import { useAutoRefresh } from "@/lib/useAutoRefresh";
+import { AutoRefreshToast } from "@/components/ui/AutoRefreshToast";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -509,6 +511,13 @@ export default function ValidatorDashboard() {
     return () => window.removeEventListener('wims:sync-complete', handler);
   }, [fetchQueue, refreshQueuedValidatorOpsCount]);
 
+  // SSE-driven auto-refresh: fires when incidents change on the server.
+  const { pending: autoRefreshPending, refreshing: autoRefreshing, justRefreshed: autoRefreshDone } = useAutoRefresh({
+    eventTypes: ['incident.pending', 'incident.updated', 'incident.verified', 'incident.rejected', 'incident.corrected'],
+    onRefresh: fetchQueue,
+    notification: 'New validation data — refreshing…',
+  });
+
   // ---------------------------------------------------------------------------
   // Submit validator decision
   // ---------------------------------------------------------------------------
@@ -639,6 +648,8 @@ export default function ValidatorDashboard() {
 
   return (
     <div className="space-y-6 pb-8" style={{ backgroundColor: 'var(--content-bg)' }}>
+      <AutoRefreshToast pending={autoRefreshPending} refreshing={autoRefreshing} justRefreshed={autoRefreshDone} />
+
       {/* ── Sticky notification toast (visible while scrolling) ── */}
       {newIncidentBanner && (
         <StickyBanner
