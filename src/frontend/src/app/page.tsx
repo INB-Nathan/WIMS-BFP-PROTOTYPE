@@ -490,6 +490,7 @@ export default function ReportPage() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitErrorType, setSubmitErrorType] = useState<'network' | 'validation' | 'rate_limit' | 'server' | 'unknown' | null>(null);
   const [submittedReportId, setSubmittedReportId] = useState<number | null>(null);
+  const [submittedTrackingUrl, setSubmittedTrackingUrl] = useState<string | null>(null);
   const [submittedResponse, setSubmittedResponse] = useState<Awaited<ReturnType<typeof submitCivilianReportV2>> | null>(null);
   const [duplicateSuggestions, setDuplicateSuggestions] = useState<CivilianDuplicateSuggestion[]>([]);
   const [appendDescription, setAppendDescription] = useState('');
@@ -987,6 +988,9 @@ export default function ReportPage() {
       } else {
         setAppendSubmitted(true);
       }
+      if (result.response?.tracking_url) {
+        setSubmittedTrackingUrl(result.response.tracking_url);
+      }
     } catch (err) {
       setAppendError(err instanceof Error ? err.message : 'Update failed. Please try again.');
     } finally {
@@ -1044,6 +1048,7 @@ export default function ReportPage() {
       }
       setSubmittedResponse(result.response);
       setSubmittedReportId(result.response.report_id);
+      setSubmittedTrackingUrl(result.response.tracking_url ?? null);
       setStep('submitted');
 
       // ── Fire photo upload after report success (non-blocking) ────────
@@ -1630,21 +1635,21 @@ export default function ReportPage() {
             <div className="text-xs p-3 rounded-lg mb-4" style={{ backgroundColor: 'var(--content-bg)', color: 'var(--text-secondary)' }}>
               Track your report at{' '}
               <Link
-                href={`/tracking?id=${submittedReportId}`}
+                href={submittedTrackingUrl ?? `/tracking?id=${submittedReportId}`}
                 className="font-semibold underline break-all"
                 style={{ color: 'var(--bfp-red, #dc2626)' }}
                 data-testid="tracking-link"
               >
-                /tracking?id={submittedReportId}
+                {submittedTrackingUrl ?? `/tracking?id=${submittedReportId}`}
               </Link>
               <br />
               Subaybayan ang iyong report sa{' '}
               <Link
-                href={`/tracking?id=${submittedReportId}`}
+                href={submittedTrackingUrl ?? `/tracking?id=${submittedReportId}`}
                 className="font-semibold underline break-all"
                 style={{ color: 'var(--bfp-red, #dc2626)' }}
               >
-                /tracking?id={submittedReportId}
+                {submittedTrackingUrl ?? `/tracking?id=${submittedReportId}`}
               </Link>
             </div>
 
@@ -1779,7 +1784,7 @@ export default function ReportPage() {
             )}
 
             <a
-              href={`/tracking?id=${submittedReportId}`}
+              href={submittedTrackingUrl ?? `/tracking?id=${submittedReportId}`}
               className="w-full inline-flex items-center justify-center gap-2 py-3 rounded-xl text-white text-sm font-bold"
               style={{ background: 'var(--bfp-gradient)', boxShadow: '0 2px 8px rgba(153,27,34,0.3)' }}
             >

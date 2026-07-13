@@ -777,7 +777,7 @@ describe('ReportPage — auto-retry on reconnect + tracking link', () => {
     // The tracking link should be a real <a> with the correct href.
     const trackingLink = screen.getByTestId('tracking-link');
     expect(trackingLink.tagName).toBe('A');
-    expect(trackingLink.getAttribute('href')).toBe('/tracking?id=478');
+    expect(trackingLink.getAttribute('href')).toBe('/tracking/v2/478/token-478');
   });
 });
 
@@ -896,7 +896,7 @@ describe('ReportPage — photo upload flow', () => {
 
     // Tracking link must always be visible — even when no photo was uploaded
     const trackingLink = screen.getByTestId('tracking-link');
-    expect(trackingLink.getAttribute('href')).toBe('/tracking?id=42');
+    expect(trackingLink.getAttribute('href')).toBe('/tracking/v2/42/token-42');
   });
 
   it('queued offline submission never calls photo upload', async () => {
