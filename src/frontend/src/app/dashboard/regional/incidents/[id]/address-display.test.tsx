@@ -162,4 +162,52 @@ describe('Incident detail — fire scene address display (#523)', () => {
       ).toBeInTheDocument();
     });
   });
+
+  it('shows "Resolving address…" while the fallback geocode is in flight', async () => {
+    let resolveGeocode: (value: unknown) => void = () => {};
+    mockReverseGeocode.mockReturnValue(
+      new Promise((resolve) => {
+        resolveGeocode = resolve;
+      })
+    );
+    mockFetchDetail.mockResolvedValue({
+      response: baseDetail({ sensitive: {}, nonsensitive: {} }),
+      fromCache: false,
+      cachedAt: undefined,
+    });
+
+    render(<RegionalIncidentDetailPage />);
+
+    await waitFor(() => {
+      expect(mockReverseGeocode).toHaveBeenCalledWith(14.6, 120.98);
+    });
+    expect(await screen.findByText('Resolving address…')).toBeInTheDocument();
+
+    resolveGeocode({ barangay: 'Barangay Commonwealth', city: 'Quezon City', province: 'Metro Manila' });
+    await waitFor(() => {
+      expect(screen.queryByText('Resolving address…')).not.toBeInTheDocument();
+    });
+  });
+
+  it('shows a coordinates-only fallback ("—") when the geocode result is null', async () => {
+    mockReverseGeocode.mockResolvedValue(null);
+    mockFetchDetail.mockResolvedValue({
+      response: baseDetail({ sensitive: {}, nonsensitive: {} }),
+      fromCache: false,
+      cachedAt: undefined,
+    });
+
+    render(<RegionalIncidentDetailPage />);
+
+    await waitFor(() => {
+      expect(mockReverseGeocode).toHaveBeenCalledWith(14.6, 120.98);
+    });
+    await waitFor(() => {
+      expect(screen.queryByText('Resolving address…')).not.toBeInTheDocument();
+    });
+    expect(await screen.findByText('📌 Latitude')).toBeInTheDocument();
+    expect(screen.getByText('14.600000')).toBeInTheDocument();
+    // formatDetailValue() renders null as an em dash — no address string, coordinates only.
+    expect(screen.getAllByText('—').length).toBeGreaterThan(0);
+  });
 });

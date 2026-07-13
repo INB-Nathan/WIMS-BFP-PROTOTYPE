@@ -1810,7 +1810,27 @@ export function IncidentForm({
                     📌 {latitude.toFixed(6)}, {longitude.toFixed(6)}
                   </span>
                 </div>
-                <button type="button" onClick={() => { userEditedDraftRef.current = true; setLatitude(null); setLongitude(null); setMapSearchQuery(undefined); setResolvedPinAddress(undefined); }}
+                <button type="button" onClick={() => {
+                  userEditedDraftRef.current = true;
+                  setLatitude(null);
+                  setLongitude(null);
+                  setMapSearchQuery(undefined);
+                  setResolvedPinAddress(undefined);
+                  // incident_address/city_municipality/province_district are only ever
+                  // geocode-filled when previously empty (see the MapPicker onChange
+                  // above), so there's no flag distinguishing a geocode fill from a
+                  // manually typed value for these three -- reset them along with the
+                  // pin so address and pin stay consistent. barangay does track manual
+                  // edits via barangayManuallySetRef, so it's only reset when the
+                  // current value came from the geocode fill.
+                  setFormState((prev) => ({
+                    ...prev,
+                    incident_address: '',
+                    city_municipality: '',
+                    province_district: '',
+                    barangay: barangayManuallySetRef.current ? prev.barangay : '',
+                  }));
+                }}
                   className="ml-auto text-red-600 hover:underline self-start">Clear pin</button>
               </div>
             )}

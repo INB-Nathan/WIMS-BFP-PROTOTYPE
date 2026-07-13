@@ -727,7 +727,7 @@ export default function RegionalIncidentDetailPage() {
   // incident_address at all (e.g. an older record). Never re-geocode when a
   // stored address exists — that's the preferred, already-available value.
   useEffect(() => {
-    if (!detail) return;
+    if (!detail || isEditing) return;
     const sensLocal = detail.sensitive as Record<string, unknown> | undefined;
     const nsLocal = detail.nonsensitive as Record<string, unknown> | undefined;
     const storedAddress =
@@ -742,7 +742,7 @@ export default function RegionalIncidentDetailPage() {
       const composed = geo ? [geo.barangay, geo.city, geo.province].filter(Boolean).join(', ') : '';
       setFallbackGeocodedAddress(composed || null);
     });
-  }, [detail, localIncidentId]);
+  }, [detail, isEditing, localIncidentId]);
 
   const MISSING_FIELD_KEY_MAP: Record<string, string> = {
     'Type of Responder': 'responder_type',
@@ -1764,15 +1764,23 @@ export default function RegionalIncidentDetailPage() {
 
           <Section title="H. Fire Scene Location" sectionId="sec-geo" tone="emerald" subtitle="Recorded address, coordinates, and map pin.">
             <DetailGrid>
-              <DetailField
-                label="Address"
-                value={
-                  fireSceneAddress === undefined
-                    ? 'Resolving address…'
-                    : (fireSceneAddress as string | null | undefined) ?? null
-                }
-                className="lg:col-span-2"
-              />
+              {fireSceneAddress === undefined ? (
+                <div className="min-w-0 border-b border-slate-200/80 pb-3.5 lg:col-span-2">
+                  <dt className="text-[11px] font-semibold uppercase tracking-[0.04em] text-slate-500">Address</dt>
+                  <dd className="mt-1.5 whitespace-pre-wrap break-words text-sm font-medium leading-6 text-slate-950">
+                    <span aria-live="polite">
+                      <span className="sr-only">Address status: </span>
+                      Resolving address…
+                    </span>
+                  </dd>
+                </div>
+              ) : (
+                <DetailField
+                  label="Address"
+                  value={(fireSceneAddress as string | null | undefined) ?? null}
+                  className="lg:col-span-2"
+                />
+              )}
             </DetailGrid>
             <DetailGrid>
               <DetailField label="📌 Latitude" value={detail.latitude != null ? detail.latitude.toFixed(6) : null} valueClassName="font-mono" />
