@@ -1,7 +1,7 @@
 ---
 title: Functional Bug Register
 created: 2026-05-14
-updated: 2026-06-10
+updated: 2026-07-12
 type: bug
 tags: [wims-bfp, bug, functional, m12, needs-fix]
 sources: []
@@ -87,6 +87,7 @@ Functional bugs reported by teammates during evaluation. All map to M12 User Man
 | F-16 | RP-09: Regional encoder create not in system_audit_trails | `encoder_crud.create_incident` wrote to `incident_verification_history` (`CREATED_DRAFT`) but never called `log_system_audit`, so `system_audit_trails` had no record of regional encoder incident creation. Fix: Added `log_system_audit('CREATE_INCIDENT')` after the IVH insert, mirroring the national create path. Branch `AuditMoreGapsFix`. | RP-09 Repudiation Pentest | Fixed in code; PR pending |
 | F-17 | RP-23: Audit-log export action not itself audited | The audit-log CSV export endpoints streamed CSV but never called `log_system_audit`. A SYSTEM_ADMIN or NATIONAL_VALIDATOR could deny exporting sensitive audit data. Fix: Added `log_system_audit('AUDIT_EXPORT')` to both `admin/audit.py:export_audit_logs` and `validator.py:export_validator_audit_logs`; added `AUDIT_EXPORT` to OFF_HOURS high-sensitivity actions. Branch `AuditMoreGapsFix`. | RP-23 Repudiation Pentest | Fixed in code; PR pending |
 | F-18 | RP-26: No password-reset abuse anomaly detector | No app-level anomaly detector for `PASSWORD_RESET` bursts (nginx rate-limits at network level, Keycloak SPI logs each event, but no anomaly was created). Fix: New `_detect_password_reset_abuse` detector — >5 `PASSWORD_RESET` actions per user in 15-min window → MEDIUM anomaly. Added to `_DETECTORS` (now 6). Branch `AuditMoreGapsFix`. | RP-26 Repudiation Pentest | Fixed in code; PR pending |
+| F-19 | #526: Admin user-creation response exposed a plaintext temporary password | `POST /api/admin/users` (`api/routes/admin/users.py`) unconditionally returned `temporary_password` plus a misleading `note` claiming credentials were emailed, and the admin UI (`admin/system/page.tsx`) always rendered it in a reveal/copy modal — even though Keycloak already emails a secure one-time set-password link (`create_keycloak_user` → `send_update_account`, `UPDATE_PASSWORD`, 7-day lifespan) and that email's success/failure was previously swallowed with no signal returned to the caller. Fix: `create_keycloak_user` now returns `(keycloak_id, email_sent)`; the route response drops the password entirely and returns `email_sent` instead; new `POST /api/admin/users/{keycloak_id}/resend-credentials` lets an admin retry the Keycloak email if the initial send failed; the frontend modal shows an "emailed to `<email>`" confirmation or a "resend" action, never a password. Branch `fix/526-email-credentials-not-shown`, issue #526. | Issue #526 | Fixed in code; PR pending |
 
 ---
 

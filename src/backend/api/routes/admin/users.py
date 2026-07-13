@@ -16,6 +16,7 @@ from database import get_db
 from services.keycloak_admin import (
     create_keycloak_user,
     generate_temp_password,
+    resend_update_account_email,
     set_user_enabled,
     logout_user_sessions,
 )
@@ -96,18 +97,23 @@ def create_user(
     """
     Onboard a new user.
 
-    1. Creates the user in Keycloak with a temporary password (must change on first login).
+    1. Creates the user in Keycloak with a temporary (internal-only) password and
+       sends Keycloak's native set-password-link email (UPDATE_PASSWORD required
+       action) — that link is the credential delivery path, not the password.
     2. Assigns the requested realm role in Keycloak.
     3. Inserts a linked row into wims.users.
-    4. Returns the generated temporary password in plaintext for the admin to distribute.
+    4. Returns whether the set-password email was sent — never the password
+       itself. If the email failed, the admin uses the resend-credentials
+       endpoint rather than falling back to a plaintext password.
     """
     # Use provided username if given; fall back to email-derived
     username = body.username if body.username else str(body.email).lower()[:50]
 
+    # Internal only — seeds the Keycloak account; never returned to the client.
     temp_password = generate_temp_password()
 
     try:
-        keycloak_id = create_keycloak_user(
+        keycloak_id, email_sent = create_keycloak_user(
             email=str(body.email),
             first_name=body.first_name,
             last_name=body.last_name,
@@ -204,9 +210,22 @@ def create_user(
         "keycloak_id": keycloak_id,
         "username": username,
         "role": body.role,
-        "temporary_password": temp_password,
-        "note": "Credentials emailed to user. If email delivery fails, use the temporary_password below as fallback.",
+        "email": str(body.email),
+        "email_sent": email_sent,
     }
+
+
+@router.post("/users/{keycloak_id}/resend-credentials")
+def resend_credentials(
+    keycloak_id: str,
+    _admin: Annotated[dict, Depends(get_system_admin)],
+):
+    """
+    Resend Keycloak's set-password-link email for an existing user — the
+    fallback action when the initial send during onboarding failed.
+    """
+    email_sent = resend_update_account_email(keycloak_id)
+    return {"email_sent": email_sent}
 
 
 @router.get("/users")

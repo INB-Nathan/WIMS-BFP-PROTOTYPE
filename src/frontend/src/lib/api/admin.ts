@@ -24,6 +24,7 @@ export {
   fetchUserSessions,
   generateRecommendedAction,
   pruneWorkers,
+  resendAdminUserCredentials,
   retrySyncOp,
   revokeUserSessions,
   terminateUserSessions,

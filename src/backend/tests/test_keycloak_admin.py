@@ -57,7 +57,7 @@ def test_generate_temp_password_random():
 def test_create_user_calls_send_update_account(mock_adm):
     """Happy path: create_keycloak_user calls send_update_account with correct args."""
     with patch("services.keycloak_admin._get_admin_client", return_value=mock_adm):
-        user_id = create_keycloak_user(
+        user_id, email_sent = create_keycloak_user(
             email="test@bfp.gov.ph",
             first_name="Test",
             last_name="User",
@@ -67,6 +67,7 @@ def test_create_user_calls_send_update_account(mock_adm):
         )
 
     assert user_id == "user-uuid-1234"
+    assert email_sent is True
 
     # Verify the correct email API was called (not the hallucinated one)
     mock_adm.send_update_account.assert_called_once_with(
@@ -125,7 +126,7 @@ def test_send_update_account_keycloakerror_is_non_fatal(mock_adm, caplog):
     )
 
     with patch("services.keycloak_admin._get_admin_client", return_value=mock_adm):
-        user_id = create_keycloak_user(
+        user_id, email_sent = create_keycloak_user(
             email="test@bfp.gov.ph",
             first_name="Test",
             last_name="User",
@@ -136,6 +137,9 @@ def test_send_update_account_keycloakerror_is_non_fatal(mock_adm, caplog):
 
     # User is still created successfully
     assert user_id == "user-uuid-1234"
+
+    # But the email did not go out — caller must surface this, not a password
+    assert email_sent is False
 
     # Warning was logged
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
@@ -201,7 +205,7 @@ def test_role_assignment_keycloakerror_is_non_fatal(mock_adm, caplog):
     )
 
     with patch("services.keycloak_admin._get_admin_client", return_value=mock_adm):
-        user_id = create_keycloak_user(
+        user_id, email_sent = create_keycloak_user(
             email="test@bfp.gov.ph",
             first_name="Test",
             last_name="User",
@@ -211,6 +215,7 @@ def test_role_assignment_keycloakerror_is_non_fatal(mock_adm, caplog):
         )
 
     assert user_id == "user-uuid-1234"
+    assert email_sent is True
 
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
     role_warn = [w for w in warnings if "Role assignment failed" in w.message]

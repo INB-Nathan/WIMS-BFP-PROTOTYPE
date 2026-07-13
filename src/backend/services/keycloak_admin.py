@@ -72,6 +72,36 @@ def generate_temp_password() -> str:
     return "".join(secrets.choice(_PWD_ALPHABET) for _ in range(_PWD_LENGTH))
 
 
+def _send_update_account_email(adm: KeycloakAdmin, *, user_id: str) -> bool:
+    """Send Keycloak's native set-password-link email (UPDATE_PASSWORD required
+    action, 7-day lifespan). Never raises — email delivery failure must not
+    fail the caller; the boolean result is surfaced to the client instead so
+    the caller can offer a resend/fallback path.
+    """
+    try:
+        adm.send_update_account(
+            user_id=user_id,
+            payload=["UPDATE_PASSWORD"],
+            redirect_uri="",
+            lifespan=604800,  # 7 days
+        )
+        logger.info(f"Update-account email sent to {user_id}")
+        return True
+    except KeycloakError as e:
+        logger.warning(
+            f"Update-account email failed for {user_id}: {e} — password must be distributed manually"
+        )
+        return False
+
+
+def resend_update_account_email(keycloak_id: str) -> bool:
+    """Resend Keycloak's set-password-link email for an existing user — the
+    fallback action when the initial send during onboarding failed.
+    """
+    adm = _get_admin_client()
+    return _send_update_account_email(adm, user_id=keycloak_id)
+
+
 def create_keycloak_user(
     *,
     email: str,
@@ -81,10 +111,15 @@ def create_keycloak_user(
     role: str,
     temp_password: str,
     contact_number: str | None = None,
-) -> str:
+) -> tuple[str, bool]:
     """
     Create a user in Keycloak, set a temporary password (must change on first
-    login), assign the given realm role, and return the new user's Keycloak UUID.
+    login), assign the given realm role, and send the set-password-link email.
+
+    Returns:
+        (keycloak_user_id, email_sent) — email_sent is False (not raised) if
+        the set-password-link email failed to send; the caller must surface
+        this to the admin instead of falling back to a plaintext password.
 
     Raises:
         KeycloakError: if the Keycloak API call fails (e.g. email already exists).
@@ -122,19 +157,7 @@ def create_keycloak_user(
             pass
         raise
 
-    # Send update-account email with temp password
-    try:
-        adm.send_update_account(
-            user_id=user_id,
-            payload=["UPDATE_PASSWORD"],
-            redirect_uri="",
-            lifespan=604800,  # 7 days
-        )
-        logger.info(f"Update-account email sent to {user_id}")
-    except KeycloakError as e:
-        logger.warning(
-            f"Update-account email failed for {user_id}: {e} — password must be distributed manually"
-        )
+    email_sent = _send_update_account_email(adm, user_id=user_id)
 
     # Assign realm role
     try:
@@ -144,7 +167,7 @@ def create_keycloak_user(
         # Non-fatal for onboarding — admin can re-assign manually
 
     logger.info(f"Keycloak user created: id={user_id} email={email} role={role}")
-    return user_id
+    return user_id, email_sent
 
 
 def _assign_realm_role(adm: KeycloakAdmin, *, user_id: str, role_name: str) -> None:
