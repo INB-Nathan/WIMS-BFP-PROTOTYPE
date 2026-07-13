@@ -42,6 +42,13 @@ def upgrade() -> None:
     # uploader_device_id, and created_at; this migration guarantees they exist
     # regardless of bootstrap state.
 
+    # If the table already existed from a prior migration that lacked created_at,
+    # add it now. IF NOT EXISTS makes this safe for fresh databases too.
+    op.execute(
+        "ALTER TABLE wims.report_photos"
+        " ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now()"
+    )
+
     # Migration 83: EXIF metadata columns on wims.report_photos
     op.execute("ALTER TABLE wims.report_photos ADD COLUMN IF NOT EXISTS exif_gps_lat NUMERIC(10,7)")
     op.execute("ALTER TABLE wims.report_photos ADD COLUMN IF NOT EXISTS exif_gps_lon NUMERIC(10,7)")
