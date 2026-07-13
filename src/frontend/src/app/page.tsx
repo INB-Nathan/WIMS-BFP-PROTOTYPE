@@ -987,9 +987,9 @@ export default function ReportPage() {
         );
       } else {
         setAppendSubmitted(true);
-      }
-      if (result.response?.tracking_url) {
-        setSubmittedTrackingUrl(result.response.tracking_url);
+        if (result.response?.tracking_url) {
+          setSubmittedTrackingUrl(result.response.tracking_url);
+        }
       }
     } catch (err) {
       setAppendError(err instanceof Error ? err.message : 'Update failed. Please try again.');
