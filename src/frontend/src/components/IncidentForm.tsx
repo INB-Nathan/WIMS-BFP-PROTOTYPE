@@ -177,6 +177,9 @@ export function IncidentForm({
   const [latitude, setLatitude] = useState<number | null>(null);
   const [longitude, setLongitude] = useState<number | null>(null);
   const [mapSearchQuery, setMapSearchQuery] = useState<string | undefined>(undefined);
+  // Resolved address for the pinned coordinates: undefined = not yet resolved/pending,
+  // null = geocode returned nothing usable, string = composed address.
+  const [resolvedPinAddress, setResolvedPinAddress] = useState<string | null | undefined>(undefined);
 
   const [formState, setFormState] = useState({
     // A. Response Details
@@ -677,6 +680,12 @@ export function IncidentForm({
     const hasCoords = typeof initialData.latitude === 'number' && typeof initialData.longitude === 'number';
     if (hydratedAddress && !hasCoords) {
       setMapSearchQuery(hydratedAddress);
+    }
+    // Prefer the already-known address over a redundant live geocode call when
+    // hydrating an existing incident's pin — null (not undefined/"pending") when
+    // coordinates exist but no address was ever recorded.
+    if (hasCoords) {
+      setResolvedPinAddress(hydratedAddress || null);
     }
 
     const people = (sen.other_personnel || ns.other_personnel) as Record<string, unknown>[] | undefined;
@@ -1606,6 +1615,10 @@ export function IncidentForm({
               setFormState(draftRestoreData.formState as Parameters<typeof setFormState>[0]);
               setLatitude(draftRestoreData.latitude);
               setLongitude(draftRestoreData.longitude);
+              if (draftRestoreData.latitude !== null && draftRestoreData.longitude !== null) {
+                const draftAddress = (draftRestoreData.formState as { incident_address?: string })?.incident_address || '';
+                setResolvedPinAddress(draftAddress || null);
+              }
               setDraftRestoreData(null);
             }}
           >
@@ -1788,10 +1801,37 @@ export function IncidentForm({
 
             {/* Compact fire scene location — shown near the complete address once a pin is set */}
             {latitude !== null && longitude !== null && (
-              <div className="md:col-span-2 text-xs text-green-800 font-medium bg-green-50 border border-green-200 rounded px-3 py-2 flex items-center gap-2">
-                <span>📍 Fire Scene: {latitude.toFixed(6)}, {longitude.toFixed(6)}</span>
-                <button type="button" onClick={() => { userEditedDraftRef.current = true; setLatitude(null); setLongitude(null); setMapSearchQuery(undefined); }}
-                  className="ml-auto text-red-600 hover:underline">Clear pin</button>
+              <div className="md:col-span-2 text-xs text-green-800 font-medium bg-green-50 border border-green-200 rounded px-3 py-2 flex items-center gap-2 flex-wrap">
+                <div className="flex flex-col">
+                  {resolvedPinAddress !== null && (
+                    <span>📍 {resolvedPinAddress === undefined ? 'Resolving address…' : resolvedPinAddress}</span>
+                  )}
+                  <span className="font-mono text-[11px] text-green-700">
+                    📌 {latitude.toFixed(6)}, {longitude.toFixed(6)}
+                  </span>
+                </div>
+                <button type="button" onClick={() => {
+                  userEditedDraftRef.current = true;
+                  setLatitude(null);
+                  setLongitude(null);
+                  setMapSearchQuery(undefined);
+                  setResolvedPinAddress(undefined);
+                  // incident_address/city_municipality/province_district are only ever
+                  // geocode-filled when previously empty (see the MapPicker onChange
+                  // above), so there's no flag distinguishing a geocode fill from a
+                  // manually typed value for these three -- reset them along with the
+                  // pin so address and pin stay consistent. barangay does track manual
+                  // edits via barangayManuallySetRef, so it's only reset when the
+                  // current value came from the geocode fill.
+                  setFormState((prev) => ({
+                    ...prev,
+                    incident_address: '',
+                    city_municipality: '',
+                    province_district: '',
+                    barangay: barangayManuallySetRef.current ? prev.barangay : '',
+                  }));
+                }}
+                  className="ml-auto text-red-600 hover:underline self-start">Clear pin</button>
               </div>
             )}
 
@@ -1828,16 +1868,19 @@ export function IncidentForm({
                     userEditedDraftRef.current = true;
                     setLatitude(lat);
                     setLongitude(lng);
+                    setResolvedPinAddress(undefined);
                     const geo = await reverseGeocode(lat, lng);
+                    const composedAddress = geo
+                      ? [geo.barangay, geo.city, geo.province].filter(Boolean).join(', ')
+                      : '';
+                    setResolvedPinAddress(composedAddress || null);
                     if (geo) {
                       setFormState((prev) => ({
                         ...prev,
                         barangay: geo.barangay && !barangayManuallySetRef.current ? geo.barangay : prev.barangay,
                         city_municipality: prev.city_municipality || geo.city,
                         province_district: prev.province_district || geo.province,
-                        incident_address:
-                          prev.incident_address ||
-                          [geo.barangay, geo.city, geo.province].filter(Boolean).join(', '),
+                        incident_address: prev.incident_address || composedAddress,
                       }));
                     }
                   }}
