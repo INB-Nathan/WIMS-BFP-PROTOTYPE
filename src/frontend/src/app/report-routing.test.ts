@@ -7,7 +7,7 @@ describe('public report routing', () => {
     const source = readFileSync(join(process.cwd(), 'src/app/page.tsx'), 'utf8');
 
     expect(source).not.toContain('/report/tracking');
-    expect(source).not.toContain('/tracking?id=');
+    expect(source).toContain('/tracking?id=');
     expect(source).toContain('tracking_url');
   });
 });

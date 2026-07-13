@@ -218,7 +218,9 @@ def _check_write_denied(factory, user_id, sql, params):
     try:
         result = db.execute(text(sql), params)
         db.commit()
-        assert result.rowcount == 0, f"Expected 0 rows affected for non-admin, got {result.rowcount}"
+        assert result.rowcount == 0, (
+            f"Expected 0 rows affected for non-admin, got {result.rowcount}"
+        )
     except DBAPIError:
         # INSERT raises via WITH CHECK — acceptable.
         db.rollback()

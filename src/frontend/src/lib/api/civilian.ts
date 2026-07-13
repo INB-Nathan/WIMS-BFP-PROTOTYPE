@@ -132,3 +132,12 @@ export async function fetchReportClusters(lat?: number, lon?: number): Promise<R
   const qs = params.toString();
   return publicApiFetch<ReportClusterResponse>(`/civilian/report-clusters${qs ? `?${qs}` : ''}`);
 }
+
+export async function fetchReportStatus(
+  reportId: string | number,
+  deviceId: string,
+): Promise<CivilianReportTrackingResponse> {
+  return publicApiFetch<CivilianReportTrackingResponse>(
+    `/civilian/reports/${reportId}?device_id=${encodeURIComponent(deviceId)}`,
+  );
+}

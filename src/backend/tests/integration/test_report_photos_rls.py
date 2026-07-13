@@ -601,10 +601,7 @@ def test_anonymous_attach_binds_owner_and_rejects_cross_owner(live_rls_context):
         # hit a FK reference.
         with admin_factory() as admin:
             admin.execute(
-                text(
-                    "DELETE FROM wims.report_photos "
-                    "WHERE photo_id IN (:a, :b)"
-                ),
+                text("DELETE FROM wims.report_photos WHERE photo_id IN (:a, :b)"),
                 {"a": photo_id, "b": photo_b},
             )
             admin.execute(
