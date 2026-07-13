@@ -75,9 +75,12 @@ export function IncidentCard({
   offlineStatus,
 }: Props) {
   const offlineUncached = isOnline === false && isDetailCached === false;
-  // Rejected incidents are view-only — no detail navigation makes sense for them.
+  // Rejected incidents error out when opened offline (their detail view isn't
+  // cached for offline use), so block navigation only while offline. Online,
+  // rejected incidents remain viewable.
   const isRejected = inc.verification_status === 'REJECTED';
-  const disabled = offlineUncached || isRejected;
+  const rejectedOffline = isRejected && isOnline === false;
+  const disabled = offlineUncached || rejectedOffline;
 
   // Disable archive button when an archive_action is already queued for this incident
   const hasQueuedArchive = offlineStatus?.operations.some(
@@ -131,9 +134,9 @@ export function IncidentCard({
               Go online to view
             </span>
           )}
-          {isRejected && (
-            <span className="rounded-full bg-gray-100 border border-gray-200 px-2 py-0.5 text-xs font-semibold text-gray-500" aria-label="Rejected incidents cannot be opened">
-              View only
+          {rejectedOffline && (
+            <span className="rounded-full bg-gray-100 border border-gray-200 px-2 py-0.5 text-xs font-semibold text-gray-500" aria-label="Rejected incidents cannot be opened offline">
+              Go online to view
             </span>
           )}
         </div>

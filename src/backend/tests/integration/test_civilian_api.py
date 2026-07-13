@@ -176,6 +176,27 @@ class TestCivilianReportPublicSubmission:
         )
         assert "report_id" in data
 
+    def test_submit_succeeds_even_when_redis_is_unreachable(self, client, monkeypatch):
+        """After commit, civilian.py fire-and-forgets a civilian.report_submitted
+        event via publish_verification_event_sync. A broken Redis connection on
+        the publish path must never turn a successful submission into a 500."""
+        from services import event_bus
+
+        def _raise(*_args, **_kwargs):
+            raise ConnectionError("Redis is unreachable")
+
+        monkeypatch.setattr(event_bus, "_get_sync_redis", _raise)
+
+        ip = f"198.51.{uuid.uuid4().hex[:4]}.{uuid.uuid4().hex[:4]}"
+        response = client.post(
+            "/api/civilian/reports",
+            json=_payload(device_id=str(uuid.uuid4())),
+            headers={"x-real-ip": ip},
+        )
+
+        assert response.status_code == 201, response.text
+        assert response.json()["status"] == "PENDING"
+
     def test_duplicate_suggestions_return_nearby_active_reports(self, client, db_session):
         existing_id = _insert_report_raw_bypassing_encryption(db_session)
 

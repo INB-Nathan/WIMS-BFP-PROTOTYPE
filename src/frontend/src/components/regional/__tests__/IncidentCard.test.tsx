@@ -75,6 +75,32 @@ describe('IncidentCard offline detail availability', () => {
 
     expect(props.onCardClick).toHaveBeenCalledWith(42);
   });
+
+  it('allows opening a rejected incident while online', () => {
+    const rejected = { ...incident, verification_status: 'REJECTED' as const };
+    const props = renderCard({ inc: rejected, isOnline: true });
+
+    const card = screen.getByRole('link', { name: /view incident 42/i });
+    expect(card).not.toHaveAttribute('aria-disabled');
+    expect(screen.queryByText('Go online to view')).not.toBeInTheDocument();
+
+    fireEvent.click(card);
+
+    expect(props.onCardClick).toHaveBeenCalledWith(42);
+  });
+
+  it('blocks opening a rejected incident while offline', () => {
+    const rejected = { ...incident, verification_status: 'REJECTED' as const };
+    const props = renderCard({ inc: rejected, isOnline: false });
+
+    const card = screen.getByRole('article', { name: /view incident 42/i });
+    expect(card).toHaveAttribute('aria-disabled', 'true');
+    expect(card).toHaveTextContent('Go online to view');
+
+    fireEvent.click(card);
+
+    expect(props.onCardClick).not.toHaveBeenCalled();
+  });
 });
 
 describe('IncidentCard offline sync badges', () => {

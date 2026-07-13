@@ -80,11 +80,21 @@ export function useAutoRefresh({
   const onRefreshRef = useRef(onRefresh);
   onRefreshRef.current = onRefresh;
 
+  // Set false on unmount so an in-flight onRefresh() doesn't setState afterward.
+  const isMountedRef = useRef(true);
+  // True when an event arrived (or the debounce fired) while the tab was hidden —
+  // replayed once the tab becomes visible again so the refresh isn't silently dropped.
+  const missedRefreshRef = useRef(false);
+
   const channels = useMemo(() => deriveChannels(eventTypes), [eventTypes.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const triggerRefresh = useCallback(() => {
-    // Skip refreshes while the tab is hidden to avoid unnecessary network calls.
-    if (typeof document !== 'undefined' && document.hidden) return;
+    // Skip refreshes while the tab is hidden to avoid unnecessary network calls;
+    // remember to catch up once the tab becomes visible again.
+    if (typeof document !== 'undefined' && document.hidden) {
+      missedRefreshRef.current = true;
+      return;
+    }
 
     if (timerRef.current !== null) clearTimeout(timerRef.current);
 
@@ -94,10 +104,20 @@ export function useAutoRefresh({
 
     timerRef.current = setTimeout(async () => {
       timerRef.current = null;
+
+      // The tab may have been backgrounded during the debounce window — defer
+      // to the visibilitychange catch-up instead of refreshing unseen.
+      if (typeof document !== 'undefined' && document.hidden) {
+        missedRefreshRef.current = true;
+        setPending(false);
+        return;
+      }
+
       setPending(false);
       setRefreshing(true);
       try {
         await onRefreshRef.current();
+        if (!isMountedRef.current) return;
         const now = new Date();
         setLastRefreshed(now);
 
@@ -105,17 +125,32 @@ export function useAutoRefresh({
         setJustRefreshed(true);
         if (confirmTimerRef.current !== null) clearTimeout(confirmTimerRef.current);
         confirmTimerRef.current = setTimeout(() => {
-          setJustRefreshed(false);
+          if (isMountedRef.current) setJustRefreshed(false);
         }, CONFIRMATION_HOLD_MS);
       } finally {
-        setRefreshing(false);
+        if (isMountedRef.current) setRefreshing(false);
       }
     }, debounceMs);
   }, [debounceMs]);
 
+  // Replay a dropped refresh once a backgrounded tab becomes visible again.
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const handleVisibilityChange = () => {
+      if (!document.hidden && missedRefreshRef.current) {
+        missedRefreshRef.current = false;
+        triggerRefresh();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [triggerRefresh]);
+
   // Clean up timers on unmount.
   useEffect(() => {
+    isMountedRef.current = true;
     return () => {
+      isMountedRef.current = false;
       if (timerRef.current !== null) clearTimeout(timerRef.current);
       if (confirmTimerRef.current !== null) clearTimeout(confirmTimerRef.current);
     };

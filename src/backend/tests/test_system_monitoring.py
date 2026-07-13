@@ -376,7 +376,8 @@ class TestWorkerHeartbeatAutoPrune:
 
         with mock.patch("tasks.monitoring.get_session", return_value=mock_session):
             with mock.patch("tasks.monitoring.log_system_audit") as mock_audit:
-                result = worker_heartbeat()
+                with mock.patch("tasks.monitoring.publish_system_event_sync") as mock_publish:
+                    result = worker_heartbeat()
 
         assert result == 1
         assert mock_session.commit.called
@@ -399,6 +400,10 @@ class TestWorkerHeartbeatAutoPrune:
         assert audit_kwargs["action_type"] == "WORKER_PRUNE_AUTO"
         assert audit_kwargs["new_values"]["deleted_count"] == 2
 
+        # system.worker_status fires since rows were pruned
+        mock_publish.assert_called_once()
+        assert mock_publish.call_args[0][0] == "system.worker_status"
+
     def test_auto_prune_skips_audit_when_nothing_deleted(self):
         """worker_heartbeat does not audit-log when no rows are deleted."""
         from unittest import mock
@@ -412,8 +417,12 @@ class TestWorkerHeartbeatAutoPrune:
         timeout_cfg.fetchall.return_value = []
         call_results.append(timeout_cfg)
         call_results.append(mock.MagicMock())  # INSERT
-        call_results.append(mock.MagicMock())  # STALE
-        call_results.append(mock.MagicMock())  # OFFLINE
+        stale_result = mock.MagicMock()
+        stale_result.rowcount = 0
+        call_results.append(stale_result)  # STALE — no transitions
+        offline_result = mock.MagicMock()
+        offline_result.rowcount = 0
+        call_results.append(offline_result)  # OFFLINE — no transitions
         config_fetch = mock.MagicMock()
         config_fetch.fetchone.return_value = None
         call_results.append(config_fetch)
@@ -425,11 +434,14 @@ class TestWorkerHeartbeatAutoPrune:
 
         with mock.patch("tasks.monitoring.get_session", return_value=mock_session):
             with mock.patch("tasks.monitoring.log_system_audit") as mock_audit:
-                result = worker_heartbeat()
+                with mock.patch("tasks.monitoring.publish_system_event_sync") as mock_publish:
+                    result = worker_heartbeat()
 
         assert result == 1
         # No audit when nothing deleted
         mock_audit.assert_not_called()
+        # No status change and nothing pruned → no event
+        mock_publish.assert_not_called()
 
     def test_auto_prune_respects_config_retention(self):
         """Auto-prune reads retention days from system_config."""
@@ -444,8 +456,12 @@ class TestWorkerHeartbeatAutoPrune:
         timeout_cfg.fetchall.return_value = []
         call_results.append(timeout_cfg)
         call_results.append(mock.MagicMock())  # INSERT
-        call_results.append(mock.MagicMock())  # STALE
-        call_results.append(mock.MagicMock())  # OFFLINE
+        stale_result = mock.MagicMock()
+        stale_result.rowcount = 0
+        call_results.append(stale_result)  # STALE
+        offline_result = mock.MagicMock()
+        offline_result.rowcount = 0
+        call_results.append(offline_result)  # OFFLINE
         config_fetch = mock.MagicMock()
         config_fetch.fetchone.return_value = ("3",)  # config value = 3 days
         call_results.append(config_fetch)
@@ -457,7 +473,11 @@ class TestWorkerHeartbeatAutoPrune:
 
         with mock.patch("tasks.monitoring.get_session", return_value=mock_session):
             with mock.patch("tasks.monitoring.log_system_audit"):
-                worker_heartbeat()
+                with mock.patch("tasks.monitoring.publish_system_event_sync") as mock_publish:
+                    worker_heartbeat()
+
+        # Rows were pruned → event fires
+        mock_publish.assert_called_once()
 
         # Verify DELETE uses retention_days=3 in bound params
         delete_calls = [
@@ -943,6 +963,107 @@ def test_suricata_health_uses_configured_eve_log_path(monkeypatch):
     getmtime.assert_called_once_with("/mounted/suricata/eve.json")
     suricata = resp.json()["components"]["suricata"]
     assert suricata["status"] == "QUIET"
+
+
+class _StatefulFakeRedis:
+    """Minimal stateful fake standing in for the last-known-health-status key."""
+
+    def __init__(self):
+        self.store: dict[str, bytes] = {}
+
+    def ping(self):
+        return True
+
+    def get(self, key):
+        return self.store.get(key)
+
+    def set(self, key, value):
+        self.store[key] = value.encode() if isinstance(value, str) else value
+
+
+def _all_components_healthy_patches(mock_db, fake_redis):
+    """Patch every external health-check dependency to succeed, so overall
+    status is HEALTHY. Deliberately does NOT reuse `_health_mocks`, which
+    hardcodes an Ollama failure (making overall status permanently DEGRADED)
+    — this test needs a real HEALTHY↔DEGRADED transition to observe."""
+    import time
+    from unittest import mock
+
+    patches = [
+        mock.patch("os.path.getmtime", return_value=time.time()),
+        mock.patch("redis.from_url", return_value=fake_redis),
+    ]
+
+    mock_kc = mock.MagicMock()
+    mock_kc.users_count.return_value = 5
+    patches.append(mock.patch("services.keycloak_admin._get_admin_client", return_value=mock_kc))
+
+    mock_response = mock.MagicMock()
+    mock_response.status_code = 200
+    mock_httpx_ctx = mock.MagicMock()
+    mock_httpx_ctx.__enter__.return_value.get.return_value = mock_response
+    patches.append(mock.patch("httpx.Client", return_value=mock_httpx_ctx))
+
+    app.dependency_overrides[get_db] = lambda: mock_db
+    return patches
+
+
+def test_health_changed_event_fires_only_on_status_transition():
+    """system.health_changed is published only when overall status changes,
+    never on the first-ever check, and never when status is unchanged."""
+    from unittest import mock
+
+    app.dependency_overrides[get_current_wims_user] = _admin_override
+    client = TestClient(app)
+    fake_redis = _StatefulFakeRedis()
+
+    with mock.patch("api.routes.admin.monitoring.publish_system_event_sync") as mock_publish:
+        # 1st check: every component healthy (total=0 → suricata FRESH, which
+        # does not degrade overall status). No prior Redis value yet, so no
+        # event should fire even though this is technically a "change" from
+        # nothing to HEALTHY.
+        mock_db = _make_mock_db(recent=0, total=0)
+        patches = _all_components_healthy_patches(mock_db, fake_redis)
+        for p in patches:
+            p.start()
+        try:
+            resp1 = client.get("/api/admin/health")
+        finally:
+            for p in reversed(patches):
+                p.stop()
+        assert resp1.status_code == 200
+        assert resp1.json()["status"] == "HEALTHY"
+        mock_publish.assert_not_called()
+
+        # 2nd check with the same status: no event should fire (no transition).
+        mock_db = _make_mock_db(recent=0, total=0)
+        patches = _all_components_healthy_patches(mock_db, fake_redis)
+        for p in patches:
+            p.start()
+        try:
+            resp2 = client.get("/api/admin/health")
+        finally:
+            for p in reversed(patches):
+                p.stop()
+        assert resp2.json()["status"] == "HEALTHY"
+        mock_publish.assert_not_called()
+
+        # 3rd check with a DB failure → DEGRADED: status changed, event should fire.
+        mock_db = mock.MagicMock()
+        mock_db.execute.side_effect = RuntimeError("DB connection lost")
+        patches = _all_components_healthy_patches(mock_db, fake_redis)
+        for p in patches:
+            p.start()
+        try:
+            resp3 = client.get("/api/admin/health")
+        finally:
+            for p in reversed(patches):
+                p.stop()
+        assert resp3.json()["status"] == "DEGRADED"
+        mock_publish.assert_called_once_with(
+            "system.health_changed",
+            {"status": "DEGRADED", "previous_status": "HEALTHY"},
+        )
 
 
 def test_suricata_unhealthy_eve_log_unreadable():

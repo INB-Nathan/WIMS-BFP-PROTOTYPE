@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from auth import get_system_admin
 from database import get_db
 from services.ai_service import _ollama_url
+from services.event_bus import publish_system_event_sync
 from utils.audit import log_system_audit
 
 router = APIRouter()
@@ -182,6 +183,31 @@ def get_system_health(
         }
         health["status"] = "DEGRADED"
 
+    # Notify open admin/system pages when overall health status changes.
+    # Tracked via a Redis key rather than a DB table since it's just a cache
+    # of the last-observed status, not durable state.
+    try:
+        import os
+        import redis
+
+        r = redis.from_url(os.getenv("REDIS_URL", "redis://redis:6379/0"))
+        last_status = r.get("wims:system:health:last_status")
+        if isinstance(last_status, bytes):
+            last_status = last_status.decode()
+        # Only act on a real prior value (str) or a genuinely empty key (None) —
+        # guards against non-Redis clients in tests returning arbitrary mocks.
+        if (last_status is None or isinstance(last_status, str)) and last_status != health[
+            "status"
+        ]:
+            r.set("wims:system:health:last_status", health["status"])
+            if last_status is not None:  # don't fire on the very first health check
+                publish_system_event_sync(
+                    "system.health_changed",
+                    {"status": health["status"], "previous_status": last_status},
+                )
+    except Exception:
+        pass
+
     return health
 
 
@@ -280,6 +306,12 @@ def prune_offline_workers(
         },
     )
     db.commit()
+
+    if deleted_count > 0:
+        publish_system_event_sync(
+            "system.worker_status",
+            {"pruned_count": deleted_count},
+        )
 
     return {
         "status": "ok",
