@@ -10,7 +10,7 @@ from pathlib import Path
 import uuid
 
 import pytest
-from fastapi import HTTPException, Response
+from fastapi import HTTPException
 
 from api.routes import civilian
 from auth import get_photo_db, optional_auth
@@ -103,7 +103,6 @@ def test_contributor_routes_use_rls_and_reject_wrong_role(path):
     with pytest.raises(HTTPException) as exc_info:
         asyncio.run(
             route.endpoint(
-                response=Response(),
                 user={"user_id": str(uuid.uuid4()), "role": "REGIONAL_ENCODER"},
                 db=object(),
             )
