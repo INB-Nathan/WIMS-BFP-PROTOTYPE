@@ -894,6 +894,8 @@ export interface CivilianReportTrackingResponse {
   previous_report_id: number | null;
   nearest_station_name: string | null;
   nearest_station_phone: string | null;
+  tracking_token?: string | null;
+  tracking_url?: string | null;
   link_count: number;
   created_at: string;
 }

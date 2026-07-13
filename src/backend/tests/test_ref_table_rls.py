@@ -351,8 +351,8 @@ def test_no_guc_app_user_cannot_read_reference_geography(ref_geo):
         ).fetchall()
 
     assert (
-        current_role is None
-    )  # pre-existing bug: 09_rls_helpers.sql COALESCE is inside SELECT list, not wrapping subquery
+        current_role == "ANONYMOUS"
+    )  # migration 0014 fixed the COALESCE bug — now correctly returns 'ANONYMOUS'
     assert regions == []
     assert provinces == []
     assert cities == []

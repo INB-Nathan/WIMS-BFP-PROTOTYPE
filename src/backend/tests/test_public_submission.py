@@ -699,7 +699,8 @@ class TestCivilianDeviceIdScope:
         try:
             resp = client.get("/api/civilian/reports/42?device_id=wrong-device")
             assert resp.status_code == 404, resp.text
-            assert resp.json()["detail"] == "Report not found"
+            # Legacy single-report endpoint removed — FastAPI returns default 'Not Found'
+            assert resp.json()["detail"] == "Not Found"
         finally:
             app.dependency_overrides.clear()
 
