@@ -22,19 +22,21 @@ messaging.onBackgroundMessage((payload) => {
   const title = payload.notification?.title || 'BFP Report Update';
   const body  = payload.notification?.body  || 'Your report status has changed.';
   const reportId = payload.data?.report_id;
+  const trackingUrl = payload.data?.tracking_url;
 
   self.registration.showNotification(title, {
     body,
     icon:  '/bfp-logo.png',
     badge: '/bfp-logo.png',
-    data:  { reportId },
+    data:  { reportId, trackingUrl },
     actions: [{ action: 'track', title: 'Track Report' }],
   });
 });
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
+  const trackingUrl = event.notification.data?.trackingUrl;
   const reportId = event.notification.data?.reportId;
-  const url = reportId ? `/report/tracking?id=${reportId}` : '/report/tracking';
+  const url = trackingUrl || (reportId ? `/tracking?report_id=${encodeURIComponent(reportId)}` : '/tracking');
   event.waitUntil(clients.openWindow(url));
 });

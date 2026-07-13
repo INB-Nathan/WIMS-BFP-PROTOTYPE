@@ -1,8 +1,8 @@
 # WIMS-BFP System Wiki Index
 
-Last updated: 2026-07-10
+Last updated: 2026-07-13
 Indexed wiki pages: 52
-Last changes: Civilian photo capture enhancement v5 — camera shortcut, EXIF extraction, OffscreenCanvas compression, offline AES-256-GCM photo queue, atomic idempotency (client_report_id + client_photo_id), IndexedDB v7 upgrade, sync engine extension. Updated subsystems/civilian-reporting-phase2, frontend/frontend-infrastructure, backend/api-route-map, database/schema-overview, security/security-baseline.
+Last changes: 2026-07-13 adds the manual-only WIMS Wayfinder workflow for batch-confirmed GitHub decision maps, concurrency-safe claims, serialized map updates, and post-map implementation issue promotion. 2026-07-13 follow-up fixes retire the dead `?update_report_id=` browser entry path and make notification clicks reopen the correct stored secure tracking URL via `/tracking?report_id=...` compatibility resolution. Slice M (2026-07-13) retires the public device-ID tracking list endpoint in favor of secure `/tracking/v2/{report_id}/{tracking_token}` capability links and updates the route/security/docs surface accordingly. Slice L (2026-07-13) completes the normalized contributor reliability engine by adding the 24-hour EXIF/report timestamp-consistency evidence signal, pinning the activity window to the current UTC month plus five previous UTC calendar months, and removing the retired `wims.photo_bonus_for_report(INTEGER)` helper from the final schema via Alembic `0013` + bootstrap `92_remove_legacy_photo_bonus_function.sql`.
 Purpose: project-local knowledgebase for agents routing themselves to relevant WIMS-BFP context.
 
 ## Start Here

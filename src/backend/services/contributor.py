@@ -1,27 +1,56 @@
-"""Civilian Contributor — trust score engine, profile, leaderboard.
-
-Trust score computation (§6.1 of the Civilian Contributor Enhancement spec):
-
-    score = max(0, min(100, volume_credit + accuracy_bonus + photo_bonus - decay))
-
-    volume_credit  = min(40, report_count * 2)          # +2 per report, cap 40
-    accuracy_bonus = actioned_count * 5                  # +5 per ACTIONED report, no cap
-    photo_bonus    = sum of photo_bonus_for_report()     # per-report via SECURITY DEFINER function
-    decay          = inactive_months * 2                 # −2 per month since last report, floor 0
-"""
+"""Contributor reliability scoring and profile services."""
 
 from __future__ import annotations
 
-import logging
 import math
 from datetime import datetime, timezone
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-logger = logging.getLogger("wims.contributor")
+TRUST_SCORE_FORMULA_VERSION = "reliability-v1"
 
-# ── Badge thresholds (§6.2) ───────────────────────────────────────────────────
+LIVE_CITIZEN_REPORT_STATUSES = (
+    "PENDING",
+    "UNDER_REVIEW",
+    "LINKED",
+    "ACTIONED",
+    "REJECTED_BOGUS",
+    "REJECTED_DUPLICATE",
+    "REJECTED_INSUFFICIENT",
+    "REJECTED_TIMEOUT",
+)
+
+CITIZEN_REPORT_STATUS_OUTCOMES: dict[str, str] = {
+    "PENDING": "pending",
+    "UNDER_REVIEW": "pending",
+    "LINKED": "pending",
+    "ACTIONED": "actioned",
+    "REJECTED_BOGUS": "rejected",
+    "REJECTED_DUPLICATE": "rejected",
+    "REJECTED_INSUFFICIENT": "rejected",
+    "REJECTED_TIMEOUT": "rejected",
+}
+PENDING_CITIZEN_REPORT_STATUSES = tuple(
+    status for status, outcome in CITIZEN_REPORT_STATUS_OUTCOMES.items() if outcome == "pending"
+)
+DECIDED_CITIZEN_REPORT_STATUSES = tuple(
+    status
+    for status, outcome in CITIZEN_REPORT_STATUS_OUTCOMES.items()
+    if outcome in {"actioned", "rejected"}
+)
+ACTIONED_CITIZEN_REPORT_STATUSES = tuple(
+    status for status, outcome in CITIZEN_REPORT_STATUS_OUTCOMES.items() if outcome == "actioned"
+)
+
+
+def _sql_status_list(statuses: tuple[str, ...]) -> str:
+    return ", ".join(f"'{status}'" for status in statuses)
+
+
+_PENDING_REPORT_STATUS_SQL = _sql_status_list(PENDING_CITIZEN_REPORT_STATUSES)
+_DECIDED_REPORT_STATUS_SQL = _sql_status_list(DECIDED_CITIZEN_REPORT_STATUSES)
+_ACTIONED_REPORT_STATUS_SQL = _sql_status_list(ACTIONED_CITIZEN_REPORT_STATUSES)
 
 BADGE_THRESHOLDS: list[tuple[int, str]] = [
     (0, "NOVICE"),
@@ -32,297 +61,198 @@ BADGE_THRESHOLDS: list[tuple[int, str]] = [
 
 
 def badge_for_score(score: int) -> str:
-    """Map a trust score (0-100) to a badge level.
-
-    Boundaries (inclusive lower):
-        0-19   → NOVICE
-       20-49   → REGULAR
-       50-79   → TRUSTED
-       80-100  → GUARDIAN
-    """
-    # Iterate in reverse (highest threshold first) so the first match wins.
     for threshold, badge in reversed(BADGE_THRESHOLDS):
         if score >= threshold:
             return badge
-    return BADGE_THRESHOLDS[0][1]  # fallback NOVICE
+    return "NOVICE"
+
+
+def _reliability_row(user_id: str, db: Session):
+    """One set-based aggregation over root reports and their evidence."""
+    return db.execute(
+        text(
+            f"""
+        WITH roots AS (
+            SELECT
+                report_id,
+                status,
+                created_at,
+                COALESCE(reported_at, created_at) AS report_timestamp
+            FROM wims.citizen_reports
+            WHERE contributor_user_id = :uid AND linked_to_report_id IS NULL
+        ), evidence AS (
+            SELECT r.report_id,
+                   CASE WHEN COUNT(p.photo_id) > 0 THEN .25 ELSE 0 END
+                   + CASE WHEN BOOL_OR(p.gps_consensus = 'both_match') THEN .35 ELSE 0 END
+                   + CASE WHEN BOOL_OR(p.photo_reported_distance_m IS NOT NULL
+                                       AND p.photo_reported_distance_m <= 500) THEN .20 ELSE 0 END
+                   + CASE WHEN BOOL_OR(
+                       p.exif_datetime_original IS NOT NULL
+                       AND ABS(EXTRACT(EPOCH FROM (p.exif_datetime_original - r.report_timestamp)))
+                           <= 86400
+                   ) THEN .20 ELSE 0 END
+                   AS quality
+            FROM roots r LEFT JOIN wims.report_photos p ON p.report_id = r.report_id
+            GROUP BY r.report_id
+        ), agg AS (
+            SELECT COUNT(*) AS root_reports,
+                   COUNT(*) FILTER (WHERE status IN ({_DECIDED_REPORT_STATUS_SQL})) AS decided,
+                   COUNT(*) FILTER (WHERE status IN ({_ACTIONED_REPORT_STATUS_SQL})) AS actioned,
+                   COUNT(*) FILTER (WHERE status IN ({_PENDING_REPORT_STATUS_SQL})) AS pending,
+                   MIN(created_at) AS first_report_at,
+                   COUNT(DISTINCT date_trunc('month', created_at AT TIME ZONE 'UTC')) FILTER
+                     (
+                         WHERE created_at AT TIME ZONE 'UTC'
+                         >= date_trunc('month', now() AT TIME ZONE 'UTC') - interval '5 months'
+                     ) AS active_months,
+                   MAX(created_at) AS last_report_at,
+                   COALESCE(SUM(LEAST(1, COALESCE(e.quality, 0))), 0) AS evidence_total
+            FROM roots r LEFT JOIN evidence e ON e.report_id = r.report_id
+        ) SELECT * FROM agg
+        """
+        ),
+        {"uid": user_id},
+    ).fetchone()
+
+
+def _inactive_months(last_report_at: datetime | None) -> int:
+    if last_report_at is None:
+        return 0
+    last = last_report_at
+    if last.tzinfo is None:
+        last = last.replace(tzinfo=timezone.utc)
+    now = datetime.now(timezone.utc)
+    return max(0, (now.year - last.year) * 12 + now.month - last.month - 1)
+
+
+def _normalized_breakdown(row) -> dict[str, float | int | str]:
+    if not row or not row.root_reports:
+        return {
+            "volume_progress": 0.0,
+            "outcome_accuracy": 0.0,
+            "evidence_quality": 0.0,
+            "consistency": 0.0,
+            "decay": 0,
+            "formula_version": TRUST_SCORE_FORMULA_VERSION,
+            "decided_reports": 0,
+            "active_months": 0,
+        }
+
+    roots = int(row.root_reports)
+    decided = int(row.decided or 0)
+    volume_progress = min(1.0, math.log1p(roots) / math.log(21))
+    outcome_accuracy = (
+        (int(row.actioned or 0) / decided * min(1.0, decided / 10)) if decided else 0.0
+    )
+    evidence_quality = min(1.0, float(row.evidence_total or 0) / roots)
+    consistency = min(1.0, int(row.active_months or 0) / 6)
+    decay = min(20, _inactive_months(row.last_report_at) * 2)
+    return {
+        "volume_progress": volume_progress,
+        "outcome_accuracy": outcome_accuracy,
+        "evidence_quality": evidence_quality,
+        "consistency": consistency,
+        "decay": decay,
+        "formula_version": TRUST_SCORE_FORMULA_VERSION,
+        "decided_reports": decided,
+        "active_months": int(row.active_months or 0),
+    }
+
+
+def _score_from_breakdown(breakdown: dict[str, float | int | str]) -> int:
+    return max(
+        0,
+        min(
+            100,
+            round(
+                20 * float(breakdown["volume_progress"])
+                + 45 * float(breakdown["outcome_accuracy"])
+                + 20 * float(breakdown["evidence_quality"])
+                + 15 * float(breakdown["consistency"])
+                - int(breakdown["decay"])
+            ),
+        ),
+    )
+
+
+def _score(row) -> int:
+    return _score_from_breakdown(_normalized_breakdown(row))
 
 
 def compute_trust_score(user_id: str, db: Session) -> int:
-    """Compute a registered contributor's 0-100 trust score from live data.
+    return _score(_reliability_row(user_id, db))
 
-    Queries ``wims.citizen_reports`` for the user's report history, calls the
-    ``wims.photo_bonus_for_report`` SECURITY DEFINER function per report, and
-    applies the spec formula.  This is intentionally **not** cached in the DB
-    — the read-time computation keeps 3-5 aggregations and a 10-line Python
-    function, which is acceptable for the prototype.
-    """
-    # ── Gather lifetime stats ──────────────────────────────────────────────
-    stats = db.execute(
-        text("""
-            SELECT
-                COUNT(*)                                             AS total_reports,
-                COUNT(*) FILTER (WHERE status = 'ACTIONED')         AS actioned_reports,
-                COUNT(*) FILTER (WHERE status = 'PENDING')          AS pending_reports,
-                MAX(created_at)                                     AS last_report_at,
-                MIN(created_at)                                     AS first_report_at
-            FROM wims.citizen_reports
-            WHERE contributor_user_id = :uid
-              AND linked_to_report_id IS NULL  -- count only root reports, not appends
-        """),
-        {"uid": user_id},
-    ).fetchone()
 
-    if stats is None or stats.total_reports == 0:
-        return 0
-
-    total_reports = int(stats.total_reports)
-    actioned_reports = int(stats.actioned_reports)
-
-    # ── Volume credit ──────────────────────────────────────────────────────
-    volume_credit = min(40, total_reports * 2)
-
-    # ── Accuracy bonus ──────────────────────────────────────────────────────
-    accuracy_bonus = actioned_reports * 5
-
-    # ── Photo bonus — call per-report SECURITY DEFINER function ──────────
-    # The function bypasses RLS so the application session (wims_app) can
-    # count photos even though report_photos RLS blocks SELECT for app roles.
-    photo_bonus = 0
-    report_rows = db.execute(
-        text("""
-            SELECT report_id
-            FROM wims.citizen_reports
-            WHERE contributor_user_id = :uid
-              AND linked_to_report_id IS NULL
-        """),
-        {"uid": user_id},
-    ).fetchall()
-
-    for row in report_rows:
-        bonus = db.execute(
-            text("SELECT wims.photo_bonus_for_report(:rid)"),
-            {"rid": int(row.report_id)},
-        ).scalar()
-        if bonus is not None:
-            photo_bonus += int(bonus)
-
-    # ── Decay (inactivity) ──────────────────────────────────────────────────
-    last_report_at = stats.last_report_at
-    decay = 0
-    if last_report_at is not None:
-        # Ensure timezone-aware comparison
-        last_report = last_report_at
-        if last_report.tzinfo is None:
-            last_report = last_report.replace(tzinfo=timezone.utc)
-        now = datetime.now(timezone.utc)
-        delta_days = (now - last_report).days
-        inactive_months = max(0, delta_days // 30)
-        decay = inactive_months * 2
-
-    # ── Final score with floor and ceiling ──────────────────────────────────
-    score = volume_credit + accuracy_bonus + photo_bonus - decay
-    return max(0, min(100, score))
+def _profile_summary(row) -> dict:
+    breakdown = _normalized_breakdown(row)
+    score = _score_from_breakdown(breakdown)
+    return {
+        "trust_score": score,
+        "badge": badge_for_score(score),
+        "total_reports": int(row.root_reports or 0) if row else 0,
+        "actioned_reports": int(row.actioned or 0) if row else 0,
+        "pending_reports": int(row.pending or 0) if row else 0,
+        **breakdown,
+    }
 
 
 def get_contributor_profile(user_id: str, db: Session) -> dict:
-    """Return trust score, badge, and lifetime stats for a registered contributor.
-
-    The returned dict matches ``ContributorProfileResponse`` shape.
-    """
-    stats = db.execute(
-        text("""
-            SELECT
-                COUNT(*)                                             AS total_reports,
-                COUNT(*) FILTER (WHERE status = 'ACTIONED')         AS actioned_reports,
-                COUNT(*) FILTER (WHERE status = 'PENDING')          AS pending_reports,
-                MAX(created_at)                                     AS last_report_at,
-                MIN(created_at)                                     AS first_report_at
-            FROM wims.citizen_reports
-            WHERE contributor_user_id = :uid
-              AND linked_to_report_id IS NULL
-        """),
-        {"uid": user_id},
-    ).fetchone()
-
-    if stats is None or stats.total_reports == 0:
-        return {
-            "trust_score": 0,
-            "badge": "NOVICE",
-            "total_reports": 0,
-            "actioned_reports": 0,
-            "pending_reports": 0,
-            "first_report_at": None,
-            "last_report_at": None,
-        }
-
-    trust_score = compute_trust_score(user_id, db)
-    badge = badge_for_score(trust_score)
-
+    row = _reliability_row(user_id, db)
     return {
-        "trust_score": trust_score,
-        "badge": badge,
-        "total_reports": int(stats.total_reports),
-        "actioned_reports": int(stats.actioned_reports),
-        "pending_reports": int(stats.pending_reports),
-        "first_report_at": stats.first_report_at,
-        "last_report_at": stats.last_report_at,
+        **_profile_summary(row),
+        "first_report_at": row.first_report_at if row else None,
+        "last_report_at": row.last_report_at if row else None,
     }
 
 
 def get_contributor_reports(
-    user_id: str,
-    page: int = 1,
-    limit: int = 20,
-    db: Session = None,
+    user_id: str, page: int = 1, limit: int = 20, db: Session = None
 ) -> dict:
-    """Return paginated root reports for a contributor.
-
-    The returned dict matches ``ContributorReportsResponse`` shape.
-    """
     if page < 1:
         page = 1
     if limit < 1 or limit > 100:
         limit = 20
-
     offset = (page - 1) * limit
-
-    # Total count
-    total = db.execute(
-        text("""
-            SELECT COUNT(*)
-            FROM wims.citizen_reports
-            WHERE contributor_user_id = :uid
-              AND linked_to_report_id IS NULL
-        """),
-        {"uid": user_id},
-    ).scalar()
-    total = int(total) if total is not None else 0
-
-    pages = math.ceil(total / limit) if total > 0 else 1
-
+    summary = _profile_summary(_reliability_row(user_id, db))
+    total = int(summary["total_reports"])
     rows = db.execute(
-        text("""
-            SELECT report_id,
-                   created_at,
-                   category,
-                   sub_category,
-                   status,
-                   ST_Y(location::geometry) AS lat,
-                   ST_X(location::geometry) AS lon
-            FROM wims.citizen_reports
-            WHERE contributor_user_id = :uid
-              AND linked_to_report_id IS NULL
-            ORDER BY created_at DESC
-            LIMIT :limit
-            OFFSET :offset
-        """),
+        text(
+            """SELECT report_id,created_at,category,sub_category,status,ST_Y(location::geometry) lat,ST_X(location::geometry) lon FROM wims.citizen_reports WHERE contributor_user_id=:uid AND linked_to_report_id IS NULL ORDER BY created_at DESC LIMIT :limit OFFSET :offset"""
+        ),
         {"uid": user_id, "limit": limit, "offset": offset},
     ).fetchall()
-
-    reports = [
-        {
-            "report_id": r.report_id,
-            "created_at": r.created_at,
-            "category": r.category,
-            "sub_category": r.sub_category,
-            "status": r.status,
-            "latitude": float(r.lat),
-            "longitude": float(r.lon),
-        }
-        for r in rows
-    ]
-
     return {
-        "reports": reports,
+        **summary,
+        "reports": [
+            {
+                "report_id": r.report_id,
+                "created_at": r.created_at,
+                "category": r.category,
+                "sub_category": r.sub_category,
+                "status": r.status,
+                "latitude": float(r.lat),
+                "longitude": float(r.lon),
+            }
+            for r in rows
+        ],
         "total": total,
         "page": page,
         "limit": limit,
-        "pages": pages,
+        "pages": math.ceil(total / limit) if total else 1,
     }
 
 
-def get_leaderboard(limit: int = 20, db: Session = None) -> list[dict]:
-    """Return the top-N registered contributors by trust score.
-
-    Only contributors who have opted in to the leaderboard
-    (``opt_in_leaderboard = TRUE``) are included.
-
-    Returns a list matching ``LeaderboardEntry`` shape.
-    """
-    if limit < 1 or limit > 100:
-        limit = 20
-
-    rows = db.execute(
-        text("""
-            SELECT
-                cc.user_id,
-                u.username AS display_name,
-                cc.trust_score,
-                cc.badge,
-                COUNT(cr.report_id) AS report_count
-            FROM wims.civilian_contributors cc
-            JOIN wims.users u ON u.user_id = cc.user_id
-            LEFT JOIN wims.citizen_reports cr
-                ON cr.contributor_user_id = cc.user_id
-                AND cr.linked_to_report_id IS NULL
-            WHERE cc.opt_in_leaderboard = TRUE
-            GROUP BY cc.user_id, u.username, cc.trust_score, cc.badge
-            ORDER BY cc.trust_score DESC, report_count DESC
-            LIMIT :limit
-        """),
-        {"limit": limit},
-    ).fetchall()
-
-    result: list[dict] = []
-    for rank, row in enumerate(rows, start=1):
-        result.append(
-            {
-                "rank": rank,
-                "user_id": str(row.user_id),
-                "display_name": row.display_name,
-                "trust_score": int(row.trust_score) if row.trust_score is not None else 0,
-                "badge": row.badge or "NOVICE",
-                "report_count": int(row.report_count) if row.report_count is not None else 0,
-            }
-        )
-
-    return result
-
-
 def get_contributor_stats(user_id: str, db: Session) -> dict:
-    """Return contributor vanity metrics with monthly report count breakdown.
-
-    Builds on ``get_contributor_profile`` and adds a 12-month report-count
-    trend.  The returned dict matches ``ContributorStatsResponse`` shape.
-    """
-    profile = get_contributor_profile(user_id, db)
-
+    summary = _profile_summary(_reliability_row(user_id, db))
     rows = db.execute(
-        text("""
-            SELECT
-                DATE_TRUNC('month', created_at) AS month,
-                COUNT(*) AS count
-            FROM wims.citizen_reports
-            WHERE contributor_user_id = :uid
-            GROUP BY month
-            ORDER BY month DESC
-            LIMIT 12
-        """),
+        text(
+            """SELECT date_trunc('month', created_at) AS month, count(*) count FROM wims.citizen_reports WHERE contributor_user_id=:uid AND linked_to_report_id IS NULL GROUP BY 1 ORDER BY 1 DESC LIMIT 12"""
+        ),
         {"uid": user_id},
     ).fetchall()
-
-    monthly_counts = [
-        {"month": row.month.isoformat(), "count": int(row.count)}
-        if row.month is not None
-        else {"month": None, "count": int(row.count)}
-        for row in rows
-    ]
-
     return {
-        "trust_score": profile["trust_score"],
-        "badge": profile["badge"],
-        "total_reports": profile["total_reports"],
-        "actioned_reports": profile["actioned_reports"],
-        "pending_reports": profile["pending_reports"],
-        "monthly_report_counts": monthly_counts,
+        **summary,
+        "monthly_report_counts": [
+            {"month": r.month.isoformat(), "count": int(r.count)} for r in rows
+        ],
     }

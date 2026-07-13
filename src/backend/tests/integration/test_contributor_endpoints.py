@@ -6,7 +6,6 @@ Covers:
 - 403 with wrong role
 - 200 with CIVILIAN_REPORTER role
 - Profile returns correct fields
-- Leaderboard ordering
 
 Run:
   cd src && docker compose run --rm backend pytest tests/integration/test_contributor_endpoints.py -v
@@ -23,11 +22,30 @@ from sqlalchemy.orm import Session
 
 from main import app
 from auth import get_current_wims_user
+from services.contributor import TRUST_SCORE_FORMULA_VERSION
 
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
+
+SUMMARY_FIELDS = (
+    "volume_progress",
+    "outcome_accuracy",
+    "evidence_quality",
+    "consistency",
+    "decay",
+    "formula_version",
+    "decided_reports",
+    "active_months",
+)
+
+
+def assert_private_summary_fields(payload: dict) -> None:
+    for field in SUMMARY_FIELDS:
+        assert field in payload
+    assert payload["formula_version"] == TRUST_SCORE_FORMULA_VERSION
 
 
 @pytest.fixture
@@ -58,11 +76,11 @@ def reporter_user(db_session: Session):
     row = result.fetchone()
     user_id = row[0]
 
-    # Also insert into civilian_contributors so leaderboard queries succeed
+    # Also insert into civilian_contributors for contributor endpoint queries
     db_session.execute(
         text("""
-            INSERT INTO wims.civilian_contributors (user_id, trust_score, badge, opt_in_leaderboard)
-            VALUES (:uid, 0, 'NOVICE', TRUE)
+            INSERT INTO wims.civilian_contributors (user_id, trust_score, badge)
+            VALUES (:uid, 0, 'NOVICE')
             ON CONFLICT (user_id) DO NOTHING
         """),
         {"uid": user_id},
@@ -149,7 +167,7 @@ def client_no_auth():
 
 @pytest.fixture
 def contributor_report(db_session: Session, reporter_user):
-    """Insert a citizen_report linked to the reporter. Returns report_id."""
+    """Insert a root citizen_report linked to the reporter. Returns report_id."""
     wkt = "SRID=4326;POINT(121.05 14.60)"
     result = db_session.execute(
         text("""
@@ -159,6 +177,24 @@ def contributor_report(db_session: Session, reporter_user):
             RETURNING report_id
         """),
         {"wkt": wkt, "uid": reporter_user},
+    )
+    row = result.fetchone()
+    db_session.commit()
+    return row[0]
+
+
+@pytest.fixture
+def linked_contributor_report(db_session: Session, reporter_user, contributor_report):
+    """Insert a linked/non-root report to prove contributor endpoints stay root-only."""
+    wkt = "SRID=4326;POINT(121.051 14.601)"
+    result = db_session.execute(
+        text("""
+            INSERT INTO wims.citizen_reports
+                (location, contributor_user_id, linked_to_report_id, category, status, description)
+            VALUES (ST_GeogFromText(:wkt), :uid, :linked_to_report_id, 'STRUCTURAL', 'LINKED', 'Child report')
+            RETURNING report_id
+        """),
+        {"wkt": wkt, "uid": reporter_user, "linked_to_report_id": contributor_report},
     )
     row = result.fetchone()
     db_session.commit()
@@ -185,10 +221,6 @@ class TestUnauthenticated:
         response = client_no_auth.get("/api/civilian/contributor/stats")
         assert response.status_code == 401
 
-    def test_leaderboard_returns_401(self, client_no_auth):
-        response = client_no_auth.get("/api/civilian/contributor/leaderboard")
-        assert response.status_code == 401
-
 
 # ---------------------------------------------------------------------------
 # Test: 403 with wrong role (REGIONAL_ENCODER)
@@ -210,10 +242,6 @@ class TestWrongRole:
         response = client_with_encoder.get("/api/civilian/contributor/stats")
         assert response.status_code == 403
 
-    def test_leaderboard_returns_403(self, client_with_encoder):
-        response = client_with_encoder.get("/api/civilian/contributor/leaderboard")
-        assert response.status_code == 403
-
 
 # ---------------------------------------------------------------------------
 # Test: 200 with CIVILIAN_REPORTER role
@@ -227,7 +255,9 @@ class TestContributorProfile:
         response = client_with_reporter.get("/api/civilian/contributor/me")
         assert response.status_code == 200
 
-    def test_profile_returns_correct_fields(self, client_with_reporter, contributor_report):
+    def test_profile_returns_correct_fields(
+        self, client_with_reporter, contributor_report, linked_contributor_report
+    ):
         response = client_with_reporter.get("/api/civilian/contributor/me")
         data = response.json()
         assert "trust_score" in data
@@ -237,8 +267,10 @@ class TestContributorProfile:
         assert "pending_reports" in data
         assert "first_report_at" in data
         assert "last_report_at" in data
-        # With the seeded report, total_reports should be at least 1
-        assert data["total_reports"] >= 1
+        assert_private_summary_fields(data)
+        # Only the seeded root report counts; linked/appended reports stay excluded.
+        assert data["total_reports"] == 1
+        assert data["pending_reports"] == 1
         assert data["trust_score"] >= 0
         assert data["badge"] in ("NOVICE", "REGULAR", "TRUSTED", "GUARDIAN")
 
@@ -247,6 +279,7 @@ class TestContributorProfile:
         response = client_with_reporter.get("/api/civilian/contributor/me")
         assert response.status_code == 200
         data = response.json()
+        assert_private_summary_fields(data)
         assert data["total_reports"] == 0
         assert data["trust_score"] == 0
         assert data["badge"] == "NOVICE"
@@ -267,6 +300,7 @@ class TestContributorReports:
         assert "page" in data
         assert "limit" in data
         assert "pages" in data
+        assert_private_summary_fields(data)
         assert isinstance(data["reports"], list)
         assert data["total"] >= 1
         assert data["page"] == 1
@@ -277,6 +311,17 @@ class TestContributorReports:
         data = response.json()
         report_ids = [r["report_id"] for r in data["reports"]]
         assert contributor_report in report_ids
+
+    def test_reports_exclude_linked_reports_from_history(
+        self, client_with_reporter, contributor_report, linked_contributor_report
+    ):
+        response = client_with_reporter.get("/api/civilian/contributor/reports")
+        data = response.json()
+        report_ids = [r["report_id"] for r in data["reports"]]
+        assert contributor_report in report_ids
+        assert linked_contributor_report not in report_ids
+        assert data["total"] == 1
+        assert data["total_reports"] == 1
 
     def test_reports_item_structure(self, client_with_reporter, contributor_report):
         response = client_with_reporter.get("/api/civilian/contributor/reports")
@@ -330,6 +375,7 @@ class TestContributorStats:
         assert "actioned_reports" in data
         assert "pending_reports" in data
         assert "monthly_report_counts" in data
+        assert_private_summary_fields(data)
         assert isinstance(data["monthly_report_counts"], list)
 
     def test_stats_zero_reports(self, client_with_reporter):
@@ -337,84 +383,16 @@ class TestContributorStats:
         response = client_with_reporter.get("/api/civilian/contributor/stats")
         assert response.status_code == 200
         data = response.json()
+        assert_private_summary_fields(data)
         assert data["total_reports"] == 0
         assert data["trust_score"] == 0
         assert data["badge"] == "NOVICE"
         assert data["monthly_report_counts"] == []
 
 
-class TestContributorLeaderboard:
-    """GET /api/civilian/contributor/leaderboard with valid reporter auth."""
+class TestContributorLeaderboardRemoved:
+    """The retired leaderboard endpoint must not be publicly exposed."""
 
-    def test_leaderboard_returns_200(self, client_with_reporter):
+    def test_leaderboard_route_is_not_registered(self, client_with_reporter):
         response = client_with_reporter.get("/api/civilian/contributor/leaderboard")
-        assert response.status_code == 200
-
-    def test_leaderboard_has_expected_structure(self, client_with_reporter):
-        response = client_with_reporter.get("/api/civilian/contributor/leaderboard")
-        data = response.json()
-        assert isinstance(data, list)
-        if data:
-            entry = data[0]
-            assert "rank" in entry
-            assert "user_id" in entry
-            assert "display_name" in entry
-            assert "trust_score" in entry
-            assert "badge" in entry
-            assert "report_count" in entry
-
-    def test_leaderboard_ordering(self, client_with_reporter, db_session):
-        """Create two contributors and verify ordering by trust_score DESC."""
-        # Create first contributor with higher trust score
-        kid1 = uuid.uuid4()
-        uid1 = db_session.execute(
-            text("""
-                INSERT INTO wims.users (keycloak_id, username, role)
-                VALUES (:kid, :uname, 'CIVILIAN_REPORTER')
-                RETURNING user_id
-            """),
-            {"kid": kid1, "uname": f"leader_a_{kid1.hex[:8]}"},
-        ).scalar()
-        db_session.execute(
-            text("""
-                INSERT INTO wims.civilian_contributors (user_id, trust_score, badge, opt_in_leaderboard)
-                VALUES (:uid, 75, 'TRUSTED', TRUE)
-                ON CONFLICT (user_id) DO NOTHING
-            """),
-            {"uid": uid1},
-        )
-
-        # Create second contributor with lower trust score
-        kid2 = uuid.uuid4()
-        uid2 = db_session.execute(
-            text("""
-                INSERT INTO wims.users (keycloak_id, username, role)
-                VALUES (:kid, :uname, 'CIVILIAN_REPORTER')
-                RETURNING user_id
-            """),
-            {"kid": kid2, "uname": f"leader_b_{kid2.hex[:8]}"},
-        ).scalar()
-        db_session.execute(
-            text("""
-                INSERT INTO wims.civilian_contributors (user_id, trust_score, badge, opt_in_leaderboard)
-                VALUES (:uid, 25, 'REGULAR', TRUE)
-                ON CONFLICT (user_id) DO NOTHING
-            """),
-            {"uid": uid2},
-        )
-        db_session.commit()
-
-        response = client_with_reporter.get("/api/civilian/contributor/leaderboard")
-        assert response.status_code == 200
-        data = response.json()
-        # Find our test users
-        entries = [e for e in data if e["user_id"] in (str(uid1), str(uid2))]
-        if len(entries) >= 2:
-            assert entries[0]["trust_score"] >= entries[1]["trust_score"]
-
-    def test_leaderboard_limit(self, client_with_reporter):
-        response = client_with_reporter.get("/api/civilian/contributor/leaderboard?limit=5")
-        assert response.status_code == 200
-        data = response.json()
-        assert isinstance(data, list)
-        assert len(data) <= 5
+        assert response.status_code == 404

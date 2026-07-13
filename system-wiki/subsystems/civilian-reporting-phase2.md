@@ -1,7 +1,7 @@
 ---
 title: Civilian Reporting Phase 2 — Subsystem Deep-Dive
 created: 2026-05-20
-updated: 2026-07-10
+updated: 2026-07-13
 type: subsystem
 tags: [wims-bfp, subsystem, civilian-reporting, triage, validation, public-dmz, cluster, merge, map]
 sources: [system-wiki/prd/civilian-reporting-phase-2.md, system-wiki/decisions/0001-civilian-reporting-overhaul.md, src/backend/api/routes/triage.py, src/backend/api/routes/civilian.py, src/backend/api/routes/ref.py, src/backend/api/routes/public_dmz.py, src/backend/tasks/civilian_reports.py, src/backend/services/report_photos.py, src/backend/utils/exif.py, src/postgres-init/82_civilian_report_photos.sql, src/frontend/src/app/incidents/triage/page.tsx, src/frontend/src/components/triage/TriageInspectionModal.tsx, src/frontend/src/components/triage/triage-modal.css, src/frontend/src/app/page.tsx, src/frontend/src/components/civilian/PhotoUpload.tsx, src/frontend/src/app/tracking/page.tsx]
@@ -129,7 +129,7 @@ Append new signal to an existing report (new row with `linked_to_report_id`). Re
 
 **Request body**: `{ device_id, category, sub_category, latitude, longitude, safety_status, reporting_context, observed_time, description?, eyewitness_name?, eyewitness_contact? }`
 
-**Frontend update mode**: the public `/` report page enters update mode via `?update_report_id=<id>` from `/tracking`. It fetches the parent report with the stored `wims_civilian_device_id`, reuses the parent location/category/context/safety fields required by the append schema, sends the stored `device_id`, and lets the civilian add a description/timestamp. Cancel is a client button that clears update state and `router.replace('/')` so the main safety screen appears even when the route pathname is unchanged.
+**Frontend update-mode note**: the old browser `?update_report_id=<id>` entry path is retired. Public tracking now depends on the secure `/tracking/v2/{report_id}/{tracking_token}` capability link, and the compatibility `/tracking` page only reopens stored secure links (including report-specific notification clicks resolved from local browser storage). Immediate post-submit append from the in-memory submitted screen remains supported; reopening an old tracking link no longer re-enters a browser-side update form.
 
 **Rate limit**: 1 append per device per 5 minutes across all linked reports.
 
@@ -321,13 +321,10 @@ Does NOT touch rows with status `UNDER_REVIEW` at the row level, even if they ar
 - Submit calls `POST /api/civilian/reports`
 - **CTA visual contract**: disabled CTAs must not use the active BFP red/gradient treatment. Disabled state uses visibly inactive/muted styling (e.g. gray background, not red/gradient). Enabled primary CTAs use high-contrast BFP red/gradient. This prevents stressed users from misreading a disabled button as active — a direct application of the stress-friendly cognitive-clarity mandate.
 
-### `/report/tracking` — Public Tracking (`src/frontend/src/app/report/tracking/page.tsx`)
-- Reads `?id=<reportId>` from URL on first load
-- Status badge + deterministic guidance per status
-- Nearest station contact (phone, falls back to 911)
-- Notification opt-in (FCM token registration)
-- Append timeline (chronological chain)
-- After terminal status: CTA to submit new report referencing old ID
+### `/tracking` and `/tracking/v2/[report_id]/[tracking_token]` — Public Tracking
+- `/tracking/v2/[report_id]/[tracking_token]` is the capability-token tracking route. It renders the safe tracking projection (status, guidance, station/routing summary, photo count) without civilian coordinates or PII.
+- `/tracking` is a compatibility landing page. It does not perform report-ID lookup; instead it reopens a stored secure tracking link when one is available for the last report or for a notification-click `report_id`.
+- Notification opt-in remains report-bound, but notification clicks must resolve back to a previously stored secure tracking URL rather than a public report-ID lookup route.
 
 ### `/incidents/triage` — Validator Triage (`src/frontend/src/app/incidents/triage/page.tsx`)
 Phase 2 validator UI:

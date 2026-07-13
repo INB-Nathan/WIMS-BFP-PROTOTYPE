@@ -30,9 +30,17 @@ def upgrade() -> None:
     op.execute(
         "CREATE TABLE IF NOT EXISTS wims.report_photos ("
         "    photo_id UUID PRIMARY KEY,"
-        "    report_id INTEGER NOT NULL"
+        "    report_id INTEGER NOT NULL,"
+        "    uploader_user_id UUID REFERENCES wims.users(user_id),"
+        "    uploader_device_id UUID,"
+        "    created_at TIMESTAMPTZ NOT NULL DEFAULT now()"
         ")"
     )
+    # The CREATE TABLE IF NOT EXISTS body above is the minimal schema surface for
+    # databases whose postgres-init bootstrap could not apply 82 (report_photos).
+    # downstream migrations (0008–0011) rely on uploader_user_id,
+    # uploader_device_id, and created_at; this migration guarantees they exist
+    # regardless of bootstrap state.
 
     # Migration 83: EXIF metadata columns on wims.report_photos
     op.execute("ALTER TABLE wims.report_photos ADD COLUMN IF NOT EXISTS exif_gps_lat NUMERIC(10,7)")

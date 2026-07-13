@@ -16,12 +16,18 @@ const StationIcon = firePinIcon;
 function FitBounds({
     points,
     userLocation,
+    selectedStation,
 }: {
     points: [number, number][];
     userLocation?: [number, number] | null;
+    selectedStation?: EmergencyServiceStation | null;
 }) {
     const map = useMap();
     useEffect(() => {
+        if (selectedStation) {
+            map.setView([selectedStation.latitude, selectedStation.longitude], 14);
+            return;
+        }
         if (userLocation) {
             map.setView(userLocation, 12);
             return;
@@ -36,16 +42,25 @@ function FitBounds({
         }
         const bounds = L.latLngBounds(points);
         map.fitBounds(bounds, { padding: [30, 30], maxZoom: 12 });
-    }, [map, points, userLocation]);
+    }, [map, points, userLocation, selectedStation]);
     return null;
 }
 
 export interface FireStationsMapInnerProps {
     stations: EmergencyServiceStation[];
     userLocation?: [number, number] | null;
+    selectedStationId?: number | null;
+    onSelectStation?: (station: EmergencyServiceStation) => void;
+    onMapError?: () => void;
 }
 
-export function FireStationsMapInner({ stations, userLocation = null }: FireStationsMapInnerProps) {
+export function FireStationsMapInner({
+    stations,
+    userLocation = null,
+    selectedStationId = null,
+    onSelectStation,
+    onMapError,
+}: FireStationsMapInnerProps) {
     const points = useMemo(
         () => stations.map((s): [number, number] => [s.latitude, s.longitude]),
         [stations]
@@ -61,17 +76,30 @@ export function FireStationsMapInner({ stations, userLocation = null }: FireStat
             <TileLayer
                 attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
                 url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                eventHandlers={{ tileerror: onMapError }}
             />
-            <FitBounds points={points} userLocation={userLocation} />
+            <FitBounds
+                points={points}
+                userLocation={userLocation}
+                selectedStation={stations.find((station) => station.station_id === selectedStationId)}
+            />
             {userLocation && (
                 <Marker position={userLocation} icon={userLocationIcon}>
                     <Popup>Your location</Popup>
                 </Marker>
             )}
             {stations.map((s) => (
-                <Marker key={s.station_id} position={[s.latitude, s.longitude]} icon={StationIcon}>
+                <Marker
+                    key={s.station_id}
+                    position={[s.latitude, s.longitude]}
+                    icon={StationIcon}
+                    opacity={selectedStationId === null || selectedStationId === s.station_id ? 1 : 0.55}
+                    eventHandlers={{ click: () => onSelectStation?.(s) }}
+                >
                     <Popup>
-                        <strong>{s.station_name}</strong>
+                        <button type="button" onClick={() => onSelectStation?.(s)} className="font-semibold underline">
+                            {s.station_name}
+                        </button>
                     </Popup>
                 </Marker>
             ))}

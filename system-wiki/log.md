@@ -1,3 +1,10 @@
+## [2026-07-13] feat(agents): add WIMS Wayfinder decision-mapping workflow
+
+- **Scope:** Added the manual-only `.pi/skills/wims-wayfinder/` profile over the user-global Wayfinder method, with GitHub-native child/dependency operations, batch-confirmed chart creation, append-only ticket claims, serialized conflict-checked map updates, and one non-research decision per session.
+- **Prototype and handoff:** Prototype tickets optionally reuse the user-local keyed brainstorming server with loopback/synthetic-data defaults; decision tickets remain separate from `ready-for-agent` implementation issues, which require a later confirmed creation batch.
+- **Documentation:** Updated `.pi/README.md`, `.pi/skills/wims-route/`, `docs/agents/issue-tracker.md`, [[operations/agent-routing-guide]], and the wiki index. No FRS/codebase gap changed.
+- **Validation:** Parsed both changed eval JSON files, verified referenced paths and current GitHub CLI parent/dependency fields, and ran scoped diff checks; no application tests were required for agent-workflow documentation.
+
 ## [2026-07-12] fix(security): stop exposing admin-created users' passwords, rely on Keycloak's set-password link (#526)
 
 - **Scope:** `POST /api/admin/users` (`api/routes/admin/users.py`) unconditionally returned `temporary_password` plus a misleading `note` claiming credentials were emailed — the admin UI (`admin/system/page.tsx`) always rendered it in a reveal/copy modal. Keycloak already sends a secure one-time set-password link on user creation (`create_keycloak_user` → `send_update_account`, `UPDATE_PASSWORD` required action, 7-day lifespan), but that send's success/failure was swallowed to a log line with no signal returned to the caller — the route had no way to know if the email actually went out, which is why it always fell back to exposing the password.
@@ -46,6 +53,30 @@
   `triageGeometry.test.ts` (4/4) and `TriageCanvasMapInner.test.tsx` (2/2) unaffected.
 - **Validation:** ESLint and `tsc --noEmit` clean on all 5 touched files (pre-existing unrelated errors in
   `ClusterMapInner.test.tsx` confirmed present on master too).
+## [2026-07-12] feat(backend): enable registered contributor pending photo upload
+
+- **Scope:** Registered `CIVILIAN_REPORTER` requests now use `POST /api/civilian/photos/upload` and the existing encrypted validation/EXIF/hash/storage pipeline to create owner-bound pending rows with NULL report and attachment state. The route accepts no report or device ID, enforces a locked owner-scoped pending cap, client-photo idempotency, append-only pre-upload audit, and artifact cleanup on database failure.
+- **Anonymous boundary:** Requests without a registered identity, including requests carrying a validated anonymous capability, return explicit 501 feature-unavailable. A dedicated capability-bound anonymous pending INSERT helper remains the next dependency; no BYPASSRLS, device ownership, or broad helper was introduced.
+- **Validation:** Focused civilian/photo tests passed along with Ruff check and format checks; live PostgreSQL RLS/helper execution remains environment-dependent.
+
+## [2026-07-12] feat(backend): wire anonymous capability boundary for pre-upload
+
+- **Scope:** Added `services/anonymous_sessions.py` as the narrow SQL-helper adapter and `auth.get_anonymous_session_id` as an Authorization-header-only dependency returning only a derived session UUID. Issuance is one-time raw-token output; validation/revocation do not persist or log bearer values.
+- **Ownership:** Added pending-owner resolution tests for registered versus anonymous sessions and neutral cross-session denial coverage. Added a pending response schema and explicit route TODO; `/api/civilian/photos/upload` remains unregistered because bootstrap/Alembic 0008 denies anonymous pending INSERT and no BYPASSRLS/caller GUC workaround is safe.
+- **Validation:** Targeted capability/auth tests and backend Ruff checks are the intended gates; live PostgreSQL RLS/helper execution remains an environment-dependent residual risk.
+
+## [2026-07-12] fix(database): bind anonymous report ownership for photo attach
+
+- **Scope:** Corrected Alembic `0009` and clean-bootstrap `88` so `wims.citizen_reports.anonymous_session_id` has the requested anonymous-session FK, partial index, and NULL-preserving ownership comment before the attach helper runs.
+- **Service residual:** The report submission service must set this column from the validated session before calling `attach_anonymous_photos`; RLS policies remain unchanged.
+- **Validation:** Updated the 0009 static contract and passed focused pytest plus backend Ruff check/format gates.
+
+## [2026-07-12] feat(database): harden anonymous pre-upload ownership contract
+
+- **Scope:** Added Alembic `0009` and clean-bootstrap `88` with hash-only high-entropy anonymous session issuance, token format validation, idle/absolute expiry, bearer revocation, and removal of direct application session-table DML.
+- **Photo ownership:** Added the `report_photos.anonymous_session_id` FK/index and a three-branch owner constraint that preserves legacy `uploader_device_id` attached rows while making device IDs analytics-only for new session-bound rows.
+- **Helpers:** Added fixed-search-path `SECURITY DEFINER` issuance, validation, revocation, pending-photo authorization, and locked all-or-nothing same-session attach helpers. Report creation and append-only audit remain application-service responsibilities; upload route/UI work is out of scope.
+- **Validation:** Added static migration/bootstrap contract tests for token format, expiry/revocation, no PUBLIC execute, fixed search paths, FK/index, no permissive pending RLS or BYPASSRLS, and row-lock intent. Targeted pytest and Ruff checks passed; live disposable PostgreSQL execution remains to be run in Compose CI.
 
 ## [2026-07-10] docs(agents): rebuild scoped agent instruction hierarchy
 
@@ -55,6 +86,18 @@
 - **Wiki:** Added `architecture/agent-instruction-hierarchy.md`; corrected the database schema, security baseline, ASVS overrides, and PWA/CI pages; updated the index to 52 verified link targets; and opened the FRS Module 4 audit-log append-only enforcement gap with exact raw-FRS/migration evidence.
 - **Validation:** `python -m json.tool` passed for `.pi/settings.json` and the WIMS-route evals; `git diff --check` passed; the index contains 52 unique wiki links with 0 missing targets. No application test suite was run because the change is documentation/instruction configuration only.
 
+## [2026-07-12] feat(database): prepare civilian photos for owner-bound pre-upload
+
+- **Scope:** Added Alembic `0008` and clean-bootstrap `87` to make `wims.report_photos.report_id` nullable for pending rows, add `attached_at`, backfill legacy attached rows, enforce pending/attached consistency, and add a pending-owner index. Existing encrypted columns, uploader XOR ownership, report FK, RLS, and FORCE RLS are preserved.
+- **RLS boundary:** Registered contributors can access only their own pending rows; attached-row staff behavior is unchanged. Anonymous pending access remains blocked pending a safe transaction-local device/capability context; no broad `TRUE` policy or BYPASSRLS session was added. Upload services/routes/UI remain out of scope.
+- **Validation:** Added static migration/bootstrap contract tests covering revision lineage, parity, idempotency markers, constraints, FK/XOR preservation, FORCE RLS, owner scoping, and the documented anonymous-context blocker.
+
+## [2026-07-12] fix(database): align civilian trust-score snapshot cleanup
+
+- **Scope:** Added Alembic `0007` after verified head `0006` to add non-null `formula_version` (`reliability-v1`) and remove the retired leaderboard opt-in column; added clean-volume `86_civilian_contributor_snapshot.sql`.
+- **Bootstrap parity:** Verified files 80–85 did not create `wims.civilian_contributors`; migration 86 now carries the canonical final table, unchanged RLS policies/grants, and the existing photo bonus helper so direct clean bootstrap and Alembic upgrades converge.
+- **Validation:** Added static migration/bootstrap contract tests; targeted Ruff and pytest checks run for the new files. No gap-register update was required.
+
 ## [2026-07-10] feat(civilian): photo capture enhancement v5 — camera, EXIF, compression, offline queue
 
 - **Scope:** Four-phase civilian photo enhancement: (A) camera/gallery toggle with `capture="environment"`; (E) client-side EXIF extraction with `exifr` before compression; (B) OffscreenCanvas compression with megapixel gate and quality iteration; (D) offline photo queue with AES-256-GCM encryption, IndexedDB v7 upgrade, atomic idempotency via `INSERT ... ON CONFLICT DO NOTHING RETURNING`.
@@ -62,6 +105,18 @@
 - **Idempotency:** Client-supplied `client_photo_id` and `client_report_id` UUIDs provide 122-bit entropy for safe retries. `client_report_id` parsed before rate-limit check to avoid quota burn on retry. Photo cap checked after idempotent INSERT.
 - **Offline:** Photos selectable while offline (camera/gallery always enabled). `syncPublicOfflineOps` calls `storePhotoLink`/`updatePhotoReportLink` after submit success. `syncPendingPhotos` skips null-linked photos.
 - **Fix PR:** [#544](https://github.com/x1n4te/WIMS-BFP-PROTOTYPE/pull/544) — 28 files, +2834/-227.
+
+## [2026-07-11] design: align civilian contributor Phase 5 Community Safety Hub spec
+
+- **Follow-up:** Replaced the saturating fixed-point trust formula with a normalized reliability model: outcome accuracy 45%, logarithmic root-report volume 20%, normalized evidence quality 20%, rolling six-month active-month consistency 15%, and bounded inactivity decay. Append operations are excluded from volume and consistency. Added performance validation at approximately 10,000 contributors and 100,000 reports before introducing Redis or materialized-view caching.
+
+
+- **Scope:** Updated `docs/superpowers/specs/2026-07-06-civilian-contributor-enhancement-design.md` after product-voice review and design brainstorming.
+- **Decisions:** Retained `/` as anonymous emergency reporting; defined public `/community`, private `/contributor`, safety-first CMS content, admin preview/versioning/rollback, bilingual publishing rules, expiry, urgent banner, list-first station directory with optional map, and dedicated announcement/event routes.
+- **Removed:** Public leaderboard and related endpoint/implementation scope; replaced with private self-tracking.
+- **Status:** Proposal only; no application routes, CMS, or database changes were implemented.
+- **Blocker resolution:** Added explicit tracking capability security, invalid-JWT handling, CMS schema/versioning constraints, synchronous expiry filtering, safe content rendering, canonical outcome statuses, encrypted photo metadata, narrow RLS exception requirements, and Phase 4 prerequisite cleanup.
+- **Photo ownership refinement:** Anonymous pre-upload is now grounded on a hash-backed, expiring `anonymous_session_id` capability with narrowly scoped fixed-search-path helpers, all-or-nothing attach, explicit cleanup/audit behavior, and no client-device-ID authorization.
 
 ## [2026-07-11] fix: repair migration 0004 — civilian contributor schema alignment + add 0005 fixup
 

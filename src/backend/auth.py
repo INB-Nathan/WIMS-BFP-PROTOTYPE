@@ -12,6 +12,10 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import DataError
 
 from database import get_db, _SessionLocal, set_rls_context
+from services.anonymous_sessions import (
+    ValidatedAnonymousCapability,
+    validate_anonymous_session,
+)
 from utils.session import session_manager
 
 logger = logging.getLogger("wims.auth")
@@ -308,14 +312,10 @@ async def optional_auth(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
 ) -> dict | None:
-    """Return WIMS user dict when auth cookie is valid; return None when missing/invalid.
+    """Return the authenticated WIMS user; only an absent cookie is anonymous.
 
-    Unlike get_current_user / get_current_wims_user which raise 401/403,
-    this dependency silently returns None so civilian routes can branch on
-    auth detection without requiring authentication.
-
-    Treats authentication-resolution 401 and 403 as anonymous. Preserves 500/503
-    identity-provider/database failures so they propagate as server errors.
+    Supplied credentials are fail-closed: invalid tokens and identities raise
+    the authentication error rather than being downgraded to anonymous.
 
     Usage:
         async def my_endpoint(
@@ -329,9 +329,10 @@ async def optional_auth(
     try:
         token_payload = await authenticator.validate_token(token)
         return await get_current_wims_user(request, token_payload, db)
-    except HTTPException as exc:
-        if exc.status_code in (401, 403):
-            return None
+    except HTTPException:
+        # A supplied credential must never silently become anonymous.  This
+        # prevents malformed, expired, or unauthorized tokens bypassing routes
+        # that branch on optional authentication.
         raise
 
 
@@ -600,6 +601,25 @@ async def get_current_wims_user(
     return user_dict
 
 
+def get_public_db_with_rls(
+    user: Annotated[dict | None, Depends(optional_auth)],
+) -> Generator[Session, None, None]:
+    """Yield a non-superuser RLS session for public read-only endpoints.
+
+    Anonymous requests intentionally run without a user GUC, so PostgreSQL's
+    public-read policies—not an admin connection—remain the security boundary.
+    Authenticated requests receive the same user context as other app paths.
+    """
+    db = _SessionLocal()
+    try:
+        db.execute(text("SET LOCAL app.audit_source = 'app'"))
+        if user is not None:
+            set_rls_context(db, user["user_id"])
+        yield db
+    finally:
+        db.close()
+
+
 def get_photo_db(
     user: Annotated[dict | None, Depends(optional_auth)],
 ) -> Generator[Session, None, None]:
@@ -631,6 +651,50 @@ def get_photo_db(
         yield db
     finally:
         db.close()
+
+
+def _get_anonymous_bearer(request: Request) -> str | None:
+    authorization = request.headers.get("authorization")
+    if not authorization:
+        return None
+
+    scheme, separator, raw_token = authorization.partition(" ")
+    raw_token = raw_token.strip()
+    if scheme.lower() != "bearer" or not separator or not raw_token:
+        raise HTTPException(status_code=404, detail="Photo not found")
+    return raw_token
+
+
+def get_anonymous_session_capability(
+    request: Request,
+    db: Annotated[Session, Depends(get_photo_db)],
+) -> ValidatedAnonymousCapability | None:
+    """Validate a header-only anonymous capability for one request.
+
+    The raw bearer is retained only in the returned request-local value so the
+    narrowly scoped SQL insert helper can validate it again and derive owner
+    state inside PostgreSQL. It is never accepted from a URL or request body.
+    """
+    raw_token = _get_anonymous_bearer(request)
+    if raw_token is None:
+        return None
+
+    session_id = validate_anonymous_session(db, raw_token)
+    if session_id is None:
+        raise HTTPException(status_code=404, detail="Photo not found")
+    return ValidatedAnonymousCapability(
+        anonymous_session_id=session_id,
+        raw_token=raw_token,
+    )
+
+
+def get_anonymous_session_id(
+    request: Request,
+    db: Annotated[Session, Depends(get_photo_db)],
+) -> uuid.UUID | None:
+    """Resolve an optional Authorization bearer to a derived session UUID."""
+    capability = get_anonymous_session_capability(request, db)
+    return capability.anonymous_session_id if capability is not None else None
 
 
 def get_db_with_rls(

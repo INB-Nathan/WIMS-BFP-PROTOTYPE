@@ -1,10 +1,6 @@
 export {
   appendCivilianReport,
   fetchCivilianDuplicateSuggestions,
-  fetchMyReports,
-  fetchReportStatus,
-  fetchReportTimeline,
-  registerNotification,
   submitCivilianReport,
   submitCivilianReportV2,
   submitFollowup,
@@ -15,17 +11,14 @@ export type {
   CivilianDuplicateSuggestion,
   CivilianFollowupItem,
   CivilianFollowupResponse,
-  CivilianReportTimelineItem,
-  CivilianReportTimelineResult,
   CivilianReportTrackingResponse,
   CivilianReportV2Payload,
   CivilianReportV2Response,
-  MyReportItem,
-  MyReportResponse,
   ReportingContext,
   SafetyStatus,
 } from './legacy';
 import { publicApiFetch, fetchWithOptionalAuth } from './public-transport';
+import type { CivilianReportTrackingResponse } from './legacy';
 
 export interface ReportClusterCenter {
   latitude: number;
@@ -139,4 +132,13 @@ export async function fetchReportClusters(lat?: number, lon?: number): Promise<R
   }
   const qs = params.toString();
   return publicApiFetch<ReportClusterResponse>(`/civilian/report-clusters${qs ? `?${qs}` : ''}`);
+}
+
+export async function fetchReportStatus(
+  reportId: string | number,
+  deviceId: string,
+): Promise<CivilianReportTrackingResponse> {
+  return publicApiFetch<CivilianReportTrackingResponse>(
+    `/civilian/reports/${reportId}?device_id=${encodeURIComponent(deviceId)}`,
+  );
 }

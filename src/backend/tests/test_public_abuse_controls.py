@@ -318,17 +318,15 @@ class TestNeutral404:
             assert resp.status_code == 404, resp.text
             data = resp.json()
             assert "detail" in data
-            assert data["detail"] == "Report not found", (
-                f"Expected 'Report not found', got {data['detail']}"
-            )
+            assert data["detail"] == "Not Found", f"Expected 'Not Found', got {data['detail']}"
         finally:
             clear()
 
     def test_get_timeline_neutral_404_missing(self):
         """GET /api/civilian/reports/{id}/timeline — nonexistent report returns neutral 404.
 
-        The route runs `_require_device_ownership` which returns 'Report not found'
-        for missing reports — see test_public_submission.py::test_get_report_wrong_device.
+        The legacy single-report endpoint has been removed; the route no longer
+        exists so FastAPI returns its default 'Not Found' detail.
         """
         clear = _override_db_with(_MockDB())
         try:
@@ -338,9 +336,7 @@ class TestNeutral404:
             )
             assert resp.status_code == 404, resp.text
             data = resp.json()
-            assert data["detail"] == "Report not found", (
-                f"Expected 'Report not found', got {data['detail']}"
-            )
+            assert data["detail"] == "Not Found", f"Expected 'Not Found', got {data['detail']}"
         finally:
             clear()
 

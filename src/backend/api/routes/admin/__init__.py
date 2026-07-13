@@ -9,6 +9,7 @@ from . import (
     backup_schedule,
     backups,
     breach,
+    community,
     config,
     ip_blocklist,
     monitoring,
@@ -36,3 +37,4 @@ router.include_router(privacy.router)
 router.include_router(anomalies.router)
 router.include_router(ip_blocklist.router, prefix="/ip-blocklist", tags=["admin-ip-blocklist"])
 router.include_router(sync.router)
+router.include_router(community.admin_router)

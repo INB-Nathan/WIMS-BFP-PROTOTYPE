@@ -767,8 +767,27 @@ export interface CivilianReportV2Response {
   previous_report_id: number | null;
   nearest_station_name: string | null;
   nearest_station_phone: string | null;
+  tracking_token?: string | null;
+  tracking_url?: string | null;
   link_count: number;
   created_at: string;
+}
+
+const LAST_REPORT_KEY = 'wims_last_report';
+const TRACKING_LINKS_BY_REPORT_KEY = 'wims_tracking_links_by_report';
+
+function storeTrackingLink(reportId: number, trackingUrl: string | null | undefined): void {
+  if (!trackingUrl) return;
+  try {
+    const raw = localStorage.getItem(TRACKING_LINKS_BY_REPORT_KEY);
+    const parsed = raw ? JSON.parse(raw) as Record<string, unknown> : {};
+    const next: Record<string, string> = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      if (typeof value === 'string') next[key] = value;
+    }
+    next[String(reportId)] = trackingUrl;
+    localStorage.setItem(TRACKING_LINKS_BY_REPORT_KEY, JSON.stringify(next));
+  } catch {}
 }
 
 /** Submit civilian emergency report — Zero-Trust, NO auth. POST /api/civilian/reports */
@@ -790,7 +809,15 @@ export async function submitCivilianReportV2(payload: CivilianReportV2Payload): 
     body: JSON.stringify(payload),
   });
   try {
-    localStorage.setItem('wims_last_report', JSON.stringify({ id: result.report_id, category: payload.category }));
+    localStorage.setItem(
+      LAST_REPORT_KEY,
+      JSON.stringify({
+        id: result.report_id,
+        category: payload.category,
+        tracking_url: result.tracking_url ?? null,
+      }),
+    );
+    storeTrackingLink(result.report_id, result.tracking_url);
   } catch {}
   return result;
 }
@@ -835,26 +862,6 @@ export interface CivilianDuplicateSuggestion {
   nearest_station_name: string | null;
 }
 
-export interface MyReportItem {
-  report_id: number;
-  category: string | null;
-  sub_category: string | null;
-  status: string;
-  safety_status: string | null;
-  created_at: string;
-  latitude: number;
-  longitude: number;
-}
-
-export interface MyReportResponse {
-  reports: MyReportItem[];
-}
-
-/** Fetch all reports submitted by this device — Zero-Trust, NO auth. GET /api/civilian/reports?device_id= */
-export async function fetchMyReports(deviceId: string): Promise<MyReportResponse> {
-  return publicApiFetch(`/civilian/reports?device_id=${encodeURIComponent(deviceId)}`);
-}
-
 export async function fetchCivilianDuplicateSuggestions(
   payload: CivilianReportV2Payload,
 ): Promise<CivilianDuplicateSuggestion[]> {
@@ -887,27 +894,10 @@ export interface CivilianReportTrackingResponse {
   previous_report_id: number | null;
   nearest_station_name: string | null;
   nearest_station_phone: string | null;
+  tracking_token?: string | null;
+  tracking_url?: string | null;
   link_count: number;
   created_at: string;
-}
-
-export interface CivilianReportTimelineItem {
-  report_id: number;
-  status: string;
-  category: string | null;
-  sub_category: string | null;
-  safety_status: string | null;
-  reporting_context: string | null;
-  status_explanation: string | null;
-  created_at: string;
-}
-
-/** Track civilian emergency report status — Zero-Trust, NO auth. GET /api/civilian/reports/{id} */
-export async function fetchReportStatus(
-  reportId: string | number,
-  deviceId: string,
-): Promise<CivilianReportTrackingResponse> {
-  return publicApiFetch(`/civilian/reports/${reportId}?device_id=${encodeURIComponent(deviceId)}`);
 }
 
 export interface CivilianFollowupItem {
@@ -921,22 +911,6 @@ export interface CivilianFollowupResponse {
   report_id: number;
   followup_text: string;
   created_at: string;
-}
-
-export interface CivilianReportTimelineResult {
-  timeline: CivilianReportTimelineItem[];
-  followups: CivilianFollowupItem[];
-}
-
-export async function fetchReportTimeline(
-  reportId: string | number,
-  deviceId: string,
-): Promise<CivilianReportTimelineResult> {
-  const json = await publicApiFetch<{ timeline?: CivilianReportTimelineItem[]; followups?: CivilianFollowupItem[] }>(`/civilian/reports/${reportId}/timeline?device_id=${encodeURIComponent(deviceId)}`);
-  return {
-    timeline: json.timeline ?? [],
-    followups: json.followups ?? [],
-  };
 }
 
 export async function submitFollowup(
@@ -962,18 +936,6 @@ export interface FireStation {
 /** Nearest BFP fire stations — Zero-Trust, NO auth. GET /api/ref/fire-stations */
 export async function fetchNearbyStations(lat: number, lon: number): Promise<FireStation[]> {
   return publicApiFetch(`/ref/fire-stations?lat=${lat}&lon=${lon}`);
-}
-
-/** Register FCM token for push notifications on report status change — Zero-Trust, NO auth. POST /api/civilian/reports/{reportId}/notify */
-export async function registerNotification(
-  reportId: number,
-  fcmToken: string,
-  deviceId: string,
-): Promise<{ status: string; report_id: number }> {
-  return publicApiFetch(`/civilian/reports/${reportId}/notify`, {
-    method: 'POST',
-    body: JSON.stringify({ device_id: deviceId, fcm_token: fcmToken }),
-  });
 }
 
 // ---------------------------------------------------------------------------

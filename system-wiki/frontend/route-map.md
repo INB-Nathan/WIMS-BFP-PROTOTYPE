@@ -1,7 +1,7 @@
 ---
 title: Frontend Route Map
 created: 2026-05-14
-updated: 2026-07-10
+updated: 2026-07-13
 type: frontend
 tags: [wims-bfp, frontend, routing, implementation-map]
 sources: [raw/codebase/codebase-snapshot-2026-05-14.md, src/frontend/src/app]
@@ -46,9 +46,14 @@ Next.js App Router pages detected under `src/frontend/src/app`.
 | `/incidents` | `incidents/page.tsx` |
 | `/incidents/triage` | `incidents/triage/page.tsx` | Phase 2 civilian triage queue using `/api/triage/queue`, claim, cluster inspection, and terminal actions. The page is a map-first spatial triage workspace with a civilian triage canvas, investigation board, ranked queue fallback, and explicit `Inspect / Act` transition into the modal. The inspection modal at `components/triage/` is a large guarded action console with spatial panel, report evidence panel, and action rail. Terminal / Correct / Split / Merge / Activity behavior keeps two-step destructive confirmation, citizen-message previews, and the no-commit-keyboard-shortcut policy; see `frontend/validator-triage-shortcuts` and `operations/civilian-triage-hci-polish`. |
 | `/login` | `login/page.tsx` | Employee-facing app login page. Do not place app pages under `/auth/*`; nginx reserves `/auth/` for Keycloak. |
-| `/` | `page.tsx` | Public civilian emergency report form. Includes the safety-first report flow, in-memory `PhotoUpload` selection during the details step, and post-submit online photo attachment with submitted-screen retry/error status. Submitted and updated reports link to `/tracking?id=<report_id>` for status checks. |
+| `/` | `page.tsx` | Public civilian emergency report form. Includes the safety-first report flow, in-memory `PhotoUpload` selection during the details step, and post-submit online photo attachment with submitted-screen retry/error status. Successful submissions expose the server-issued secure tracking URL (`/tracking/v2/{report_id}/{tracking_token}`) rather than a device-ID lookup path. |
 | `/profile` | `profile/page.tsx` | Profile editing includes email/login-identity changes with current-password field, contact-number validation aligned to `^09\\d{9}$`, and warning/error display for backend partial profile-update responses. |
-| `/tracking` | `tracking/page.tsx` | Public report status/tracking guidance with `?id=<report_id>` lookup and notification opt-in. |
+| `/tracking` | `tracking/page.tsx` | Compatibility landing page for public tracking. It no longer accepts report-ID lookup; instead it offers the caller's last stored secure tracking link when available and otherwise explains that tracking requires the exact secure URL. |
+| `/tracking/v2/[report_id]/[tracking_token]` | `tracking/v2/[report_id]/[tracking_token]/page.tsx` | Capability-token public tracking page. Reads the safe projection from `GET /api/civilian/reports/{report_id}/track/{tracking_token}` and does not expose civilian coordinates or PII. |
+| `/community` | `community/page.tsx` | Public Community Safety Hub with urgent notices, plain-text published content cards, language selection, filtering, and accessible loading/error/empty states. |
+| `/admin/community` | `admin/community/page.tsx` | SYSTEM_ADMIN presentation-gated plain-text CMS editor with draft lifecycle actions; backend remains authoritative. |
+| `/community/[slug]` | `community/[slug]/page.tsx` | Shareable public plain-text community content detail route. |
+| `/contributor` | `contributor/page.tsx` | Authenticated CIVILIAN_REPORTER dashboard with private trust summary, monthly activity, and paginated report history. |
 
 ## UI Surface Clusters
 - Auth/profile: `/login`, `/callback`, `/profile`, auth API routes. `/auth/login` is not a Next.js route; nginx redirects the exact legacy path to `/login`, while `/auth/` remains the Keycloak proxy namespace. Post-login routing uses `src/frontend/src/lib/roleRedirect.ts`: encoder roles land on `/dashboard/regional`, validator roles land on `/dashboard/validator`, system admins on `/admin/system`, and analysts on `/dashboard/analyst`; saved idle-session redirects are preserved only for specific same-origin workflow URLs, while generic `/home` or `/dashboard` redirects fall back to the role dashboard.

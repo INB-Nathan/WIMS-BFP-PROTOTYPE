@@ -27,7 +27,8 @@ Sharpen the idea through structured interview that writes vocabulary and decisio
 Two paths after grilling (or directly, if the request is well-formed):
 
 - **Single session** → distill into a GitHub issue with concrete acceptance criteria, add the `ready-for-agent` label, then `/issue-implement` right here.
-- **Multi-session / big project** → decompose into independently-grabbable issues (each with its own acceptance criteria and label), then start a **fresh session per issue** and run `/issue-implement` against each.
+- **Multi-session but already specified** → decompose into independently-grabbable implementation issues with acceptance criteria, confirm the issue-creation batch, then start a **fresh session per issue** and run `/issue-implement` against each.
+- **Multi-session and still uncertain** → invoke `/skill:wims-wayfinder`. It charts a GitHub map of decision tickets, resolves at most one non-research decision per session, and creates separate `ready-for-agent` implementation issues only after the route is clear and a distinct creation batch is approved.
 
 The **[smart zone](https://www.aihero.dev/ai-coding-dictionary/smart-zone)** limits how much you can do in one window before reasoning degrades on most models. If a session nears that threshold before you've split into issues, don't push degraded — `/handoff` and continue in a fresh thread.
 
@@ -103,7 +104,7 @@ Incoming issues that **you didn't create** — bug reports, feature requests —
 4. If agent can implement → `/issue-implement`.
 5. If it needs a human or is rejected → `ready-for-human` or `wontfix`.
 
-Issues created as part of Step 2 are already agent-ready — **don't triage them**.
+Implementation issues created by Step 2's single-session or already-specified branches are already agent-ready — **don't triage them**. Wayfinder decision tickets are planning artifacts and must never receive `ready-for-agent`.
 
 ### Something's broken → `/skill:diagnose-bug`
 
@@ -182,6 +183,7 @@ Off the main flow entirely.
 | Skill/Prompt | What it does | How to invoke |
 |---|---|---|
 | `/skill:wims-route` | This router (model invocation disabled) | Type `/skill:wims-route` |
+| `/skill:wims-wayfinder` | Manual tracker-backed decision mapping for uncertain multi-session work | Type `/skill:wims-wayfinder` |
 | `/skill:grill-with-docs` | Design interview with CONTEXT.md + ADR capture | Type `/skill:grill-with-docs` |
 | `/skill:diagnose-bug` | 6-phase structured bug investigation | Type `/skill:diagnose-bug` |
 | `/issue-implement` | Implement a GitHub issue using WIMS rules | Prompt template command |
@@ -197,9 +199,12 @@ Off the main flow entirely.
 
 ## Precondition
 
-No setup needed. The WIMS-BFP repo already has:
+The normal WIMS routes need no additional setup. `/skill:wims-wayfinder` also
+requires the user-global `wayfinder` skill; its optional visual prototype path
+uses the user-global `brainstorming` server and falls back to text when that
+server is unavailable. The WIMS-BFP repo already has:
 - GitHub issue tracker configured
-- Five canonical triage labels created
+- Five canonical triage labels created; Wayfinder labels are created only in an approved first-map batch
 - System-wiki established with synthesis pages and log
 - CI pipeline with five blocking merge jobs plus advisory checks
 - Architecture constraints documented

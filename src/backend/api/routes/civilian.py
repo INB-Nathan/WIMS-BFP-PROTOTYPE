@@ -35,26 +35,22 @@ from utils.rate_limit import (
     RETRY_AFTER_FLOOR_SECONDS,
 )
 
-from auth import get_current_wims_user, get_photo_db, optional_auth
+from auth import get_anonymous_session_id, get_current_wims_user, get_photo_db, optional_auth
 from schemas.civilian import (
     CivilianFollowupCreate,
-    CivilianFollowupItem,
     CivilianFollowupResponse,
     CivilianReportAppend,
     CivilianReportCreate,
     CivilianReportResponse,
-    CivilianReportTimelineItem,
-    CivilianReportTimelineResponse,
+    CivilianTrackingResponse,
     ContributorProfileResponse,
     ContributorReportsResponse,
     ContributorStatsResponse,
     DuplicateSuggestionResponse,
     DuplicateSuggestionItem,
-    LeaderboardEntry,
-    MyReportItem,
-    MyReportResponse,
     NotifyRegisterRequest,
     NotifyRegisterResponse,
+    PendingPhotoUploadResponse,
     PhotoUploadResponse,
     ReportClusterResponse,
     ReportClusterArea,
@@ -63,9 +59,12 @@ from services.contributor import (
     get_contributor_profile as contributor_profile,
     get_contributor_reports,
     get_contributor_stats as contributor_stats,
-    get_leaderboard,
 )
-from services.report_photos import is_terminal_status, upload_and_attach_photo
+from services.report_photos import (
+    is_terminal_status,
+    upload_and_attach_photo,
+    upload_pending_photo,
+)
 
 logger = logging.getLogger("wims.civilian")
 
@@ -400,6 +399,15 @@ def _fetch_report_response(
     return _response_from_row(row)
 
 
+@router.get("/reports")
+def legacy_list_gone():
+    """Device-ID public report enumeration is retired in favor of secure tracking links."""
+    raise HTTPException(
+        status_code=410,
+        detail="This legacy tracking endpoint has been retired. Use the secure tracking link.",
+    )
+
+
 @router.post("/reports", response_model=CivilianReportResponse, status_code=201)
 async def submit_civilian_report(
     body: CivilianReportCreate,
@@ -724,7 +732,7 @@ async def submit_civilian_report(
 
 @router.get(
     "/reports/{report_id}/track/{tracking_token}",
-    response_model=CivilianReportResponse,
+    response_model=CivilianTrackingResponse,
 )
 def get_civilian_report_by_tracking_token(
     report_id: int,
@@ -748,36 +756,24 @@ def get_civilian_report_by_tracking_token(
         # Neutral 404 — do not reveal whether the report exists or the token is wrong
         raise HTTPException(status_code=404, detail="Report not found")
 
-    # Fetch limited Tier 1 report data
+    # Fetch limited Tier 1 report data (no location, PII, internal notes, or chain IDs)
     row = db.execute(
         text("""
             SELECT cr.report_id,
-                   ST_Y(cr.location::geometry) AS lat,
-                   ST_X(cr.location::geometry) AS lon,
                    cr.category,
                    cr.sub_category,
-                   cr.reporting_context,
                    cr.safety_status,
-                   cr.trust_score,
                    cr.status,
-                   cr.status_explanation,
-                   cr.link_count,
-                   cr.previous_report_id,
                    cr.created_at,
-                   cr.contributor_user_id,
                    cr.routing_distance_m,
                    cr.routing_duration_s,
                    cr.routing_data_source,
                    fs.station_name AS nearest_station_name,
                    fs.phone AS nearest_station_phone,
-                   cl.status AS related_cluster_status,
                    (SELECT COUNT(*) FROM wims.report_photos rp WHERE rp.report_id = cr.report_id) AS photo_count
             FROM wims.citizen_reports cr
             LEFT JOIN wims.ref_fire_stations fs ON fs.station_id = cr.nearest_station_id
-            LEFT JOIN wims.citizen_report_cluster_members cm ON cm.report_id = cr.report_id
-            LEFT JOIN wims.citizen_report_clusters cl ON cl.cluster_id = cm.cluster_id
             WHERE cr.report_id = :rid
-            ORDER BY cl.updated_at DESC NULLS LAST, cl.created_at DESC NULLS LAST
             LIMIT 1
         """),
         {"rid": report_id},
@@ -790,34 +786,20 @@ def get_civilian_report_by_tracking_token(
     rejection_guidance = REJECTION_GUIDANCE.get(status_val)
     guidance = rejection_guidance or STATUS_GUIDANCE.get(status_val)
 
-    # Tier 1: submitter_type derived from contributor_user_id
-    tracked_submitter = "registered" if getattr(row, "contributor_user_id", None) else "anonymous"
-
-    return CivilianReportResponse(
+    return CivilianTrackingResponse(
         report_id=row.report_id,
-        latitude=float(row.lat),
-        longitude=float(row.lon),
         category=row.category,
         sub_category=row.sub_category,
-        reporting_context=row.reporting_context,
         safety_status=row.safety_status,
-        witness_name=None,  # Tier 1: no PII
-        witness_phone=None,  # Tier 1: no PII
-        trust_score=row.trust_score,
         status=status_val,
-        status_explanation=row.status_explanation,
         guidance=guidance,
         escalation_guidance=rejection_guidance,
-        related_cluster_status=row.related_cluster_status,
-        previous_report_id=None,  # Tier 1: hide chaining info
         nearest_station_name=row.nearest_station_name,
         nearest_station_phone=row.nearest_station_phone,
         routing_distance_m=getattr(row, "routing_distance_m", None),
         routing_duration_s=getattr(row, "routing_duration_s", None),
         routing_data_source=getattr(row, "routing_data_source", None),
         photo_count=getattr(row, "photo_count", 0) or 0,
-        submitter_type=tracked_submitter,
-        link_count=row.link_count or 0,
         created_at=row.created_at,
     )
 
@@ -1087,6 +1069,76 @@ def submit_civilian_followup(
 
 
 @router.post(
+    "/photos/upload",
+    response_model=PendingPhotoUploadResponse,
+    status_code=201,
+)
+def upload_pending_civilian_photo(
+    db: Annotated[Session, Depends(get_photo_db)],
+    user: Annotated[dict | None, Depends(optional_auth)],
+    anonymous_session_id: Annotated[uuid.UUID | None, Depends(get_anonymous_session_id)],
+    file: UploadFile = File(...),
+    browser_gps_lat: float | None = Form(default=None),
+    browser_gps_lon: float | None = Form(default=None),
+    browser_gps_accuracy: float | None = Form(default=None),
+    browser_gps_captured_at: datetime | None = Form(default=None),
+    exif_gps_lat: float | None = Form(default=None),
+    exif_gps_lon: float | None = Form(default=None),
+    exif_gps_altitude: float | None = Form(default=None),
+    exif_datetime_original: str | None = Form(default=None),
+    client_photo_id: str | None = Form(default=None),
+) -> PendingPhotoUploadResponse:
+    """Create an encrypted pending photo for a registered contributor.
+
+    No report ID or device ID is accepted: pending rows are owned only by the
+    authenticated CIVILIAN_REPORTER RLS identity. Anonymous requests remain
+    explicitly unavailable until a dedicated capability-bound INSERT helper
+    exists, even when a session capability was supplied.
+    """
+    if exif_gps_lat is not None and not (-90 <= exif_gps_lat <= 90):
+        raise HTTPException(status_code=422, detail="exif_gps_lat must be in [-90, 90]")
+    if exif_gps_lon is not None and not (-180 <= exif_gps_lon <= 180):
+        raise HTTPException(status_code=422, detail="exif_gps_lon must be in [-180, 180]")
+    if exif_gps_altitude is not None and not math.isfinite(exif_gps_altitude):
+        raise HTTPException(status_code=422, detail="exif_gps_altitude must be a finite float")
+    parsed_exif_dt: datetime | None = None
+    if exif_datetime_original is not None:
+        try:
+            parsed_exif_dt = datetime.fromisoformat(exif_datetime_original)
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(
+                status_code=422,
+                detail="exif_datetime_original must be a valid ISO 8601 timestamp",
+            ) from exc
+
+    parsed_client_photo_id: uuid.UUID | None = None
+    if client_photo_id is not None:
+        try:
+            parsed_client_photo_id = uuid.UUID(client_photo_id)
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(
+                status_code=422,
+                detail="client_photo_id must be a valid UUID",
+            ) from exc
+
+    return upload_pending_photo(
+        db=db,
+        file=file,
+        registered_user=user,
+        anonymous_session_id=anonymous_session_id,
+        browser_gps_lat=browser_gps_lat,
+        browser_gps_lon=browser_gps_lon,
+        browser_gps_accuracy=browser_gps_accuracy,
+        browser_gps_captured_at=browser_gps_captured_at,
+        exif_gps_lat=exif_gps_lat,
+        exif_gps_lon=exif_gps_lon,
+        exif_gps_altitude=exif_gps_altitude,
+        exif_datetime_original=parsed_exif_dt,
+        client_photo_id=parsed_client_photo_id,
+    )
+
+
+@router.post(
     "/reports/{report_id}/photos",
     response_model=PhotoUploadResponse,
     status_code=201,
@@ -1167,113 +1219,6 @@ async def upload_report_photo(
         exif_gps_altitude=exif_gps_altitude,
         exif_datetime_original=parsed_exif_dt,
         client_photo_id=parsed_client_photo_id,
-    )
-
-
-@router.get("/reports", response_model=MyReportResponse)
-def get_my_reports(
-    device_id: str,
-    db: Annotated[Session, Depends(get_db)],
-) -> MyReportResponse:
-    """Fetch all reports submitted by this device. No auth required.
-
-    device_id is passed as a query param — Zero-Trust, so callers must
-    supply the actual device UUID. Only returns reports for that device.
-    """
-    rows = db.execute(
-        text("""
-            SELECT report_id, category, sub_category, status, safety_status,
-                   created_at,
-                   ST_Y(location::geometry) AS latitude,
-                   ST_X(location::geometry) AS longitude
-            FROM wims.citizen_reports
-            WHERE device_id = :device_id
-            ORDER BY created_at DESC
-        """),
-        {"device_id": device_id},
-    ).fetchall()
-
-    return MyReportResponse(
-        reports=[
-            MyReportItem(
-                report_id=r.report_id,
-                category=r.category,
-                sub_category=r.sub_category,
-                status=r.status,
-                safety_status=r.safety_status,
-                created_at=r.created_at,
-                latitude=r.latitude,
-                longitude=r.longitude,
-            )
-            for r in rows
-        ]
-    )
-
-
-@router.get("/reports/{report_id}", response_model=CivilianReportResponse)
-def get_civilian_report(
-    report_id: int,
-    device_id: str,
-    db: Annotated[Session, Depends(get_db)],
-) -> CivilianReportResponse:
-    """Fetch status of a public report. No auth required; scoped by device token."""
-    return _fetch_report_response(db, report_id, device_id)
-
-
-@router.get("/reports/{report_id}/timeline", response_model=CivilianReportTimelineResponse)
-def get_civilian_report_timeline(
-    report_id: int,
-    device_id: str,
-    db: Annotated[Session, Depends(get_db)],
-) -> CivilianReportTimelineResponse:
-    """Fetch parent report plus append children and follow-ups as a public tracking timeline."""
-    _require_device_ownership(db, report_id, device_id)
-
-    rows = db.execute(
-        text("""
-            SELECT report_id, status, category, sub_category, safety_status,
-                   reporting_context, status_explanation, created_at, description
-            FROM wims.citizen_reports
-            WHERE report_id = :rid OR linked_to_report_id = :rid
-            ORDER BY created_at ASC, report_id ASC
-        """),
-        {"rid": report_id},
-    ).fetchall()
-
-    followup_rows = db.execute(
-        text("""
-            SELECT followup_id, followup_text, created_at
-            FROM wims.citizen_report_followups
-            WHERE report_id = :rid
-            ORDER BY created_at ASC
-        """),
-        {"rid": report_id},
-    ).fetchall()
-
-    return CivilianReportTimelineResponse(
-        report_id=report_id,
-        timeline=[
-            CivilianReportTimelineItem(
-                report_id=row.report_id,
-                status=row.status,
-                category=row.category,
-                sub_category=row.sub_category,
-                safety_status=row.safety_status,
-                reporting_context=row.reporting_context,
-                status_explanation=row.status_explanation,
-                created_at=row.created_at,
-                description=row.description,
-            )
-            for row in rows
-        ],
-        followups=[
-            CivilianFollowupItem(
-                followup_id=row.followup_id,
-                followup_text=row.followup_text,
-                created_at=row.created_at,
-            )
-            for row in followup_rows
-        ],
     )
 
 
@@ -1381,25 +1326,6 @@ async def get_contributor_stats_route(
         )
     stats = contributor_stats(user["user_id"], db)
     return ContributorStatsResponse(**stats)
-
-
-@router.get("/contributor/leaderboard", response_model=list[LeaderboardEntry])
-async def get_contributor_leaderboard(
-    limit: int = 20,
-    user: Annotated[dict, Depends(get_current_wims_user)] = None,
-    db: Annotated[Session, Depends(get_db)] = None,
-) -> list[LeaderboardEntry]:
-    """Return the top-N registered contributors by trust score.
-
-    Only contributors who have opted in to the leaderboard are included.
-    """
-    if user.get("role") != "CIVILIAN_REPORTER":
-        raise HTTPException(
-            status_code=403,
-            detail="CIVILIAN_REPORTER role required to access leaderboard",
-        )
-    entries = get_leaderboard(limit=limit, db=db)
-    return [LeaderboardEntry(**entry) for entry in entries]
 
 
 def _get_count_bucket(count: int) -> str:

@@ -10,6 +10,8 @@ from __future__ import annotations
 import os
 import sys
 import uuid
+import hashlib
+import secrets
 
 import pytest
 import redis
@@ -150,6 +152,25 @@ def _insert_report_raw_bypassing_encryption(
     return int(row[0])
 
 
+def _issue_tracking_token(db: Session, report_id: int) -> str:
+    """Insert an active public tracking token for a report and return the plaintext.
+
+    Used by tests that set up report state via the bypass helper (which does not
+    mint a tracking token) and then exercise the secure tracking-link route.
+    """
+    token = secrets.token_hex(32)
+    token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    db.execute(
+        text(
+            "INSERT INTO wims.report_tracking_tokens (report_id, token_hash, token_type) "
+            "VALUES (:rid, :th, 'public')"
+        ),
+        {"rid": report_id, "th": token_hash},
+    )
+    db.commit()
+    return token
+
+
 class TestCivilianReportPublicSubmission:
     def test_public_can_submit_structured_report(self, client):
         # PR #446 gap #14: server reads x-real-ip (set by nginx to
@@ -258,12 +279,14 @@ class TestCivilianReportPublicSubmission:
         assert response.status_code == 422, response.text
 
     def test_submit_then_track_returns_report(self, client):
-        """Submit through the public HTTP API, then GET status with the same device_id.
+        """Submit through the public HTTP API, then GET status via the secure tracking token.
 
-        Pins the post-encrypt ownership round-trip. Regression test for PR #448's
-        _encrypt_witness_pii() NULL-ing the plaintext device_id column. This test
-        MUST go through client.post (not the _insert_report_raw_bypassing_encryption() helper) so the
-        production encrypt-on-submit path actually runs.
+        Pins the post-encrypt ownership round-trip and the secure-tracking-link
+        contract. Regression test for PR #448's _encrypt_witness_pii() NULL-ing
+        the plaintext device_id column. This test MUST go through client.post
+        (not the _insert_report_raw_bypassing_encryption() helper) so the
+        production encrypt-on-submit path actually runs and a tracking token is
+        issued.
         """
         device_id = str(uuid.uuid4())
         submit_response = client.post(
@@ -271,39 +294,39 @@ class TestCivilianReportPublicSubmission:
             json=_payload(device_id=device_id),
         )
         assert submit_response.status_code == 201, submit_response.text
-        report_id = submit_response.json()["report_id"]
+        body = submit_response.json()
+        report_id = body["report_id"]
+        tracking_token = body["tracking_token"]
 
-        track_response = client.get(f"/api/civilian/reports/{report_id}?device_id={device_id}")
+        track_response = client.get(f"/api/civilian/reports/{report_id}/track/{tracking_token}")
 
         assert track_response.status_code == 200, track_response.text
         data = track_response.json()
         assert data["report_id"] == report_id
         assert data["category"] == "STRUCTURAL"
-        assert data["reporting_context"] == "WITNESS"
         assert data["safety_status"] == "I_AM_SAFE"
+        # Tracking response excludes location, PII, internal notes, and chain IDs
+        assert "latitude" not in data
+        assert "longitude" not in data
+        assert "witness_name" not in data
+        assert "reporting_context" not in data
+        assert "status_explanation" not in data
+        assert "link_count" not in data
 
-    def test_submit_then_list_includes_report(self, client):
-        """Submit through the public HTTP API, then GET the list of own reports with the same device_id.
-
-        Pins the list-my-reports round-trip. Same root cause as the track test:
-        _encrypt_witness_pii() NULLs device_id, so get_my_reports()'s
-        `WHERE device_id = :device_id` matches zero rows. Goes through client.post,
-        not the _insert_report_raw_bypassing_encryption() helper, so the production encrypt-on-submit path runs.
-        """
+    def test_legacy_list_endpoint_is_gone(self, client):
+        """Device-ID public report enumeration is retired in favor of secure tracking links."""
         device_id = str(uuid.uuid4())
         submit_response = client.post(
             "/api/civilian/reports",
             json=_payload(device_id=device_id),
         )
         assert submit_response.status_code == 201, submit_response.text
-        report_id = submit_response.json()["report_id"]
 
         list_response = client.get(f"/api/civilian/reports?device_id={device_id}")
 
-        assert list_response.status_code == 200, list_response.text
-        reports = list_response.json()["reports"]
-        assert any(r["report_id"] == report_id for r in reports), (
-            f"Expected the just-submitted report_id={report_id} in the list response: {reports}"
+        assert list_response.status_code == 410, list_response.text
+        assert list_response.json()["detail"] == (
+            "This legacy tracking endpoint has been retired. Use the secure tracking link."
         )
 
     def test_append_creates_linked_child_and_increments_parent(self, client, db_session):
@@ -325,7 +348,10 @@ class TestCivilianReportPublicSubmission:
         ).scalar()
         assert link_count == 1
 
-    def test_tracking_timeline_returns_parent_and_appends(self, client, db_session):
+    def test_tracking_reflects_appended_child_link(self, client, db_session):
+        """Append a child report, then verify link_count via DB query and
+        confirm the secure tracking surface excludes chain IDs.
+        """
         device_id = str(uuid.uuid4())
         parent_id = _insert_report_raw_bypassing_encryption(db_session, device_id=device_id)
         append_response = client.patch(
@@ -334,14 +360,23 @@ class TestCivilianReportPublicSubmission:
         )
         assert append_response.status_code == 201, append_response.text
         child_id = append_response.json()["report_id"]
+        assert child_id != parent_id
 
-        response = client.get(f"/api/civilian/reports/{parent_id}/timeline?device_id={device_id}")
+        # Verify the DB link_count was updated (append route still uses it)
+        db_link_count = db_session.execute(
+            text("SELECT link_count FROM wims.citizen_reports WHERE report_id = :rid"),
+            {"rid": parent_id},
+        ).scalar()
+        assert db_link_count == 1
+
+        tracking_token = _issue_tracking_token(db_session, parent_id)
+        response = client.get(f"/api/civilian/reports/{parent_id}/track/{tracking_token}")
 
         assert response.status_code == 200, response.text
-        timeline = response.json()["timeline"]
-        assert [item["report_id"] for item in timeline] == [parent_id, child_id]
-        assert timeline[0]["status"] == "PENDING"
-        assert timeline[1]["status"] == "LINKED"
+        data = response.json()
+        assert data["report_id"] == parent_id
+        # Tracking response excludes chain IDs — link_count is not exposed
+        assert "link_count" not in data
 
     @pytest.mark.parametrize(
         ("status", "explanation"),
@@ -375,13 +410,14 @@ class TestCivilianReportPublicSubmission:
             ),
             device_id=device_id,
         )
+        tracking_token = _issue_tracking_token(db_session, report_id)
 
-        response = client.get(f"/api/civilian/reports/{report_id}?device_id={device_id}")
+        response = client.get(f"/api/civilian/reports/{report_id}/track/{tracking_token}")
 
         assert response.status_code == 200, response.text
         data = response.json()
         assert data["status"] == "REJECTED_TIMEOUT"
-        assert data["status_explanation"].startswith("This report was not verified")
+        assert "status_explanation" not in data
         assert (
             data["escalation_guidance"]
             == "Submit a new report if the emergency is ongoing, or call 911."

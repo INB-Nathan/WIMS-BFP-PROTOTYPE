@@ -4,21 +4,35 @@ import { useCallback, useEffect, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { AlertTriangle, CheckCircle, Clock, MapPin, PhoneCall, RefreshCw, ChevronRight } from 'lucide-react';
+import { AlertTriangle, CheckCircle, Clock, MapPin, PhoneCall, RefreshCw } from 'lucide-react';
 import { EmergencyReferenceCard } from '@/components/EmergencyReferenceCard';
 import { ApiRequestError } from '@/lib/api/errors';
 import { publicApiFetch } from '@/lib/api/public-transport';
+
+const TRACKING_LINKS_BY_REPORT_KEY = 'wims_tracking_links_by_report';
+
+function storeTrackingLink(reportId: string, trackingUrl: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const raw = localStorage.getItem(TRACKING_LINKS_BY_REPORT_KEY);
+    const parsed = raw ? JSON.parse(raw) as Record<string, unknown> : {};
+    const next: Record<string, string> = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      if (typeof value === 'string') next[key] = value;
+    }
+    next[reportId] = trackingUrl;
+    localStorage.setItem(TRACKING_LINKS_BY_REPORT_KEY, JSON.stringify(next));
+  } catch {}
+}
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 interface TrackingData {
   report_id: number;
-  latitude: number;
-  longitude: number;
   category: string | null;
   sub_category: string | null;
+  reporting_context: string | null;
   safety_status: string | null;
-  trust_score: number;
   status: string;
   status_explanation: string | null;
   guidance: string | null;
@@ -224,6 +238,11 @@ export default function TrackingV2Page() {
   useEffect(() => {
     fetchTracking();
   }, [fetchTracking]);
+
+  useEffect(() => {
+    if (!report_id || !tracking_token) return;
+    storeTrackingLink(report_id, `/tracking/v2/${report_id}/${tracking_token}`);
+  }, [report_id, tracking_token]);
 
   const status = data ? parseStatus(data.status) : null;
   const meta = status ? STATUS_META[status] : null;

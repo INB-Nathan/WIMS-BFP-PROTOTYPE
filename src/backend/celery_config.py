@@ -20,6 +20,7 @@ celery_app = Celery(
     include=[
         "tasks.analytics_refresh",
         "tasks.civilian_reports",
+        "tasks.expire_content",
         "tasks.drafts",
         "tasks.exports",
         "tasks.ip_blocklist",
@@ -37,6 +38,7 @@ celery_app.conf.imports = (
     "tasks.analytics_refresh",
     "tasks.anomaly_detection",
     "tasks.civilian_reports",
+    "tasks.expire_content",
     "tasks.drafts",
     "tasks.exports",
     "tasks.ip_blocklist",
@@ -60,6 +62,7 @@ celery_app.conf.update(
         "tasks.analytics_refresh",
         "tasks.anomaly_detection",
         "tasks.civilian_reports",
+        "tasks.expire_content",
         "tasks.drafts",
         "tasks.exports",
         "tasks.ip_blocklist",
@@ -148,6 +151,13 @@ celery_app.conf.update(
         # Task 7: Periodic Redis blocklist resync (every 5 min)
         "resync-ip-blocklist": {
             "task": "tasks.ip_blocklist.resync_ip_blocklist",
+            "schedule": 300.0,
+        },
+        # Slice F: Archive expired published Community Safety Hub content
+        # (every 5 minutes). Public reads also enforce expiry at read time, so
+        # the hub stays correct even if this beat is delayed.
+        "expire-community-content": {
+            "task": "tasks.expire_content.expire_published_content",
             "schedule": 300.0,
         },
     },
