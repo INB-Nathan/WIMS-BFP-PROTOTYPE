@@ -27,6 +27,7 @@ from services.report_photos import (
     AAD_ORIGINAL,
     AAD_SANITIZED,
     DEFAULT_STORAGE_DIR,
+    attach_registered_pending_photos,
     _encrypt_and_write,
     _encrypt_metadata_json,
     _read_upload,
@@ -423,3 +424,46 @@ def test_read_upload_over_cap():
     with pytest.raises(HTTPException) as exc:
         _read_upload(uf, max_bytes=100)
     assert exc.value.status_code == 413
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Registered pending-photo attach adapter (Slice D)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def test_attach_registered_pending_photos_calls_helper_with_derived_identity():
+    """The adapter must forward the server-derived user_id/report_id/photo_ids
+    to wims.attach_registered_photos and return its boolean result."""
+    from unittest.mock import MagicMock
+
+    user_id = uuid.uuid4()
+    report_id = 42
+    photo_ids = [uuid.uuid4(), uuid.uuid4()]
+
+    scalar = MagicMock()
+    scalar.scalar_one_or_none.return_value = True
+    db = MagicMock()
+    db.execute.return_value = scalar
+
+    ok = attach_registered_pending_photos(db, user_id, report_id, photo_ids)
+
+    assert ok is True
+    db.execute.assert_called_once()
+    executed, params = db.execute.call_args.args
+    assert "wims.attach_registered_photos" in str(executed)
+    assert params["p_user_id"] == user_id
+    assert params["p_report_id"] == report_id
+    assert params["p_photo_ids"] == list(photo_ids)
+
+
+def test_attach_registered_pending_photos_returns_helper_boolean():
+    """FALSE/None from the helper must surface as a falsy bool, not raise."""
+    from unittest.mock import MagicMock
+
+    for helper_value in (False, None):
+        scalar = MagicMock()
+        scalar.scalar_one_or_none.return_value = helper_value
+        db = MagicMock()
+        db.execute.return_value = scalar
+
+        assert attach_registered_pending_photos(db, uuid.uuid4(), 7, [uuid.uuid4()]) is False

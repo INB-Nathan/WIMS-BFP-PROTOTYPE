@@ -237,9 +237,16 @@ ALTER TABLE wims.report_photos FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS report_photos_select ON wims.report_photos;
 CREATE POLICY report_photos_select
     ON wims.report_photos FOR SELECT
-    USING (wims.current_user_role() IN (
-        'SYSTEM_ADMIN', 'NATIONAL_VALIDATOR', 'NATIONAL_ANALYST'
-    ));
+    USING (
+        wims.current_user_role() IN (
+            'SYSTEM_ADMIN', 'NATIONAL_VALIDATOR', 'NATIONAL_ANALYST'
+        )
+        OR (
+            wims.current_user_role() = 'CIVILIAN_REPORTER'
+            AND report_id IS NULL
+            AND uploader_user_id = wims.current_user_uuid()
+        )
+    );
 
 -- Policy: INSERT allowed for ANONYMOUS (ownership via report.device_id)
 -- and for CIVILIAN_REPORTER (ownership via report.contributor_user_id).
@@ -249,10 +256,11 @@ DROP POLICY IF EXISTS report_photos_insert ON wims.report_photos;
 CREATE POLICY report_photos_insert
     ON wims.report_photos FOR INSERT
     WITH CHECK (
-        -- Registered contributor: user_id must match report's contributor_user_id
+        -- Existing attached-row path for registered contributors.
         (
             wims.current_user_role() = 'CIVILIAN_REPORTER'
             AND uploader_user_id = wims.current_user_uuid()
+            AND report_id IS NOT NULL
             AND EXISTS (
                 SELECT 1 FROM wims.citizen_reports cr
                 WHERE cr.report_id = wims.report_photos.report_id
@@ -260,11 +268,21 @@ CREATE POLICY report_photos_insert
             )
         )
         OR
-        -- Anonymous: uploaded without user, report must have no contributor
+        -- New registered pending-row path (migration 0008).
+        (
+            wims.current_user_role() = 'CIVILIAN_REPORTER'
+            AND uploader_user_id = wims.current_user_uuid()
+            AND uploader_device_id IS NULL
+            AND report_id IS NULL
+            AND attached_at IS NULL
+        )
+        OR
+        -- Existing anonymous attached-row path.
         (
             wims.current_user_role() = 'ANONYMOUS'
             AND uploader_user_id IS NULL
             AND uploader_device_id IS NOT NULL
+            AND report_id IS NOT NULL
             AND EXISTS (
                 SELECT 1 FROM wims.citizen_reports cr
                 WHERE cr.report_id = wims.report_photos.report_id
@@ -274,23 +292,51 @@ CREATE POLICY report_photos_insert
         )
     );
 
--- Policy: UPDATE restricted to staff/admin (for cleanup status changes)
+-- Policy: UPDATE — staff for full access, CIVILIAN_REPORTER for pending rows.
+-- Migration 0008 broadened this to let reporters transition pending->attached.
 DROP POLICY IF EXISTS report_photos_update ON wims.report_photos;
 CREATE POLICY report_photos_update
     ON wims.report_photos FOR UPDATE
-    USING (wims.current_user_role() IN (
-        'SYSTEM_ADMIN', 'NATIONAL_VALIDATOR', 'NATIONAL_ANALYST'
-    ))
-    WITH CHECK (wims.current_user_role() IN (
-        'SYSTEM_ADMIN', 'NATIONAL_VALIDATOR', 'NATIONAL_ANALYST'
-    ));
+    USING (
+        wims.current_user_role() IN (
+            'SYSTEM_ADMIN', 'NATIONAL_VALIDATOR', 'NATIONAL_ANALYST'
+        )
+        OR (
+            wims.current_user_role() = 'CIVILIAN_REPORTER'
+            AND report_id IS NULL
+            AND uploader_user_id = wims.current_user_uuid()
+        )
+    )
+    WITH CHECK (
+        wims.current_user_role() IN (
+            'SYSTEM_ADMIN', 'NATIONAL_VALIDATOR', 'NATIONAL_ANALYST'
+        )
+        OR (
+            wims.current_user_role() = 'CIVILIAN_REPORTER'
+            AND uploader_user_id = wims.current_user_uuid()
+            AND (
+                report_id IS NULL
+                OR EXISTS (
+                    SELECT 1 FROM wims.citizen_reports cr
+                    WHERE cr.report_id = wims.report_photos.report_id
+                      AND cr.contributor_user_id = wims.current_user_uuid()
+                )
+            )
+        )
+    );
 
--- Policy: DELETE restricted to SYSTEM_ADMIN. Phase 2 cleanup does not
--- delete attached report rows because report_id is always NOT NULL.
+-- Policy: DELETE — SYSTEM_ADMIN or CIVILIAN_REPORTER owning a pending row.
 DROP POLICY IF EXISTS report_photos_delete ON wims.report_photos;
 CREATE POLICY report_photos_delete
     ON wims.report_photos FOR DELETE
-    USING (wims.current_user_role() = 'SYSTEM_ADMIN');
+    USING (
+        wims.current_user_role() = 'SYSTEM_ADMIN'
+        OR (
+            wims.current_user_role() = 'CIVILIAN_REPORTER'
+            AND report_id IS NULL
+            AND uploader_user_id = wims.current_user_uuid()
+        )
+    );
 
 
 -- ── Grant permissions ────────────────────────────────────────────────────────

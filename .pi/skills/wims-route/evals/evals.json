@@ -120,6 +120,18 @@
       "prompt": "Docker compose keeps failing on postgres bootstrap",
       "expected_output": "Routes to Infrastructure/Docker/CI subsystem: src/AGENTS.md, Compose overlays, Alembic plus ordered SQL bootstrap, and ci-preflight",
       "should_trigger": true
+    },
+    {
+      "id": 21,
+      "prompt": "This initiative spans several sessions, but we still do not know which identity model or migration boundary to choose",
+      "expected_output": "Routes to the manual /skill:wims-wayfinder flow because the work is both multi-session and decision-uncertain; does not pre-slice implementation issues",
+      "should_trigger": true
+    },
+    {
+      "id": 22,
+      "prompt": "The approved specification is large, but every implementation slice and acceptance criterion is already clear",
+      "expected_output": "Routes to confirmed implementation-issue decomposition rather than Wayfinder because no material decision fog remains",
+      "should_trigger": true
     }
   ]
 }

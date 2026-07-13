@@ -1,8 +1,8 @@
 # WIMS-BFP System Wiki Index
 
-Last updated: 2026-07-12
+Last updated: 2026-07-13
 Indexed wiki pages: 52
-Last changes: Registered contributor pending photo upload is now wired through the encrypted service pipeline; anonymous pending insertion remains fail-closed until its dedicated capability-bound helper exists.
+Last changes: 2026-07-13 adds the manual-only WIMS Wayfinder workflow for batch-confirmed GitHub decision maps, concurrency-safe claims, serialized map updates, and post-map implementation issue promotion. 2026-07-13 follow-up fixes retire the dead `?update_report_id=` browser entry path and make notification clicks reopen the correct stored secure tracking URL via `/tracking?report_id=...` compatibility resolution. Slice M (2026-07-13) retires the public device-ID tracking list endpoint in favor of secure `/tracking/v2/{report_id}/{tracking_token}` capability links and updates the route/security/docs surface accordingly. Slice L (2026-07-13) completes the normalized contributor reliability engine by adding the 24-hour EXIF/report timestamp-consistency evidence signal, pinning the activity window to the current UTC month plus five previous UTC calendar months, and removing the retired `wims.photo_bonus_for_report(INTEGER)` helper from the final schema via Alembic `0013` + bootstrap `92_remove_legacy_photo_bonus_function.sql`.
 Purpose: project-local knowledgebase for agents routing themselves to relevant WIMS-BFP context.
 
 ## Start Here

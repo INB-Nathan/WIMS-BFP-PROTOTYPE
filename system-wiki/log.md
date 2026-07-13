@@ -1,3 +1,10 @@
+## [2026-07-13] feat(agents): add WIMS Wayfinder decision-mapping workflow
+
+- **Scope:** Added the manual-only `.pi/skills/wims-wayfinder/` profile over the user-global Wayfinder method, with GitHub-native child/dependency operations, batch-confirmed chart creation, append-only ticket claims, serialized conflict-checked map updates, and one non-research decision per session.
+- **Prototype and handoff:** Prototype tickets optionally reuse the user-local keyed brainstorming server with loopback/synthetic-data defaults; decision tickets remain separate from `ready-for-agent` implementation issues, which require a later confirmed creation batch.
+- **Documentation:** Updated `.pi/README.md`, `.pi/skills/wims-route/`, `docs/agents/issue-tracker.md`, [[operations/agent-routing-guide]], and the wiki index. No FRS/codebase gap changed.
+- **Validation:** Parsed both changed eval JSON files, verified referenced paths and current GitHub CLI parent/dependency fields, and ran scoped diff checks; no application tests were required for agent-workflow documentation.
+
 ## [2026-07-12] fix(security): stop exposing admin-created users' passwords, rely on Keycloak's set-password link (#526)
 
 - **Scope:** `POST /api/admin/users` (`api/routes/admin/users.py`) unconditionally returned `temporary_password` plus a misleading `note` claiming credentials were emailed — the admin UI (`admin/system/page.tsx`) always rendered it in a reveal/copy modal. Keycloak already sends a secure one-time set-password link on user creation (`create_keycloak_user` → `send_update_account`, `UPDATE_PASSWORD` required action, 7-day lifespan), but that send's success/failure was swallowed to a log line with no signal returned to the caller — the route had no way to know if the email actually went out, which is why it always fell back to exposing the password.

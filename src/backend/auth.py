@@ -12,7 +12,10 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import DataError
 
 from database import get_db, _SessionLocal, set_rls_context
-from services.anonymous_sessions import validate_anonymous_session
+from services.anonymous_sessions import (
+    ValidatedAnonymousCapability,
+    validate_anonymous_session,
+)
 from utils.session import session_manager
 
 logger = logging.getLogger("wims.auth")
@@ -598,6 +601,25 @@ async def get_current_wims_user(
     return user_dict
 
 
+def get_public_db_with_rls(
+    user: Annotated[dict | None, Depends(optional_auth)],
+) -> Generator[Session, None, None]:
+    """Yield a non-superuser RLS session for public read-only endpoints.
+
+    Anonymous requests intentionally run without a user GUC, so PostgreSQL's
+    public-read policies—not an admin connection—remain the security boundary.
+    Authenticated requests receive the same user context as other app paths.
+    """
+    db = _SessionLocal()
+    try:
+        db.execute(text("SET LOCAL app.audit_source = 'app'"))
+        if user is not None:
+            set_rls_context(db, user["user_id"])
+        yield db
+    finally:
+        db.close()
+
+
 def get_photo_db(
     user: Annotated[dict | None, Depends(optional_auth)],
 ) -> Generator[Session, None, None]:
@@ -631,17 +653,7 @@ def get_photo_db(
         db.close()
 
 
-def get_anonymous_session_id(
-    request: Request,
-    db: Annotated[Session, Depends(get_photo_db)],
-) -> uuid.UUID | None:
-    """Resolve an optional Authorization bearer to a derived session UUID.
-
-    Anonymous requests without an Authorization header remain anonymous.  A
-    supplied capability is fail-closed: malformed, expired, revoked, or
-    unknown capabilities receive the same neutral 404 used by photo ownership
-    operations.  The raw bearer never leaves this dependency.
-    """
+def _get_anonymous_bearer(request: Request) -> str | None:
     authorization = request.headers.get("authorization")
     if not authorization:
         return None
@@ -650,11 +662,39 @@ def get_anonymous_session_id(
     raw_token = raw_token.strip()
     if scheme.lower() != "bearer" or not separator or not raw_token:
         raise HTTPException(status_code=404, detail="Photo not found")
+    return raw_token
+
+
+def get_anonymous_session_capability(
+    request: Request,
+    db: Annotated[Session, Depends(get_photo_db)],
+) -> ValidatedAnonymousCapability | None:
+    """Validate a header-only anonymous capability for one request.
+
+    The raw bearer is retained only in the returned request-local value so the
+    narrowly scoped SQL insert helper can validate it again and derive owner
+    state inside PostgreSQL. It is never accepted from a URL or request body.
+    """
+    raw_token = _get_anonymous_bearer(request)
+    if raw_token is None:
+        return None
 
     session_id = validate_anonymous_session(db, raw_token)
     if session_id is None:
         raise HTTPException(status_code=404, detail="Photo not found")
-    return session_id
+    return ValidatedAnonymousCapability(
+        anonymous_session_id=session_id,
+        raw_token=raw_token,
+    )
+
+
+def get_anonymous_session_id(
+    request: Request,
+    db: Annotated[Session, Depends(get_photo_db)],
+) -> uuid.UUID | None:
+    """Resolve an optional Authorization bearer to a derived session UUID."""
+    capability = get_anonymous_session_capability(request, db)
+    return capability.anonymous_session_id if capability is not None else None
 
 
 def get_db_with_rls(

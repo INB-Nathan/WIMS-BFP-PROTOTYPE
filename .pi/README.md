@@ -18,6 +18,9 @@ skills load only after the project is trusted.
   explicit user approval and must never be used as a routine smoke test.
 - `prompts/*.md` — explicit reusable WIMS workflow prompts.
 - `skills/*/SKILL.md` and adjacent references/evals — larger reusable procedures.
+  `wims-wayfinder` is the manual-only WIMS/GitHub profile for large, uncertain,
+  multi-session planning. It requires the user-global `wayfinder` skill; its
+  optional visual prototype flow reuses the user-global `brainstorming` server.
 
 ## Local or Generated State
 
@@ -25,6 +28,8 @@ Never commit or hand-edit:
 
 - `.pi/npm/` and `.pi/git/` — project package install caches;
 - `.pi/sessions/` — local session history and subagent artifacts;
+- `.superpowers/brainstorm/` — ignored user-local Wayfinder prototype screens,
+  interaction events, server metadata, and keyed session state;
 - credentials, tokens, SSH material, production `.env` files, or secret-bearing
   tool output.
 

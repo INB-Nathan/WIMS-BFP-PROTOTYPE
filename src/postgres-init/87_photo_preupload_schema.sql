@@ -2,9 +2,9 @@
 -- Civilian photo pre-upload schema groundwork.
 --
 -- Pending rows have report_id/attached_at NULL.  Attached rows retain the
--- report foreign key and require attached_at.  This file intentionally does
--- not grant anonymous pending access: the current schema has no safe
--- transaction-local device/capability owner context.
+-- report foreign key and require attached_at.  This schema file intentionally
+-- leaves anonymous pending table DML denied; bootstrap 89 adds the narrow
+-- capability-bound SECURITY DEFINER insertion helper.
 --
 -- Dependencies: 82_civilian_report_photos.sql, 83_photo_exif_metadata.sql,
 --               84_photo_idempotency_key.sql, 85_citizen_report_idempotency.sql,
@@ -161,9 +161,9 @@ CREATE POLICY report_photos_delete
         )
     );
 
--- TODO(photo-preupload): establish a transaction-local, capability/device
--- owner context and add narrowly scoped anonymous pending SELECT/INSERT/
--- UPDATE/DELETE predicates plus live cross-device RLS tests. Never use a broad
--- permissive TRUE policy or a BYPASSRLS session for this path.
+-- Anonymous pending insertion is helper-bound by 89_anonymous_pending_photo_insert.sql;
+-- direct anonymous pending SELECT/INSERT/UPDATE/DELETE remains denied. Add live
+-- cross-session helper/RLS tests before expanding this boundary. Never use a
+-- broad permissive TRUE policy or a BYPASSRLS session for this path.
 
 COMMIT;

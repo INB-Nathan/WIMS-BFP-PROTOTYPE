@@ -27,12 +27,9 @@ STABLE
 SECURITY DEFINER
 AS $$
   SELECT COALESCE(
-    u.role,
+    (SELECT u.role FROM wims.users u WHERE u.user_id = wims.current_user_uuid() AND u.is_active = TRUE),
     'ANONYMOUS'::text
   )
-  FROM wims.users u
-  WHERE u.user_id = wims.current_user_uuid()
-    AND u.is_active = TRUE
 $$;
 
 -- current_user_region_id: returns assigned_region_id from wims.users

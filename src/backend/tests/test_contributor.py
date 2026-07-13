@@ -1,12 +1,19 @@
 """Table-driven tests for the normalized contributor reliability model."""
 
+import math
 from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
 import pytest
 
 from services.contributor import (
-    FORMULA_VERSION,
+    ACTIONED_CITIZEN_REPORT_STATUSES,
+    CITIZEN_REPORT_STATUS_OUTCOMES,
+    DECIDED_CITIZEN_REPORT_STATUSES,
+    LIVE_CITIZEN_REPORT_STATUSES,
+    PENDING_CITIZEN_REPORT_STATUSES,
+    TRUST_SCORE_FORMULA_VERSION,
+    _normalized_breakdown,
     _score,
     badge_for_score,
     compute_trust_score,
@@ -38,6 +45,31 @@ def _db(row):
     result.fetchone.return_value = row
     db.execute.return_value = result
     return db
+
+
+class TestContributorStatusMappings:
+    def test_live_status_mapping_matches_root_report_constraint(self):
+        expected = {
+            "PENDING": "pending",
+            "UNDER_REVIEW": "pending",
+            "LINKED": "pending",
+            "ACTIONED": "actioned",
+            "REJECTED_BOGUS": "rejected",
+            "REJECTED_DUPLICATE": "rejected",
+            "REJECTED_INSUFFICIENT": "rejected",
+            "REJECTED_TIMEOUT": "rejected",
+        }
+        assert LIVE_CITIZEN_REPORT_STATUSES == tuple(expected)
+        assert CITIZEN_REPORT_STATUS_OUTCOMES == expected
+        assert PENDING_CITIZEN_REPORT_STATUSES == ("PENDING", "UNDER_REVIEW", "LINKED")
+        assert ACTIONED_CITIZEN_REPORT_STATUSES == ("ACTIONED",)
+        assert DECIDED_CITIZEN_REPORT_STATUSES == (
+            "ACTIONED",
+            "REJECTED_BOGUS",
+            "REJECTED_DUPLICATE",
+            "REJECTED_INSUFFICIENT",
+            "REJECTED_TIMEOUT",
+        )
 
 
 class TestBadgeForScore:
@@ -88,10 +120,55 @@ class TestNormalizedReliability:
             compute_trust_score("user-1", _db(_row(10, 10, 6, active=6, last=old))) == baseline - 20
         )
 
-    def test_profile_contract_includes_formula_version(self):
-        row = _row(1, pending=1, active=1)
+    def test_profile_contract_includes_breakdown_and_formula_version(self):
+        row = _row(1, pending=1, evidence=0.25, active=1)
         profile = get_contributor_profile("user-1", _db(row))
-        assert profile["trust_score"] == 7
+        assert profile["trust_score"] == 12
         assert profile["total_reports"] == 1
         assert profile["pending_reports"] == 1
-        assert profile["formula_version"] == FORMULA_VERSION
+        assert profile["formula_version"] == TRUST_SCORE_FORMULA_VERSION
+        assert profile["decided_reports"] == 0
+        assert profile["active_months"] == 1
+        assert profile["decay"] == 0
+        assert profile["volume_progress"] == pytest.approx(math.log1p(1) / math.log(21))
+        assert profile["outcome_accuracy"] == 0.0
+        assert profile["evidence_quality"] == pytest.approx(0.25)
+        assert profile["consistency"] == pytest.approx(1 / 6)
+
+    def test_reliability_query_counts_all_pending_statuses(self):
+        db = _db(_row(1, pending=1, active=1))
+        get_contributor_profile("user-1", db)
+        statement = str(db.execute.call_args.args[0])
+        assert (
+            "COUNT(*) FILTER (WHERE status IN ('PENDING', 'UNDER_REVIEW', 'LINKED')) AS pending"
+            in statement
+        )
+
+    def test_one_decided_report_gets_only_ten_percent_confidence(self):
+        breakdown = _normalized_breakdown(_row(roots=1, decided=1, actioned=1, active=1))
+        assert breakdown["outcome_accuracy"] == pytest.approx(0.1)
+
+    def test_ten_decided_reports_get_full_confidence(self):
+        breakdown = _normalized_breakdown(_row(roots=10, decided=10, actioned=6, active=6))
+        assert breakdown["outcome_accuracy"] == pytest.approx(0.6)
+
+    def test_timestamp_signal_can_raise_per_report_evidence_to_one(self):
+        breakdown = _normalized_breakdown(_row(roots=1, evidence=1.0, active=1))
+        assert breakdown["evidence_quality"] == pytest.approx(1.0)
+
+    def test_reliability_query_uses_24_hour_timestamp_tolerance(self):
+        db = _db(_row(1, evidence=1.0, active=1))
+        get_contributor_profile("user-1", db)
+        statement = str(db.execute.call_args.args[0])
+        assert "p.exif_datetime_original IS NOT NULL" in statement
+        assert (
+            "ABS(EXTRACT(EPOCH FROM (p.exif_datetime_original - r.report_timestamp)))" in statement
+        )
+        assert "<= 86400" in statement
+
+    def test_reliability_query_uses_utc_six_calendar_month_window(self):
+        db = _db(_row(1, active=1))
+        get_contributor_profile("user-1", db)
+        statement = str(db.execute.call_args.args[0])
+        assert "COUNT(DISTINCT date_trunc('month', created_at AT TIME ZONE 'UTC'))" in statement
+        assert "date_trunc('month', now() AT TIME ZONE 'UTC') - interval '5 months'" in statement

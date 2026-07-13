@@ -22,11 +22,30 @@ from sqlalchemy.orm import Session
 
 from main import app
 from auth import get_current_wims_user
+from services.contributor import TRUST_SCORE_FORMULA_VERSION
 
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
+
+SUMMARY_FIELDS = (
+    "volume_progress",
+    "outcome_accuracy",
+    "evidence_quality",
+    "consistency",
+    "decay",
+    "formula_version",
+    "decided_reports",
+    "active_months",
+)
+
+
+def assert_private_summary_fields(payload: dict) -> None:
+    for field in SUMMARY_FIELDS:
+        assert field in payload
+    assert payload["formula_version"] == TRUST_SCORE_FORMULA_VERSION
 
 
 @pytest.fixture
@@ -148,7 +167,7 @@ def client_no_auth():
 
 @pytest.fixture
 def contributor_report(db_session: Session, reporter_user):
-    """Insert a citizen_report linked to the reporter. Returns report_id."""
+    """Insert a root citizen_report linked to the reporter. Returns report_id."""
     wkt = "SRID=4326;POINT(121.05 14.60)"
     result = db_session.execute(
         text("""
@@ -158,6 +177,24 @@ def contributor_report(db_session: Session, reporter_user):
             RETURNING report_id
         """),
         {"wkt": wkt, "uid": reporter_user},
+    )
+    row = result.fetchone()
+    db_session.commit()
+    return row[0]
+
+
+@pytest.fixture
+def linked_contributor_report(db_session: Session, reporter_user, contributor_report):
+    """Insert a linked/non-root report to prove contributor endpoints stay root-only."""
+    wkt = "SRID=4326;POINT(121.051 14.601)"
+    result = db_session.execute(
+        text("""
+            INSERT INTO wims.citizen_reports
+                (location, contributor_user_id, linked_to_report_id, category, status, description)
+            VALUES (ST_GeogFromText(:wkt), :uid, :linked_to_report_id, 'STRUCTURAL', 'LINKED', 'Child report')
+            RETURNING report_id
+        """),
+        {"wkt": wkt, "uid": reporter_user, "linked_to_report_id": contributor_report},
     )
     row = result.fetchone()
     db_session.commit()
@@ -218,7 +255,9 @@ class TestContributorProfile:
         response = client_with_reporter.get("/api/civilian/contributor/me")
         assert response.status_code == 200
 
-    def test_profile_returns_correct_fields(self, client_with_reporter, contributor_report):
+    def test_profile_returns_correct_fields(
+        self, client_with_reporter, contributor_report, linked_contributor_report
+    ):
         response = client_with_reporter.get("/api/civilian/contributor/me")
         data = response.json()
         assert "trust_score" in data
@@ -228,8 +267,10 @@ class TestContributorProfile:
         assert "pending_reports" in data
         assert "first_report_at" in data
         assert "last_report_at" in data
-        # With the seeded report, total_reports should be at least 1
-        assert data["total_reports"] >= 1
+        assert_private_summary_fields(data)
+        # Only the seeded root report counts; linked/appended reports stay excluded.
+        assert data["total_reports"] == 1
+        assert data["pending_reports"] == 1
         assert data["trust_score"] >= 0
         assert data["badge"] in ("NOVICE", "REGULAR", "TRUSTED", "GUARDIAN")
 
@@ -238,6 +279,7 @@ class TestContributorProfile:
         response = client_with_reporter.get("/api/civilian/contributor/me")
         assert response.status_code == 200
         data = response.json()
+        assert_private_summary_fields(data)
         assert data["total_reports"] == 0
         assert data["trust_score"] == 0
         assert data["badge"] == "NOVICE"
@@ -258,6 +300,7 @@ class TestContributorReports:
         assert "page" in data
         assert "limit" in data
         assert "pages" in data
+        assert_private_summary_fields(data)
         assert isinstance(data["reports"], list)
         assert data["total"] >= 1
         assert data["page"] == 1
@@ -268,6 +311,17 @@ class TestContributorReports:
         data = response.json()
         report_ids = [r["report_id"] for r in data["reports"]]
         assert contributor_report in report_ids
+
+    def test_reports_exclude_linked_reports_from_history(
+        self, client_with_reporter, contributor_report, linked_contributor_report
+    ):
+        response = client_with_reporter.get("/api/civilian/contributor/reports")
+        data = response.json()
+        report_ids = [r["report_id"] for r in data["reports"]]
+        assert contributor_report in report_ids
+        assert linked_contributor_report not in report_ids
+        assert data["total"] == 1
+        assert data["total_reports"] == 1
 
     def test_reports_item_structure(self, client_with_reporter, contributor_report):
         response = client_with_reporter.get("/api/civilian/contributor/reports")
@@ -321,6 +375,7 @@ class TestContributorStats:
         assert "actioned_reports" in data
         assert "pending_reports" in data
         assert "monthly_report_counts" in data
+        assert_private_summary_fields(data)
         assert isinstance(data["monthly_report_counts"], list)
 
     def test_stats_zero_reports(self, client_with_reporter):
@@ -328,6 +383,7 @@ class TestContributorStats:
         response = client_with_reporter.get("/api/civilian/contributor/stats")
         assert response.status_code == 200
         data = response.json()
+        assert_private_summary_fields(data)
         assert data["total_reports"] == 0
         assert data["trust_score"] == 0
         assert data["badge"] == "NOVICE"

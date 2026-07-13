@@ -90,10 +90,9 @@ def test_rls_keeps_force_and_limits_pending_rows_to_registered_owner() -> None:
         assert "report_photos_update" in source
         assert "report_photos_delete" in source
 
-        # Anonymous pending ownership is not safely representable by the
-        # current transaction GUCs.  Ensure the documented blocker remains and
-        # no permissive report_photos policy is introduced.
-        assert "TODO(photo-preupload)" in source
+        # Anonymous pending ownership is helper-bound by the next revision;
+        # direct table policies remain narrow and no permissive policy exists.
+        assert "anonymous pending insertion is helper-bound" in source.lower()
         report_policies = source.split("report_photos_select", 1)[-1]
         assert (
             re.search(
@@ -105,7 +104,7 @@ def test_rls_keeps_force_and_limits_pending_rows_to_registered_owner() -> None:
         )
 
 
-def test_attached_row_policy_is_not_widened_and_todo_is_explicit() -> None:
+def test_attached_row_policy_is_not_widened_and_helper_boundary_is_explicit() -> None:
     migration = _migration_source()
     bootstrap = _bootstrap_source()
     for source in (migration, bootstrap):
@@ -117,7 +116,6 @@ def test_attached_row_policy_is_not_widened_and_todo_is_explicit() -> None:
         assert "NATIONAL_ANALYST" in select_policy
         assert "report_id IS NULL" in select_policy
 
-        todo = re.search(r"TODO\(photo-preupload\):(.+?)(?:\n\n|\Z)", source, re.DOTALL)
-        assert todo is not None
-        assert "anonymous" in todo.group(1).lower()
-        assert "transaction-local" in todo.group(1)
+        assert "anonymous pending insertion is helper-bound" in source.lower()
+        assert "direct" in source.lower()
+        assert "anonymous pending select/insert/update/delete remains denied" in source.lower()

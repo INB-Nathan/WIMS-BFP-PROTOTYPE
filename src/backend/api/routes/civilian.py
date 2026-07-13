@@ -48,8 +48,6 @@ from schemas.civilian import (
     ContributorStatsResponse,
     DuplicateSuggestionResponse,
     DuplicateSuggestionItem,
-    MyReportItem,
-    MyReportResponse,
     NotifyRegisterRequest,
     NotifyRegisterResponse,
     PendingPhotoUploadResponse,
@@ -401,6 +399,15 @@ def _fetch_report_response(
     return _response_from_row(row)
 
 
+@router.get("/reports")
+def legacy_list_gone():
+    """Device-ID public report enumeration is retired in favor of secure tracking links."""
+    raise HTTPException(
+        status_code=410,
+        detail="This legacy tracking endpoint has been retired. Use the secure tracking link.",
+    )
+
+
 @router.post("/reports", response_model=CivilianReportResponse, status_code=201)
 async def submit_civilian_report(
     body: CivilianReportCreate,
@@ -749,36 +756,24 @@ def get_civilian_report_by_tracking_token(
         # Neutral 404 — do not reveal whether the report exists or the token is wrong
         raise HTTPException(status_code=404, detail="Report not found")
 
-    # Fetch limited Tier 1 report data
+    # Fetch limited Tier 1 report data (no location, PII, internal notes, or chain IDs)
     row = db.execute(
         text("""
             SELECT cr.report_id,
-                   ST_Y(cr.location::geometry) AS lat,
-                   ST_X(cr.location::geometry) AS lon,
                    cr.category,
                    cr.sub_category,
-                   cr.reporting_context,
                    cr.safety_status,
-                   cr.trust_score,
                    cr.status,
-                   cr.status_explanation,
-                   cr.link_count,
-                   cr.previous_report_id,
                    cr.created_at,
-                   cr.contributor_user_id,
                    cr.routing_distance_m,
                    cr.routing_duration_s,
                    cr.routing_data_source,
                    fs.station_name AS nearest_station_name,
                    fs.phone AS nearest_station_phone,
-                   cl.status AS related_cluster_status,
                    (SELECT COUNT(*) FROM wims.report_photos rp WHERE rp.report_id = cr.report_id) AS photo_count
             FROM wims.citizen_reports cr
             LEFT JOIN wims.ref_fire_stations fs ON fs.station_id = cr.nearest_station_id
-            LEFT JOIN wims.citizen_report_cluster_members cm ON cm.report_id = cr.report_id
-            LEFT JOIN wims.citizen_report_clusters cl ON cl.cluster_id = cm.cluster_id
             WHERE cr.report_id = :rid
-            ORDER BY cl.updated_at DESC NULLS LAST, cl.created_at DESC NULLS LAST
             LIMIT 1
         """),
         {"rid": report_id},
@@ -791,29 +786,20 @@ def get_civilian_report_by_tracking_token(
     rejection_guidance = REJECTION_GUIDANCE.get(status_val)
     guidance = rejection_guidance or STATUS_GUIDANCE.get(status_val)
 
-    # Tier 1: submitter_type derived from contributor_user_id
-    tracked_submitter = "registered" if getattr(row, "contributor_user_id", None) else "anonymous"
-
     return CivilianTrackingResponse(
         report_id=row.report_id,
         category=row.category,
         sub_category=row.sub_category,
-        reporting_context=row.reporting_context,
         safety_status=row.safety_status,
         status=status_val,
-        status_explanation=row.status_explanation,
         guidance=guidance,
         escalation_guidance=rejection_guidance,
-        related_cluster_status=row.related_cluster_status,
-        previous_report_id=None,  # Tier 1: hide chaining info
         nearest_station_name=row.nearest_station_name,
         nearest_station_phone=row.nearest_station_phone,
         routing_distance_m=getattr(row, "routing_distance_m", None),
         routing_duration_s=getattr(row, "routing_duration_s", None),
         routing_data_source=getattr(row, "routing_data_source", None),
         photo_count=getattr(row, "photo_count", 0) or 0,
-        submitter_type=tracked_submitter,
-        link_count=row.link_count or 0,
         created_at=row.created_at,
     )
 
@@ -1233,46 +1219,6 @@ async def upload_report_photo(
         exif_gps_altitude=exif_gps_altitude,
         exif_datetime_original=parsed_exif_dt,
         client_photo_id=parsed_client_photo_id,
-    )
-
-
-@router.get("/reports", response_model=MyReportResponse)
-def get_my_reports(
-    device_id: str,
-    db: Annotated[Session, Depends(get_db)],
-) -> MyReportResponse:
-    """Fetch all reports submitted by this device. No auth required.
-
-    device_id is passed as a query param — Zero-Trust, so callers must
-    supply the actual device UUID. Only returns reports for that device.
-    """
-    rows = db.execute(
-        text("""
-            SELECT report_id, category, sub_category, status, safety_status,
-                   created_at,
-                   ST_Y(location::geometry) AS latitude,
-                   ST_X(location::geometry) AS longitude
-            FROM wims.citizen_reports
-            WHERE device_id = :device_id
-            ORDER BY created_at DESC
-        """),
-        {"device_id": device_id},
-    ).fetchall()
-
-    return MyReportResponse(
-        reports=[
-            MyReportItem(
-                report_id=r.report_id,
-                category=r.category,
-                sub_category=r.sub_category,
-                status=r.status,
-                safety_status=r.safety_status,
-                created_at=r.created_at,
-                latitude=r.latitude,
-                longitude=r.longitude,
-            )
-            for r in rows
-        ]
     )
 
 

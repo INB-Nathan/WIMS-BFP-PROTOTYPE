@@ -101,8 +101,8 @@ def test_no_permissive_pending_policy_or_general_rls_bypass_is_added() -> None:
     for source in _sources():
         assert "BYPASSRLS" not in source
         assert "WITH CHECK (TRUE)" not in source
-        # This slice deliberately leaves anonymous pending RLS absent; helper
-        # calls are the capability boundary until the upload route exists.
+        # Revision 0009 deliberately leaves anonymous pending RLS absent;
+        # revision 0010 supplies the capability-bound helper boundary.
         assert "CREATE POLICY report_photos" not in source
         assert "client device IDs are analytics-only" in source
 

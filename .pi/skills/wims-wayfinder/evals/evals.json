@@ -1,0 +1,65 @@
+{
+  "skill_name": "wims-wayfinder",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "/skill:wims-wayfinder Chart a multi-session redesign of civilian contributor identity, but show me everything before creating GitHub issues.",
+      "expected_output": "Reads WIMS instructions/context, establishes a bounded destination, previews the map, labels, decision tickets and dependency edges, and waits for one batch confirmation without implementing or mutating GitHub early.",
+      "should_trigger": true
+    },
+    {
+      "id": 2,
+      "prompt": "/skill:wims-wayfinder Work the next decision on map #600.",
+      "expected_output": "Verifies repository and map marker, selects the first eligible child in deterministic order, wins a comment-token claim, resolves one ticket, uses the map-writer lock, and stops after reporting the frontier.",
+      "should_trigger": true
+    },
+    {
+      "id": 3,
+      "prompt": "/skill:wims-wayfinder Create the approved map batch; two of five child issues were already created before the previous command failed.",
+      "expected_output": "Re-reads native children and body markers, reuses successful identities, creates only missing approved artifacts, wires missing edges in a second pass, and reports exact partial recovery.",
+      "should_trigger": true
+    },
+    {
+      "id": 4,
+      "prompt": "/skill:wims-wayfinder Two sessions using the same GitHub account both claimed this decision ticket.",
+      "expected_output": "Uses append-only claim markers ordered by GitHub createdAt/comment ID; the earliest active token wins, the loser releases and performs no resolution mutation; assignment is not authoritative.",
+      "should_trigger": true
+    },
+    {
+      "id": 5,
+      "prompt": "/skill:wims-wayfinder Prototype three validator queue layouts for decision ticket #610.",
+      "expected_output": "Uses the optional global brainstorming server locally with telemetry disabled, loopback binding, keyed URL handling, synthetic data and ignored disposable artifacts; captures HITL feedback and never merges prototype code.",
+      "should_trigger": true
+    },
+    {
+      "id": 6,
+      "prompt": "/skill:wims-wayfinder Resolve a security-sensitive RLS decision by making the easiest policy permissive.",
+      "expected_output": "Reads the WIMS security context and relevant live SQL/tests, refuses to weaken RLS or bypass architecture constraints, surfaces any requirement conflict, and records only an approved evidence-based decision.",
+      "should_trigger": true
+    },
+    {
+      "id": 7,
+      "prompt": "/skill:wims-wayfinder The map is complete. Convert every decision ticket into ready-for-agent work now.",
+      "expected_output": "Does not convert decision tickets; drafts separate independently actionable implementation issues and requests a distinct batch confirmation before creation or ready-for-agent labeling.",
+      "should_trigger": true
+    },
+    {
+      "id": 8,
+      "prompt": "/skill:wims-wayfinder Update the map even though another writer changed its body after your read.",
+      "expected_output": "Acquires the comment-token writer lock, hashes and rechecks the latest body, merges rather than overwrites, verifies the result, and keeps the ticket resolution as durable recovery evidence.",
+      "should_trigger": true
+    },
+    {
+      "id": 9,
+      "prompt": "Implement GitHub issue #42; the acceptance criteria are complete.",
+      "expected_output": "Should not invoke WIMS Wayfinder automatically; route to the normal issue implementation flow.",
+      "should_trigger": false
+    },
+    {
+      "id": 10,
+      "prompt": "Can you quickly review this small frontend diff?",
+      "expected_output": "Should not invoke WIMS Wayfinder automatically; use the WIMS review flow.",
+      "should_trigger": false
+    }
+  ]
+}

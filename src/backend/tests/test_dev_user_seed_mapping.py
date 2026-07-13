@@ -11,7 +11,7 @@ def _repo_root() -> Path:
     for candidate in [Path(__file__).resolve().parent, *Path(__file__).resolve().parents]:
         if (candidate / "scripts").is_dir() and (candidate / "src").is_dir():
             return candidate
-    pytest.skip("full repository checkout is required for seed mapping static checks")
+    pytest.skip("full repository checkout is required for seed mapping static checks", allow_module_level=True)
 
 
 REPO_ROOT = _repo_root()

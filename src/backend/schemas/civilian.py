@@ -97,21 +97,16 @@ class CivilianTrackingResponse(BaseModel):
     report_id: int
     category: str | None = None
     sub_category: str | None = None
-    reporting_context: str | None = None
     safety_status: str | None = None
     status: str
-    status_explanation: str | None = None
     guidance: str | None = None
     escalation_guidance: str | None = None
-    related_cluster_status: str | None = None
     nearest_station_name: str | None = None
     nearest_station_phone: str | None = None
     routing_distance_m: float | None = None
     routing_duration_s: float | None = None
     routing_data_source: str | None = None
     photo_count: int = 0
-    submitter_type: str = "anonymous"
-    link_count: int = 0
     created_at: datetime
 
 
@@ -160,25 +155,6 @@ class NotifyRegisterResponse(BaseModel):
 
     status: str  # "registered" | "already_registered"
     report_id: int
-
-
-class MyReportItem(BaseModel):
-    """A single report belonging to the requesting device."""
-
-    report_id: int
-    category: str | None = None
-    sub_category: str | None = None
-    status: str
-    safety_status: str | None = None
-    created_at: datetime
-    latitude: float
-    longitude: float
-
-
-class MyReportResponse(BaseModel):
-    """Response body for GET /api/civilian/reports — the device's own report history."""
-
-    reports: list[MyReportItem]
 
 
 class ReportClusterCenter(BaseModel):
@@ -299,7 +275,20 @@ class BrowserGPSFields(BaseModel):
         return values
 
 
-class ContributorProfileResponse(BaseModel):
+class ContributorTrustScoreBreakdown(BaseModel):
+    """Normalized trust-score sub-components shared across contributor endpoints."""
+
+    volume_progress: float = 0.0
+    outcome_accuracy: float = 0.0
+    evidence_quality: float = 0.0
+    consistency: float = 0.0
+    decay: float = 0.0
+    formula_version: str = "reliability-v1"
+    decided_reports: int = 0
+    active_months: int = 0
+
+
+class ContributorProfileResponse(ContributorTrustScoreBreakdown):
     """Registered contributor profile with trust score, badge, and lifetime stats."""
 
     trust_score: int
@@ -323,17 +312,22 @@ class ContributorReportItem(BaseModel):
     longitude: float
 
 
-class ContributorReportsResponse(BaseModel):
-    """Paginated contributor report history."""
+class ContributorReportsResponse(ContributorTrustScoreBreakdown):
+    """Paginated contributor report history with profile summary."""
 
     reports: list[ContributorReportItem]
     total: int
     page: int
     limit: int
     pages: int
+    total_reports: int = 0
+    actioned_reports: int = 0
+    pending_reports: int = 0
+    first_report_at: datetime | None = None
+    last_report_at: datetime | None = None
 
 
-class ContributorStatsResponse(BaseModel):
+class ContributorStatsResponse(ContributorTrustScoreBreakdown):
     """Contributor vanity metrics with monthly trend data."""
 
     trust_score: int

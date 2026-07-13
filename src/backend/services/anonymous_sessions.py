@@ -1,14 +1,15 @@
 """Database-backed anonymous session capability adapter.
 
-Raw bearer capabilities are accepted only at this boundary.  Issuance returns
-one raw token for the caller to deliver once; validation and revocation return
-only derived state.  This module deliberately does not log or persist bearer
-values in Python.
+Raw bearer capabilities are accepted only at this boundary. Issuance returns
+one raw token for the caller to deliver once; ordinary validation and revocation
+return only derived state. The upload dependency uses a request-local validated
+value only to pass the bearer to its fixed-search-path SQL helper. This module
+deliberately does not log or persist bearer values.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 from uuid import UUID
 
@@ -23,6 +24,18 @@ class IssuedAnonymousSession:
 
     anonymous_session_id: UUID
     raw_token: str
+
+
+@dataclass(frozen=True)
+class ValidatedAnonymousCapability:
+    """Request-local bearer validation result.
+
+    The raw token is deliberately excluded from repr output. Callers must keep
+    this object transient and must never log, serialize, persist, or audit it.
+    """
+
+    anonymous_session_id: UUID
+    raw_token: str = field(repr=False)
 
 
 def issue_anonymous_session(
@@ -83,6 +96,129 @@ def revoke_anonymous_session(db: Session, raw_token: str) -> bool:
         raise
 
 
+def insert_anonymous_pending_photo(
+    db: Session,
+    capability: ValidatedAnonymousCapability,
+    *,
+    photo_id: UUID,
+    client_photo_id: UUID | None,
+    media_type: str,
+    file_extension: str,
+    image_width: int,
+    image_height: int,
+    file_size_bytes: int,
+    original_storage_path: str,
+    original_file_size_bytes: int,
+    original_sha256: str,
+    orig_encryption_iv: str,
+    orig_key_version: int,
+    orig_crypto_provider: str,
+    orig_kms_key_name: str | None,
+    sanitized_storage_path: str,
+    sanitized_file_size_bytes: int,
+    sanitized_sha256: str,
+    sanitized_encryption_iv: str,
+    sanitized_key_version: int,
+    sanitized_crypto_provider: str,
+    sanitized_kms_key_name: str | None,
+    sensitive_metadata_blob_enc: str,
+    metadata_encryption_iv: str,
+    metadata_key_version: int,
+    metadata_crypto_provider: str,
+    metadata_kms_key_name: str | None,
+    exif_gps_status: str,
+    browser_gps_status: str,
+    gps_consensus: str | None,
+    exif_data_source: str | None,
+) -> tuple[UUID | None, bool, bool] | None:
+    """Insert one pending row through the capability-bound SQL helper."""
+    result = db.execute(
+        text(
+            "SELECT photo_id, duplicate, cap_reached "
+            "FROM wims.insert_anonymous_pending_photo("
+            ":p_raw_token, :p_photo_id, :p_client_photo_id, :p_media_type, "
+            ":p_file_extension, :p_image_width, :p_image_height, :p_file_size_bytes, "
+            ":p_original_storage_path, :p_original_file_size_bytes, :p_original_sha256, "
+            ":p_orig_encryption_iv, :p_orig_key_version, :p_orig_crypto_provider, "
+            ":p_orig_kms_key_name, :p_sanitized_storage_path, "
+            ":p_sanitized_file_size_bytes, :p_sanitized_sha256, "
+            ":p_sanitized_encryption_iv, :p_sanitized_key_version, "
+            ":p_sanitized_crypto_provider, :p_sanitized_kms_key_name, "
+            ":p_sensitive_metadata_blob_enc, :p_metadata_encryption_iv, "
+            ":p_metadata_key_version, :p_metadata_crypto_provider, "
+            ":p_metadata_kms_key_name, :p_exif_gps_status, :p_browser_gps_status, "
+            ":p_gps_consensus, :p_exif_data_source)"
+        ),
+        {
+            "p_raw_token": capability.raw_token,
+            "p_photo_id": photo_id,
+            "p_client_photo_id": client_photo_id,
+            "p_media_type": media_type,
+            "p_file_extension": file_extension,
+            "p_image_width": image_width,
+            "p_image_height": image_height,
+            "p_file_size_bytes": file_size_bytes,
+            "p_original_storage_path": original_storage_path,
+            "p_original_file_size_bytes": original_file_size_bytes,
+            "p_original_sha256": original_sha256,
+            "p_orig_encryption_iv": orig_encryption_iv,
+            "p_orig_key_version": orig_key_version,
+            "p_orig_crypto_provider": orig_crypto_provider,
+            "p_orig_kms_key_name": orig_kms_key_name,
+            "p_sanitized_storage_path": sanitized_storage_path,
+            "p_sanitized_file_size_bytes": sanitized_file_size_bytes,
+            "p_sanitized_sha256": sanitized_sha256,
+            "p_sanitized_encryption_iv": sanitized_encryption_iv,
+            "p_sanitized_key_version": sanitized_key_version,
+            "p_sanitized_crypto_provider": sanitized_crypto_provider,
+            "p_sanitized_kms_key_name": sanitized_kms_key_name,
+            "p_sensitive_metadata_blob_enc": sensitive_metadata_blob_enc,
+            "p_metadata_encryption_iv": metadata_encryption_iv,
+            "p_metadata_key_version": metadata_key_version,
+            "p_metadata_crypto_provider": metadata_crypto_provider,
+            "p_metadata_kms_key_name": metadata_kms_key_name,
+            "p_exif_gps_status": exif_gps_status,
+            "p_browser_gps_status": browser_gps_status,
+            "p_gps_consensus": gps_consensus,
+            "p_exif_data_source": exif_data_source,
+        },
+    )
+    row = result.fetchone()
+    if row is None:
+        return None
+    return (
+        UUID(str(row[0])) if row[0] is not None else None,
+        bool(row[1]),
+        bool(row[2]),
+    )
+
+
+def attach_anonymous_pending_photos(
+    db: Session,
+    capability: ValidatedAnonymousCapability,
+    report_id: int,
+    photo_ids: list[UUID],
+) -> bool:
+    """Attach a complete same-session pending photo set to a report.
+
+    Delegates ownership derivation and atomicity to the SECURITY DEFINER helper.
+    The raw token is passed only to the helper and is never logged, returned, or
+    audited.
+    """
+    result = db.execute(
+        text(
+            "SELECT wims.attach_anonymous_photos(:p_raw_token, :p_report_id, :p_photo_ids::uuid[])"
+        ),
+        {
+            "p_raw_token": capability.raw_token,
+            "p_report_id": report_id,
+            "p_photo_ids": list(photo_ids),
+        },
+    )
+    value = result.scalar_one_or_none()
+    return bool(value)
+
+
 def authorize_pending_photo(
     db: Session,
     raw_token: str,
@@ -90,8 +226,9 @@ def authorize_pending_photo(
 ) -> bool:
     """Authorize one pending photo using the capability SQL helper.
 
-    This is intentionally kept as a service-only adapter.  HTTP dependencies
-    must use ``validate_anonymous_session`` and expose only the UUID to routes.
+    This is intentionally kept as a service-only adapter. HTTP dependencies
+    must keep bearer handling header-only and request-local; routes expose only
+    derived state and upload responses never include the bearer.
     """
     result = db.execute(
         text("SELECT wims.authorize_anonymous_pending_photo(:raw_token, :photo_id)"),

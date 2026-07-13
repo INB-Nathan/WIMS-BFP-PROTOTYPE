@@ -10,6 +10,8 @@ from starlette.requests import Request
 import auth
 from services.anonymous_sessions import (
     IssuedAnonymousSession,
+    ValidatedAnonymousCapability,
+    attach_anonymous_pending_photos,
     authorize_pending_photo,
     issue_anonymous_session,
     resolve_pending_photo_owner,
@@ -115,6 +117,21 @@ def test_valid_capability_returns_only_session_uuid(monkeypatch):
     assert seen == ["1" * 64]
 
 
+def test_valid_capability_object_is_request_local_and_redacts_raw_token(monkeypatch):
+    session_id = uuid.uuid4()
+    raw_token = "2" * 64
+    monkeypatch.setattr(auth, "validate_anonymous_session", lambda _db, _token: session_id)
+
+    capability = auth.get_anonymous_session_capability(
+        _request(authorization=f"Bearer {raw_token}"), object()
+    )
+
+    assert capability == ValidatedAnonymousCapability(session_id, raw_token)
+    assert raw_token not in repr(capability)
+    assert capability.anonymous_session_id == session_id
+    assert capability.raw_token == raw_token
+
+
 def test_missing_capability_remains_anonymous_and_query_tokens_are_ignored(monkeypatch):
     called = False
 
@@ -167,7 +184,7 @@ def test_pending_photo_service_fails_closed_before_any_write():
             registered_user=None,
             anonymous_session_id=uuid.uuid4(),
         )
-    assert exc_info.value.status_code == 501
+    assert exc_info.value.status_code == 404
 
 
 def test_revoke_commits_without_returning_or_storing_token():
@@ -175,3 +192,30 @@ def test_revoke_commits_without_returning_or_storing_token():
     assert revoke_anonymous_session(db, "f" * 64) is True
     assert db.commits == 1
     assert db.statements[0][1] == {"raw_token": "f" * 64}
+
+
+def test_attach_pending_photos_delegates_to_helper_and_passes_raw_token():
+    session_id = uuid.uuid4()
+    raw_token = "tok"
+    capability = ValidatedAnonymousCapability(session_id, raw_token)
+    report_id = 1234
+    photo_ids = [uuid.uuid4(), uuid.uuid4()]
+    db = _DB(_Result(value=True))
+
+    result = attach_anonymous_pending_photos(db, capability, report_id, photo_ids)
+
+    assert result is True
+    assert db.commits == 0
+    statement, params = db.statements[0]
+    assert "wims.attach_anonymous_photos" in str(statement)
+    assert params["p_raw_token"] == raw_token
+    assert params["p_report_id"] == report_id
+    assert params["p_photo_ids"] == photo_ids
+
+
+def test_attach_pending_photos_returns_false_on_null_result():
+    session_id = uuid.uuid4()
+    capability = ValidatedAnonymousCapability(session_id, "tok")
+    db = _DB(_Result(value=None))
+
+    assert attach_anonymous_pending_photos(db, capability, 1, [uuid.uuid4()]) is False

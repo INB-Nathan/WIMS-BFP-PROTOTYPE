@@ -1,7 +1,7 @@
 ---
 title: Backend API Route Map
 created: 2026-05-14
-updated: 2026-07-12
+updated: 2026-07-13
 type: backend
 tags: [wims-bfp, backend, api, implementation-map]
 sources: [raw/codebase/codebase-snapshot-2026-05-14.md, src/backend/api/routes]
@@ -14,18 +14,29 @@ FastAPI route ownership snapshot from `src/backend/api/routes`.
 
 | File | Method | Path | Function |
 |---|---:|---|---|
-| `civilian.py` | `POST` | `/reports` | `submit_civilian_report` |
+| `civilian.py` | `POST` | `/reports` | `submit_civilian_report` | Atomic report creation; accepts optional `photo_ids` (UUID list, max 20) for anonymous pending-photo attach (Slice B) and, for an authenticated `CIVILIAN_REPORTER`, their own pending photos (Slice D). `contributor_user_id` is server-derived from the session (never request body). Report + attach + audit stay in one transaction; neutral 422 (rollback, no orphan) on invalid/missing credential or rejected batches; deliberate 422/404 are preserved by the route's `except HTTPException` handler.
 | `civilian.py` | `POST` | `/reports/duplicate-suggestions` | `suggest_duplicate_reports` |
-| `civilian.py` | `GET` | `/reports` | `get_my_reports` | Returns device's full report history for ownership-checked update flow |
+| `civilian.py` | `GET` | `/reports` | `get_my_reports` | Legacy device-ID list endpoint retained only as a `410 Gone` deprecation stub; public tracking now requires the per-report capability link. |
+| `civilian.py` | `GET` | `/contributor/me` | `get_contributor_profile_route` | Authenticated `CIVILIAN_REPORTER` only; 401 without a user and 403 for other roles. Uses an RLS-scoped session and returns the caller's private contributor profile. |
+| `civilian.py` | `GET` | `/contributor/reports` | `get_contributor_reports_route` | Authenticated `CIVILIAN_REPORTER` only; 401 without a user and 403 for other roles. Uses an RLS-scoped session and returns the caller's paginated reports. |
+| `civilian.py` | `GET` | `/contributor/stats` | `get_contributor_stats_route` | Authenticated `CIVILIAN_REPORTER` only; 401 without a user and 403 for other roles. Uses an RLS-scoped session and returns the caller's private statistics. |
 | `civilian.py` | `PATCH` | `/reports/{report_id}/append` | `append_civilian_report` |
+| `civilian.py` | `GET` | `/reports/{report_id}/track/{tracking_token}` | `get_civilian_report_by_tracking_token` | Capability-token public tracking route. Returns only the safe projection (status, guidance, station/routing summary, photo count) and neutral `404` for missing, mismatched, expired, or revoked capabilities. |
 | `civilian.py` | `GET` | `/reports/{report_id}` | `get_civilian_report` |
 | `civilian.py` | `GET` | `/reports/{report_id}/timeline` | `get_civilian_report_timeline` |
 | `civilian.py` | `POST` | `/reports/{report_id}/notify` | `register_notification` |
 | `civilian.py` | `GET` | `/report-clusters` | `get_report_clusters` | Public-safe root-map areas from durable civilian report clusters; no raw cluster/report IDs. |
 | `civilian.py` | `POST` | `/reports/{report_id}/followup` | `submit_civilian_followup` | Public text follow-up linked to existing report (Issue #62). Terminal reports blocked. |
 | `civilian.py` | `POST` | `/reports/{report_id}/photos` | `upload_report_photo` | Post-submit multipart photo attachment; delegates validation, EXIF sanitization, encryption, ownership, RLS, and audit to `services.report_photos`. |
-| `civilian.py` | `POST` | `/photos/upload` | `upload_pending_civilian_photo` | Registered CIVILIAN_REPORTER-only encrypted pending upload; report/device IDs are not accepted. Anonymous requests return explicit 501 until a dedicated capability-bound pending INSERT helper exists. |
+| `civilian.py` | `POST` | `/photos/upload` | `upload_pending_civilian_photo` | Encrypted pending upload for a registered CIVILIAN_REPORTER or a bearer-capability owner; report/device IDs are not accepted. Anonymous ownership is derived by the fixed-search-path helper, with neutral 404 for missing/invalid capabilities. |
 | `sessions.py` | `GET` | `/sessions/{user_id}` | `list_user_sessions` |
+| `community_content.py` | `GET` | `/community/hub` | `get_community_hub` | Public published/non-expired Community Safety Hub listing with language fallback and urgent-banner projection. |
+| `community_content.py` | `GET` | `/community/{slug}` | `get_community_content_by_slug` | Public published/non-expired content detail; returns 404 when unavailable. |
+| `community_content.py` | `GET` | `/admin/community` | `list_community_admin_content` | SYSTEM_ADMIN-only all-state CMS listing with latest-version editor fields under RLS. |
+| `community_content.py` | `POST` | `/admin/community` | `create_community_draft` | SYSTEM_ADMIN-only draft creation; emits `CMS_EDIT` in the mutation transaction. |
+| `community_content.py` | `PATCH` | `/admin/community/{content_id}` | `update_community_draft` | SYSTEM_ADMIN-only draft edit with immutable version insertion for content changes. |
+| `community_content.py` | `POST` | `/admin/community/{content_id}/publish` | `publish_community_content` | SYSTEM_ADMIN-only optimistic publish; emits sensitive `CONTENT_PUBLISH`. |
+| `community_content.py` | `POST` | `/admin/community/{content_id}/archive` | `archive_community_content` | SYSTEM_ADMIN-only soft archive; emits sensitive `CONTENT_ARCHIVE`. |
 | `sessions.py` | `DELETE` | `/sessions/{user_id}/{session_id}` | `terminate_user_session` |
 | `user.py` | `GET` | `/me/profile` | `get_my_profile` |
 | `user.py` | `PATCH` | `/me` | `update_my_profile` |
@@ -168,11 +179,28 @@ FastAPI route ownership snapshot from `src/backend/api/routes`.
 - Planned post-grill analyst export module: selected-record/full-AFOR exports should be implemented as separate `incidents.py` analyst export endpoints (`POST /api/incidents/analyst/export`, `GET /api/incidents/analyst/export/{task_id}`), not as extensions of the aggregate analytics export endpoint. A status endpoint is deferred until after the MVP dashboard.
 - `public_dmz.py` is the unauthenticated public submission surface; fail closed on all adjacent changes and read [[security/security-baseline]].
 - `ref.py` is the reference data read API tied to `wims.ref_*` tables in [[database/schema-overview]].
-- The civilian photo route deliberately uses `get_photo_db()` from `src/backend/auth.py`, not the admin `get_db()` dependency: anonymous requests leave the RLS user GUC unset, while registered requests set it from the authenticated user. `wims.report_photos` remains the final authorization boundary under `FORCE ROW LEVEL SECURITY`; ownership failures are normalized to a neutral 404. `get_anonymous_session_id()` reads only an Authorization bearer, validates via `services/anonymous_sessions.py`, and exposes only the derived session UUID; absent capability remains anonymous.
+- The civilian photo route deliberately uses `get_photo_db()` from `src/backend/auth.py`, not the admin `get_db()` dependency: anonymous requests leave the RLS user GUC unset, while registered requests set it from the authenticated user. `wims.report_photos` remains the final authorization boundary under `FORCE ROW LEVEL SECURITY`; ownership failures are normalized to a neutral 404. `get_anonymous_session_capability()` reads only an Authorization bearer and retains it transiently for the fixed-search-path insert helper; the stored owner is derived in PostgreSQL and absent/invalid capability behavior remains neutral.
 
-## Civilian Photo Upload (v6 — 2026-07-12)
-- `POST /api/civilian/photos/upload` creates an encrypted pending row for a registered `CIVILIAN_REPORTER`, with `uploader_user_id` set and `report_id`, `attached_at`, `uploader_device_id`, and `anonymous_session_id` NULL. It reuses the existing magic-byte/size validation, EXIF-before-strip processing, hashes, AES-GCM/OpenBao artifacts, safe paths, idempotency key, owner-scoped pending cap, and fail-closed artifact cleanup.
-- Anonymous requests to the same route return the explicit feature-unavailable response; capability validation remains available but anonymous pending insertion is deferred to a dedicated helper. The route accepts no report ID.
+## Civilian Photo Upload (v7 — 2026-07-12)
+- `POST /api/civilian/photos/upload` creates an encrypted pending row for a registered `CIVILIAN_REPORTER` or an existing anonymous bearer capability. Registered rows set `uploader_user_id`; anonymous rows set only the bearer-derived `anonymous_session_id`. Pending rows retain NULL `report_id`, `attached_at`, and legacy owner fields, and the route accepts no report or device ID.
+- Both paths reuse magic-byte/size validation, EXIF-before-strip processing, encrypted AES-GCM/OpenBao artifacts, hashes, safe paths, idempotency, caps, audit, and fail-closed artifact cleanup. Anonymous ownership, one-outstanding-pending-row enforcement, and foreign client-ID neutrality are enforced by the `0010`/`89` fixed-search-path helper. Missing or invalid capabilities receive neutral 404.
+
+## Civilian Report + Anonymous Pending-Photo Attach (Slice B — 2026-07-12)
+- `POST /api/civilian/reports` now accepts an optional `photo_ids` list (max 20 UUIDs, defined on `CivilianReportCreate`). When `photo_ids` is present, the request must carry a valid `Authorization: Bearer <token>` anonymous capability; otherwise the route raises a neutral `422`.
+- The route sets `citizen_reports.anonymous_session_id` from the validated capability (never caller-supplied) and, within the same `try:`/`commit()` block as the `CIVILIAN_REPORT_SUBMIT` audit, calls `wims.attach_anonymous_photos(:raw_token, :report_id, :photo_ids::uuid[])`. The raw token is passed only to the SQL helper and is never logged, returned, or audited beyond the `photo_ids` list.
+- On success a `PHOTO_UPLOAD_ATTACH` audit row (`wims.report_photos`, `record_id=report_id`, `new_values={"photo_ids": [...]}`, `sensitive=True`) is written in the same transaction, then `CIVILIAN_REPORT_SUBMIT` and `db.commit()`. Any failure (including the 422 raises) hits the `except HTTPException` handler, which rolls back the report INSERT and propagates the neutral status — no orphan report, no audit row.
+- Atomicity and cross-owner/null/dup/partial/batch rejection live in the `0009`/`88` `SECURITY DEFINER` helper; the route only raises neutral `422` when the helper returns FALSE. No new RLS policy or `BYPASSRLS` was introduced.
+
+## Community Safety Hub content (Slice F — 2026-07-12)
+- Public routes `GET /api/community/hub` and `GET /api/community/{slug}` read only published, non-expired content; the SQL expiry predicate remains mandatory even if the periodic Celery sweep is delayed. The service resolves the requested language with English fallback and surfaces urgent banners first.
+- Admin routes under `/api/admin/community` require the existing `SYSTEM_ADMIN` dependency and RLS-scoped database session. `GET /api/admin/community` lists every lifecycle state with the latest immutable version fields for the CMS editor; draft creation/editing, immutable version insertion, pointer publication, and soft archive emit `CMS_EDIT`, `CONTENT_PUBLISH`, and `CONTENT_ARCHIVE` audits in the route-owned transaction. PATCH explicit nulls clear `expires_at`/`last_reviewed_at`, while omitted fields remain unchanged. UUID content IDs are stored in audit `new_values`; the established integer `record_id` is not overloaded.
+- `tasks.expire_content.expire_published_content` periodically archives expired published rows and emits a best-effort `CMS_EXPIRY_SYSTEM` summary audit. Content is plain text; frontend consumers must render it as escaped React text, never with `dangerouslySetInnerHTML`.
+
+## Civilian Report + Registered Pending-Photo Attach (Slice D — 2026-07-12)
+- `POST /api/civilian/reports` now also wires an authenticated `CIVILIAN_REPORTER`'s own pending photos into the same transaction. An `optional_auth` dependency supplies the server-derived `contributor_user_id` (never request-body); the route triages registered → anonymous-capability → neutral 422 when `photo_ids` is present.
+- The registered branch calls `wims.attach_registered_photos(:p_user_id, :report_id, :photo_ids::uuid[])` (Slice C helper) and, on success, emits a `PHOTO_UPLOAD_ATTACH` audit (`record_id=report_id`, `new_values={"photo_ids": [...]}`, `sensitive=True`) before `CIVILIAN_REPORT_SUBMIT` and `db.commit()`.
+- A `FALSE` helper result (cross-owner/partial/duplicate/already-attached/terminal/wrong-owner) raises neutral `422` and rolls back the report INSERT — no orphan report, no audit row. The new `except HTTPException: db.rollback(); raise` preserves deliberate 422/404 while unexpected errors remain 500; the anonymous branch behaves identically.
+- Atomicity and all rejection semantics live in the `0011`/`90` `SECURITY DEFINER` helper (granted to `wims_app` only); the route only raises neutral `422` when the helper returns FALSE. No new RLS policy or `BYPASSRLS` was introduced.
 
 ## Civilian Photo Upload (v5 — 2026-07-10)
 - `POST /api/civilian/reports` now accepts `client_report_id` (UUID string) in the JSON body for idempotent report submission. Parsed before rate-limit check: if `client_report_id` matches an existing row, returns 200 with the existing report without consuming per-IP quota.

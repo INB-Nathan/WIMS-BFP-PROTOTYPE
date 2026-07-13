@@ -1,4 +1,4 @@
-"""Focused contracts for the registered civilian pending-photo upload."""
+"""Focused contracts for registered and capability-bound pending-photo upload."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ import pytest
 from fastapi import HTTPException, UploadFile
 
 from services import report_photos
+from services.anonymous_sessions import ValidatedAnonymousCapability
 from services.report_photos import upload_pending_photo
 
 
@@ -59,6 +60,9 @@ def _upload() -> UploadFile:
         file=BytesIO(b"\xff\xd8\xffencrypted-test-image"),
         headers={"content-type": "image/jpeg"},
     )
+
+
+_audit_calls: list[dict] = []
 
 
 def _patch_pipeline(monkeypatch, storage_dir: Path):
@@ -113,7 +117,12 @@ def _patch_pipeline(monkeypatch, storage_dir: Path):
             },
         ),
     )
-    monkeypatch.setattr(report_photos, "log_system_audit", lambda **_kwargs: None)
+    _audit_calls.clear()
+
+    def _record_audit(**kwargs):
+        _audit_calls.append(kwargs)
+
+    monkeypatch.setattr(report_photos, "log_system_audit", _record_audit)
 
 
 def test_registered_pending_upload_sets_owner_and_null_attachment(monkeypatch):
@@ -143,18 +152,116 @@ def test_registered_pending_upload_sets_owner_and_null_attachment(monkeypatch):
         assert params["exif_data_source"] is None
         assert db.commits == 1
         assert db.rollbacks == 0
+        assert len(_audit_calls) == 1
+        assert _audit_calls[0]["action_type"] == "PHOTO_UPLOAD_PREUPLOAD"
+        assert _audit_calls[0]["new_values"] == {"photo_id": str(response.photo_id)}
 
 
-def test_pending_upload_requires_registered_identity():
-    for session_id in (None, uuid.uuid4()):
+def test_pending_upload_requires_anonymous_capability():
+    with pytest.raises(HTTPException) as exc_info:
+        upload_pending_photo(
+            db=object(),
+            file=object(),
+            registered_user=None,
+            anonymous_session_id=uuid.uuid4(),
+        )
+    assert exc_info.value.status_code == 404
+
+
+def test_anonymous_pending_upload_uses_capability_helper_and_null_owner_fields(
+    monkeypatch,
+):
+    with tempfile.TemporaryDirectory() as tmp:
+        storage_dir = Path(tmp)
+        monkeypatch.setenv("CIVILIAN_PHOTO_STORAGE_DIR", str(storage_dir))
+        _patch_pipeline(monkeypatch, storage_dir)
+        capability = ValidatedAnonymousCapability(uuid.uuid4(), "a" * 64)
+        seen = {}
+
+        def insert(_db, received_capability, **params):
+            seen["capability"] = received_capability
+            seen["params"] = params
+            return (
+                uuid.UUID(params["photo_id"])
+                if isinstance(params["photo_id"], str)
+                else params["photo_id"],
+                False,
+                False,
+            )
+
+        monkeypatch.setattr(report_photos, "insert_anonymous_pending_photo", insert)
+        response = upload_pending_photo(
+            db=_DB(),
+            file=_upload(),
+            registered_user=None,
+            anonymous_session_id=uuid.uuid4(),
+            anonymous_capability=capability,
+            client_photo_id=uuid.uuid4(),
+        )
+
+        assert response.duplicate is False
+        assert seen["capability"] is capability
+        assert seen["capability"].anonymous_session_id == capability.anonymous_session_id
+        assert seen["params"]["photo_id"] is not None
+        assert seen["params"]["client_photo_id"] is not None
+        assert "uploader_user_id" not in seen["params"]
+        assert "uploader_device_id" not in seen["params"]
+        assert "anonymous_session_id" not in seen["params"]
+        assert "report_id" not in seen["params"]
+        assert "attached_at" not in seen["params"]
+
+
+def test_anonymous_pending_duplicate_does_not_commit_or_audit(monkeypatch):
+    with tempfile.TemporaryDirectory() as tmp:
+        storage_dir = Path(tmp)
+        monkeypatch.setenv("CIVILIAN_PHOTO_STORAGE_DIR", str(storage_dir))
+        _patch_pipeline(monkeypatch, storage_dir)
+        monkeypatch.setattr(
+            report_photos,
+            "insert_anonymous_pending_photo",
+            lambda *_args, **_kwargs: (None, True, False),
+        )
+        db = _DB()
+        response = upload_pending_photo(
+            db=db,
+            file=_upload(),
+            registered_user=None,
+            anonymous_session_id=None,
+            anonymous_capability=ValidatedAnonymousCapability(uuid.uuid4(), "b" * 64),
+        )
+
+        assert response.duplicate is True
+        assert db.commits == 0
+        assert db.rollbacks == 1
+        assert _audit_calls == []
+        assert list(storage_dir.iterdir()) == []
+
+
+def test_anonymous_pending_cap_cleans_artifacts(monkeypatch):
+    with tempfile.TemporaryDirectory() as tmp:
+        storage_dir = Path(tmp)
+        monkeypatch.setenv("CIVILIAN_PHOTO_STORAGE_DIR", str(storage_dir))
+        _patch_pipeline(monkeypatch, storage_dir)
+        monkeypatch.setattr(
+            report_photos,
+            "insert_anonymous_pending_photo",
+            lambda *_args, **_kwargs: (None, False, True),
+        )
+        db = _DB()
         with pytest.raises(HTTPException) as exc_info:
             upload_pending_photo(
-                db=object(),
-                file=object(),
+                db=db,
+                file=_upload(),
                 registered_user=None,
-                anonymous_session_id=session_id,
+                anonymous_session_id=None,
+                anonymous_capability=ValidatedAnonymousCapability(uuid.uuid4(), "c" * 64),
             )
-        assert exc_info.value.status_code == 501
+
+        assert exc_info.value.status_code == 409
+        assert db.commits == 0
+        assert db.rollbacks == 1
+        assert _audit_calls == []
+        assert list(storage_dir.iterdir()) == []
 
 
 def test_pending_upload_invalid_file_fails_before_database(monkeypatch):

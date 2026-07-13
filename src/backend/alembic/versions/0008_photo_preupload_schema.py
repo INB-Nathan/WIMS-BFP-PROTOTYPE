@@ -1,9 +1,9 @@
 """Prepare report_photos for owner-bound pre-upload rows.
 
 Pending photos have no report yet.  Attached photos retain the existing report
-foreign key and must carry ``attached_at``.  Anonymous pending-row access is
-intentionally deferred until the application establishes a narrowly scoped
-transaction-local owner context; this migration must not create a broad RLS
+foreign key and must carry ``attached_at``.  Anonymous pending-row table DML
+remains denied in this schema-only revision; migration 0010 adds a narrowly
+scoped capability-bound SECURITY DEFINER insertion helper without a broad RLS
 exception.
 
 Revision ID: 0008
@@ -201,10 +201,10 @@ def _apply_photo_rls() -> None:
         """
     )
 
-    # TODO(photo-preupload): establish a transaction-local, capability/device
-    # owner context and add narrowly scoped anonymous pending SELECT/INSERT/
-    # UPDATE/DELETE predicates plus live cross-device RLS tests.  Do not replace
-    # this with a permissive TRUE policy or a BYPASSRLS session.
+    # Anonymous pending insertion is helper-bound by migration 0010; direct
+    # anonymous pending SELECT/INSERT/UPDATE/DELETE remains denied. Add live
+    # cross-session helper/RLS tests before expanding this boundary. Do not
+    # replace this with a permissive TRUE policy or a BYPASSRLS session.
 
 
 def upgrade() -> None:

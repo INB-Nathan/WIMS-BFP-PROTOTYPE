@@ -4,11 +4,37 @@ Tests for the civilian report 429 detail string construction and other
 unit-testable logic that does not require Docker services.
 """
 
+import asyncio
 import math
 from pathlib import Path
+import uuid
+
+import pytest
+from fastapi import HTTPException, Response
 
 from api.routes import civilian
-from auth import get_photo_db
+from auth import get_anonymous_session_capability, get_db_with_rls, get_photo_db, optional_auth
+from database import get_db
+from schemas.civilian import CivilianReportCreate
+
+
+def test_report_post_route_wires_anonymous_capability_dependency():
+    route = next(route for route in civilian.router.routes if route.path == "/api/civilian/reports")
+    dependency_calls = {dependency.call for dependency in route.dependant.dependencies}
+    assert get_anonymous_session_capability in dependency_calls
+
+
+def test_report_post_route_wires_optional_authenticated_user_dependency():
+    """Slice D: the report route must also accept an optional authenticated
+    CIVILIAN_REPORTER via optional_auth, while still allowing anonymous posts."""
+    route = next(route for route in civilian.router.routes if route.path == "/api/civilian/reports")
+    dependency_calls = {dependency.call for dependency in route.dependant.dependencies}
+    assert optional_auth in dependency_calls
+
+
+def test_civilian_report_create_has_photo_ids_field():
+    assert "photo_ids" in CivilianReportCreate.model_fields
+    assert CivilianReportCreate.model_fields["photo_ids"].annotation == list[uuid.UUID] | None
 
 
 def test_civilian_report_429_detail_includes_retry_minutes():
@@ -27,14 +53,16 @@ def test_civilian_report_429_detail_includes_retry_minutes():
     assert "Try again" in expected_detail
 
 
-def test_registered_preupload_route_exists_and_anonymous_path_is_fail_closed():
+def test_preupload_route_requires_header_capability_for_anonymous_requests():
     route = next(
         route for route in civilian.router.routes if route.path == "/api/civilian/photos/upload"
     )
-    assert any(dependency.call is get_photo_db for dependency in route.dependant.dependencies)
+    dependency_calls = {dependency.call for dependency in route.dependant.dependencies}
+    assert get_photo_db in dependency_calls
+    assert get_anonymous_session_capability in dependency_calls
     source = Path(civilian.__file__).read_text()
-    assert "Anonymous requests remain" in source
-    assert "dedicated capability-bound INSERT helper" in source
+    assert "valid bearer" in source
+    assert "Authorization header" in source
 
 
 def test_photo_route_uses_photo_specific_rls_dependency():
@@ -44,3 +72,29 @@ def test_photo_route_uses_photo_specific_rls_dependency():
         if route.path == "/api/civilian/reports/{report_id}/photos"
     )
     assert any(dependency.call is get_photo_db for dependency in route.dependant.dependencies)
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/civilian/contributor/me",
+        "/api/civilian/contributor/reports",
+        "/api/civilian/contributor/stats",
+    ],
+)
+def test_contributor_routes_use_rls_and_reject_wrong_role(path):
+    """Contributor reads must be RLS-scoped and retain role authorization."""
+    route = next(route for route in civilian.router.routes if route.path == path)
+    dependency_calls = {dependency.call for dependency in route.dependant.dependencies}
+    assert get_db_with_rls in dependency_calls
+    assert get_db not in dependency_calls
+
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(
+            route.endpoint(
+                response=Response(),
+                user={"user_id": str(uuid.uuid4()), "role": "REGIONAL_ENCODER"},
+                db=object(),
+            )
+        )
+    assert exc_info.value.status_code == 403

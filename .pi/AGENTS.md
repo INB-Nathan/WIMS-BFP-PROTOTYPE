@@ -15,6 +15,15 @@ Context files load independently of project trust. Project settings, extensions,
 prompts, skills, and package resources load only after the project is trusted.
 Do not use this file to tell an untrusted session to execute project resources.
 
+## Outcome-Quality Policy
+
+Optimize for outcome quality over response latency. Prefer spending additional
+computation to improve understanding, verification, and completeness when it is
+likely to materially improve the result. Read before writing. Analyze before
+concluding. Verify before asserting. Do not mistake fast generation for good
+work. For non-trivial tasks, prioritize reducing future user revisions over
+minimizing response time.
+
 ## Resource Ownership
 
 | Path | Purpose |

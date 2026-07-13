@@ -33,18 +33,20 @@ vi.mock('next/link', () => ({
 vi.mock('@/lib/api', () => ({
   fetchClusters: vi.fn().mockResolvedValue({ clusters: [] }),
   fetchCivilianDuplicateSuggestions: vi.fn().mockResolvedValue([]),
-  submitCivilianReportV2: vi.fn().mockResolvedValue({ report_id: 1 }),
+  submitCivilianReportV2: vi.fn().mockResolvedValue({
+    report_id: 1,
+    tracking_url: '/tracking/v2/1/token-1',
+  }),
   appendCivilianReport: vi.fn().mockResolvedValue({}),
   fetchReportStatus: vi.fn().mockResolvedValue({
     report_id: 42,
+    status: 'PENDING',
     latitude: 14.5,
     longitude: 121,
     category: 'STRUCTURAL',
     sub_category: null,
     reporting_context: 'WITNESS',
-    safety_status: 'I_AM_SAFE',
-    status: 'PENDING',
-    created_at: '2026-06-20T08:00:00Z',
+    safety_status: 'SAFE',
   }),
   fetchReportClusters: vi.fn().mockResolvedValue({ areas: [], mode: 'national', stale: false, degraded: false }),
   fetchEmergencyServices: vi.fn().mockResolvedValue({ emergency_number: '911' }),
@@ -273,48 +275,6 @@ describe('ReportPage — Safety step', () => {
     expect(screen.getByText('I am not sure')).toBeInTheDocument();
   });
 
-  it('submits an update against the report id from the query string', async () => {
-    const user = userEvent.setup();
-    localStorage.setItem('wims_civilian_device_id', 'device-a');
-    mockSearchParams = new URLSearchParams('update_report_id=42');
-
-    const { default: ReportPage } = await import('../page');
-    render(<ReportPage />);
-
-    await screen.findByText('Update Report #42');
-    await user.type(screen.getByLabelText('Additional Information *'), 'Smoke is getting heavier.');
-    await user.click(screen.getByRole('button', { name: 'Submit Update' }));
-
-    await waitFor(() => {
-      expect(appendCivilianReportOfflineAware).toHaveBeenCalledWith(
-        expect.objectContaining({
-          reportId: 42,
-          latitude: 14.5,
-          longitude: 121,
-          category: 'STRUCTURAL',
-          reporting_context: 'WITNESS',
-          safety_status: 'I_AM_SAFE',
-          device_id: 'device-a',
-          description: 'Smoke is getting heavier.',
-        }),
-        'device-a'
-      );
-    });
-  });
-
-  it('cancel exits update mode and returns to the main safety screen', async () => {
-    localStorage.setItem('wims_civilian_device_id', 'device-a');
-    mockSearchParams = new URLSearchParams('update_report_id=42');
-
-    const { default: ReportPage } = await import('../page');
-    render(<ReportPage />);
-
-    await screen.findByText('Update Report #42');
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-
-    expect(mockRouterReplace).toHaveBeenCalledWith('/');
-    expect(screen.getByText('Are you or anyone else in danger?')).toBeInTheDocument();
-  });
 });
 
 // ── Civilian offline submit (FR-CIV-OFFLINE) ─────────────────────────────────
@@ -334,7 +294,7 @@ const offlineMocks = vi.hoisted(() => ({
   // describe block resets these per-test for the offline scenarios.
   submitCivilianReportOfflineAware: vi.fn().mockImplementation(async () => ({
     queued: false,
-    response: { report_id: 1, status: 'PENDING' },
+    response: { report_id: 1, status: 'PENDING', tracking_url: '/tracking/v2/1/token-1' },
   })),
   appendCivilianReportOfflineAware: vi.fn().mockImplementation(async () => ({
     queued: false,
@@ -702,7 +662,7 @@ describe('ReportPage — auto-retry on reconnect + tracking link', () => {
     offlineMocks.checkReviewEligibility.mockImplementation(() => undefined);
     offlineMocks.submitCivilianReportOfflineAware.mockResolvedValue({
       queued: false,
-      response: { report_id: 478, status: 'PENDING' },
+      response: { report_id: 478, status: 'PENDING', tracking_url: '/tracking/v2/478/token-478' },
     } as Parameters<typeof offlineMocks.submitCivilianReportOfflineAware.mockResolvedValue>[0]);
     offlineMocks.appendCivilianReportOfflineAware.mockResolvedValue({
       queued: false,
@@ -791,7 +751,7 @@ describe('ReportPage — auto-retry on reconnect + tracking link', () => {
     expect(screen.queryByTestId('waiting-for-connection')).not.toBeInTheDocument();
   });
 
-  it('shows a clickable tracking link to /tracking?id=<id> on the submitted step', async () => {
+  it('shows a clickable tracking link to the tokenized tracking route on the submitted step', async () => {
     try { localStorage.setItem('wims_civilian_device_id', 'd-1'); } catch {}
 
     const { default: ReportPage } = await import('../page');
@@ -833,7 +793,7 @@ describe('ReportPage — photo upload flow', () => {
     offlineMocks.checkReviewEligibility.mockImplementation(() => undefined);
     offlineMocks.submitCivilianReportOfflineAware.mockResolvedValue({
       queued: false,
-      response: { report_id: 42, status: 'PENDING' },
+      response: { report_id: 42, status: 'PENDING', tracking_url: '/tracking/v2/42/token-42' },
     });
     publicAutoSyncMocks.usePublicAutoSync.mockReturnValue({
       syncing: false,
