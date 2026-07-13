@@ -48,6 +48,14 @@ def _apply_photo_shape() -> None:
     op.execute("ALTER TABLE wims.report_photos ALTER COLUMN report_id DROP NOT NULL")
     op.execute("ALTER TABLE wims.report_photos ADD COLUMN IF NOT EXISTS attached_at TIMESTAMPTZ")
 
+    # Ensure created_at exists — databases that ran a prior version of
+    # migration 0003 (before the column was added to the CREATE TABLE)
+    # won't have this column. migration 0008's UPDATE below needs it.
+    op.execute(
+        "ALTER TABLE wims.report_photos"
+        " ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now()"
+    )
+
     # Existing rows were necessarily attached under the pre-upload schema.
     # Preserve their historical creation time as the attachment time before
     # adding the consistency constraint.
