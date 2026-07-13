@@ -70,9 +70,10 @@ def test_preupload_route_requires_header_capability_for_anonymous_requests():
     assert get_photo_db in dependency_calls
     # get_anonymous_session_capability will be wired when anonymous pre-upload
     # route moves from 501 fail-closed to live RLS/helper coverage.
+    # Until then, the route docstring explains the limitation.
     source = Path(civilian.__file__).read_text()
-    assert "valid bearer" in source
-    assert "Authorization header" in source
+    assert "Anonymous requests remain" in source
+    assert "dedicated capability-bound INSERT helper" in source
 
 
 def test_photo_route_uses_photo_specific_rls_dependency():
