@@ -63,6 +63,7 @@ from api.routes.auth import router as auth_router
 from api.routes.consent import router as consent_router
 from api.routes.security_events import router as security_events_router
 from api.routes.community_content import public_router as community_public_router
+from api.routes.information import router as information_router
 
 # WIMS role resolution — canonical source in auth.py
 from auth import resolve_wims_role_from_token as _resolve_role_from_token, JIT_PRIVILEGED_ROLES
@@ -952,6 +953,9 @@ app.include_router(auth_router)  # POST /api/auth/change-email, POST /api/auth/v
 app.include_router(consent_router)  # POST /api/auth/consent (public, no-auth)
 app.include_router(security_events_router)  # POST /api/auth/keycloak-event (Keycloak SPI ingest)
 app.include_router(community_public_router)  # GET /api/community/hub, /api/community/{slug}
+app.include_router(
+    information_router
+)  # GET /api/information/announcements, /api/information/emergencies
 
 # ---------------------------------------------------------------------------
 # Celery
