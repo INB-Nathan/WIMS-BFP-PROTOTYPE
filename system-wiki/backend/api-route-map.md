@@ -1,7 +1,7 @@
 ---
 title: Backend API Route Map
 created: 2026-05-14
-updated: 2026-07-13
+updated: 2026-07-14
 type: backend
 tags: [wims-bfp, backend, api, implementation-map]
 sources: [raw/codebase/codebase-snapshot-2026-05-14.md, src/backend/api/routes]
@@ -84,6 +84,7 @@ FastAPI route ownership snapshot from `src/backend/api/routes`.
 | `regional/validator.py` | `GET` | `/validator/incidents/{incident_id}/history` | `get_incident_revision_history` |
 | `regional/validator.py` | `GET` | `/validator/audit-logs` | `get_validator_audit_logs` |
 | `regional/validator.py` | `GET` | `/validator/audit-logs/export` | `export_validator_audit_logs` |
+| `regional/validator.py` | `GET` | `/validator/audit-logs/export/secure` | `export_secure_validator_audit_logs` | Signed CSV/PDF/manifest ZIP; NATIONAL_VALIDATOR scope is forced server-side |
 | `regional.py` | `GET` | `/validator/incidents` | `get_validator_incident_queue` |
 | `regional.py` | `PATCH` | `/incidents/{incident_id}/verification` | `verify_incident` |
 | `regional.py` | `POST` | `/validator/incidents/bulk-approve` | `bulk_approve_incidents` |
@@ -130,6 +131,8 @@ FastAPI route ownership snapshot from `src/backend/api/routes`.
 | `admin/ip_blocklist.py` | `DELETE` | `/ip-blocklist/{ip}` | `unblock_ip` | Unblock an IP: `is_active=false` on Postgres + `DEL ip:block:{ip}` from Redis. 404 if IP not actively blocked. (2026-06-22) |
 | `admin/ip_blocklist.py` | `GET` | `/ip-blocklist` | `list_blocked_ips` | List active blocks with derived `block_count` (COUNT per source_ip), `expires_at`, `is_permanent`, `blocked_by`, `block_reason`. (2026-06-22) |
 | `admin/audit.py` | `GET` | `/audit-logs` | `get_audit_logs` | Supports `user_id`, `action_type`, `table_affected`, `ip_address`, `date_from`, `date_to` filter params |
+| `admin/audit.py` | `GET` | `/audit-logs/export/secure` | `export_secure_audit_logs` | Signed tamper-evident CSV/PDF/manifest ZIP; SYSTEM_ADMIN only |
+| `admin/audit.py` | `POST` | `/audit-logs/export/verify` | `verify_secure_audit_export` | Multipart ZIP verification with signature, hash-chain, PDF, and freshness checks |
 | `admin/audit.py` | `POST` | `/audit-logs/analyze` | `analyze_audit_logs` | Batch SLM behavioral pattern analysis via Ollama (#163) |
 | `admin/anomalies.py` | `GET` | `/anomalies` | `list_anomalies` | Paginated items + aggregate `counts` (per-status) and `type_facets` (#356, #362); supports `status`, `severity`, `anomaly_type` filter params |
 | `admin/anomalies.py` | `PATCH` | `/anomalies/{anomaly_id}` | `update_anomaly_status` | Transition anomaly status (NEW → ACKNOWLEDGED → RESOLVED); writes audit trail |

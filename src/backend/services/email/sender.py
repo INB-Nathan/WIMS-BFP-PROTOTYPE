@@ -20,7 +20,11 @@ SMTP_PORT = int(os.getenv("SMTP_PORT", "1025"))
 SMTP_FROM = os.getenv("SMTP_FROM", "no-reply@bfp.gov.ph")
 SMTP_USER = os.getenv("SMTP_USER", "")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
-SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", os.getenv("SMTP_SSL", "false")).lower() in ("true", "1", "yes")
+SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", os.getenv("SMTP_SSL", "false")).lower() in (
+    "true",
+    "1",
+    "yes",
+)
 SMTP_STARTTLS = os.getenv("SMTP_STARTTLS", "false").lower() in ("true", "1", "yes")
 
 _TEMPLATES_DIR = Path(__file__).parent / "templates"

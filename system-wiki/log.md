@@ -514,3 +514,28 @@ Removed the AI incident narrative feature (PR #104 / #69) — backend-only featu
 - **Validation:** `compileall`, targeted Ruff checks, and direct artifact tests
   passed. Full pytest collection remains blocked by the repository's startup
   Redis/session-management dependency; no gap-register entry changed.
+
+## [2026-07-14] feat(audit): secure export and verifier workflow (#558, PR2)
+
+- **Scope:** Added strict manifest schemas, deterministic signed ZIP assembly,
+  50,000-row bounded admin and validator exports, and fail-closed sensitive
+  `AUDIT_SECURE_EXPORT` commits.
+- **Verification:** Added ZIP traversal/duplicate/encryption/size/ratio/CRC
+  checks, OpenBao online verification with freshness warnings, and offline P-256
+  verification through `scripts/verify_audit_export.py`.
+- **Routes:** Added secure export endpoints for SYSTEM_ADMIN and
+  NATIONAL_VALIDATOR plus the admin multipart verifier; legacy CSV endpoints are
+  unchanged.
+- **Documentation:** Updated the backend route map, utility/security synthesis,
+  wiki index, and this log. No FRS/code gap-register change was introduced.
+- **Validation:** Targeted Ruff, formatting, compileall, and direct valid-package
+  verification passed. Pytest invocation was attempted but blocked by the
+  repository's Redis/session-management startup dependency.
+
+## [2026-07-14] fix(audit): PR2 review hardening (#595)
+
+- **Scope:** Ignore whitespace-only admin search terms, attribute OpenBao public
+  key failures to `public_key`, and bound verifier member/aggregate
+  materialization to 64/128 MiB.
+- **Validation:** Added regression tests; the focused verifier suite passes 4/4
+  and the GitHub CI rerun is green across all required jobs.

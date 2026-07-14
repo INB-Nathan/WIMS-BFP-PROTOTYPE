@@ -325,6 +325,22 @@ class OpenBaoClient:
             keys=keys_parsed,
         )
 
+    def public_key(self, key_name: str, key_version: int) -> str:
+        """Return the public PEM for a versioned signing key."""
+        data = self._request("GET", f"keys/{key_name}")
+        try:
+            public_key = data["data"]["keys"][str(key_version)]["public_key"]
+        except (KeyError, TypeError) as exc:
+            raise OpenBaoClientError(
+                "OpenBao signing key metadata did not contain the requested public key",
+                method="public_key",
+            ) from exc
+        if not isinstance(public_key, str) or not public_key.strip():
+            raise OpenBaoClientError(
+                "OpenBao returned an invalid signing public key", method="public_key"
+            )
+        return public_key
+
 
 # ── KmsSecurityProvider: compatibility wrapper for SecurityProvider call sites ─
 
