@@ -42,7 +42,7 @@ export function LayoutShell({ children }: { children: ReactNode }) {
 
     useEffect(() => {
         if (!loading && !user && !loggingOut) {
-            const isPublic = pathname === '/' || pathname === '/login' || pathname === '/register' || pathname === '/report' || pathname === '/callback' || pathname.startsWith('/tracking') || pathname.startsWith('/fire-stations') || pathname.startsWith('/privacy');
+            const isPublic = pathname === '/' || pathname === '/login' || pathname === '/register' || pathname === '/report' || pathname === '/callback' || pathname === '/verify-sent' || pathname === '/verify' || pathname.startsWith('/tracking') || pathname.startsWith('/fire-stations') || pathname.startsWith('/privacy');
 
             if (!isPublic) {
                 // Don't redirect to Keycloak when offline — it's unreachable too.
@@ -82,8 +82,7 @@ export function LayoutShell({ children }: { children: ReactNode }) {
         );
     }
 
-    // Public routes: no sidebar, no header
-    const isPublicRoute = pathname === '/' || pathname === '/login' || pathname === '/register' || pathname === '/report' || pathname === '/callback' || pathname.startsWith('/tracking') || pathname.startsWith('/fire-stations') || pathname.startsWith('/privacy');
+    const isPublicRoute = pathname === '/' || pathname === '/login' || pathname === '/register' || pathname === '/report' || pathname === '/callback' || pathname === '/verify-sent' || pathname === '/verify' || pathname.startsWith('/tracking') || pathname.startsWith('/fire-stations') || pathname.startsWith('/privacy');
 
     if (isPublicRoute) {
         return <>{children}</>;

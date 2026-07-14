@@ -121,6 +121,13 @@
         "composite": false,
         "clientRole": false,
         "containerId": "0d7644e4-1107-4da2-83f4-ca7ac87ce39b"
+      },
+      {
+        "name": "CIVILIAN_REPORTER",
+        "description": "Civilian reporter/contributor role for self-service registration",
+        "composite": false,
+        "clientRole": false,
+        "containerId": "0d7644e4-1107-4da2-83f4-ca7ac87ce39b"
       }
     ],
     "client": {
