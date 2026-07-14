@@ -52,7 +52,8 @@ const VALID = {
   email: 'juan@example.com',
   firstName: 'Juan',
   lastName: 'Dela Cruz',
-  password: 'Password1',
+  password: 'TestPassword123!',
+  confirmPassword: 'TestPassword123!',
   contact: '09171234567',
 };
 
@@ -79,12 +80,57 @@ describe('RegisterPage — field validation', () => {
 
     expect(await screen.findByText('Enter a valid email address.')).toBeInTheDocument();
     expect(
-      screen.getByText(/Password must be at least 8 characters and include an uppercase letter/i),
+      screen.getByText(/Password does not meet all requirements/i),
     ).toBeInTheDocument();
     expect(
       screen.getByText(/Enter a valid Philippine mobile number starting with 09/i),
     ).toBeInTheDocument();
     // No API call should have been made
+    expect(mockRegisterCivilian).not.toHaveBeenCalled();
+  });
+
+  it('shows dynamic password requirements as user types', async () => {
+    const user = userEvent.setup();
+    const { default: RegisterPage } = await import('../page');
+    render(<RegisterPage />);
+
+    // Type a password that fails some checks
+    const pwInput = screen.getByTestId('password');
+    await user.type(pwInput, 'abc');
+
+    // Requirements panel should be visible
+    expect(screen.getByTestId('password-requirements')).toBeInTheDocument();
+    expect(screen.getByText('At least 12 characters')).toBeInTheDocument();
+    expect(screen.getByText('One uppercase letter')).toBeInTheDocument();
+    expect(screen.getByText('One lowercase letter')).toBeInTheDocument();
+    expect(screen.getByText('One number')).toBeInTheDocument();
+    expect(screen.getByText(/One special character/)).toBeInTheDocument();
+  });
+
+  it('hides password requirements when all checks are met', async () => {
+    const user = userEvent.setup();
+    const { default: RegisterPage } = await import('../page');
+    render(<RegisterPage />);
+
+    await user.type(screen.getByTestId('password'), VALID.password);
+
+    expect(screen.queryByTestId('password-requirements')).not.toBeInTheDocument();
+  });
+
+  it('shows error when passwords do not match', async () => {
+    const user = userEvent.setup();
+    const { default: RegisterPage } = await import('../page');
+    render(<RegisterPage />);
+
+    await user.type(screen.getByTestId('email'), VALID.email);
+    await user.type(screen.getByTestId('password'), VALID.password);
+    await user.type(screen.getByTestId('confirm_password'), 'DifferentPassword1!');
+    await user.type(screen.getByTestId('contact_number'), VALID.contact);
+    fireEvent.click(screen.getByTestId('dpa_consent'));
+
+    fireEvent.click(screen.getByTestId('register-submit'));
+
+    expect(await screen.findByText('Passwords do not match.')).toBeInTheDocument();
     expect(mockRegisterCivilian).not.toHaveBeenCalled();
   });
 
@@ -95,6 +141,7 @@ describe('RegisterPage — field validation', () => {
 
     await user.type(screen.getByTestId('email'), VALID.email);
     await user.type(screen.getByTestId('password'), VALID.password);
+    await user.type(screen.getByTestId('confirm_password'), VALID.confirmPassword);
     await user.type(screen.getByTestId('contact_number'), VALID.contact);
 
     fireEvent.click(screen.getByTestId('register-submit'));
@@ -126,6 +173,7 @@ describe('RegisterPage — successful submit', () => {
     await user.type(screen.getByTestId('first_name'), VALID.firstName);
     await user.type(screen.getByTestId('last_name'), VALID.lastName);
     await user.type(screen.getByTestId('password'), VALID.password);
+    await user.type(screen.getByTestId('confirm_password'), VALID.confirmPassword);
     await user.type(screen.getByTestId('contact_number'), VALID.contact);
     fireEvent.click(screen.getByTestId('dpa_consent'));
 
@@ -157,6 +205,7 @@ describe('RegisterPage — successful submit', () => {
     fireEvent.click(screen.getByTestId('turnstile'));
     await user.type(screen.getByTestId('email'), VALID.email);
     await user.type(screen.getByTestId('password'), VALID.password);
+    await user.type(screen.getByTestId('confirm_password'), VALID.confirmPassword);
     await user.type(screen.getByTestId('contact_number'), VALID.contact);
     fireEvent.click(screen.getByTestId('dpa_consent'));
 

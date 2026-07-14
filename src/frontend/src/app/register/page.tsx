@@ -1,18 +1,40 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Turnstile } from '@marsidev/react-turnstile';
 import { registerCivilian } from '@/lib/api/civilian';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const PASSWORD_RE = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
 const CONTACT_RE = /^09\d{9}$/;
+
+interface PasswordChecks {
+  minLength: boolean;   // >= 12
+  upperCase: boolean;
+  lowerCase: boolean;
+  digit: boolean;
+  specialChar: boolean;
+}
+
+function checkPassword(password: string): PasswordChecks {
+  return {
+    minLength: password.length >= 12,
+    upperCase: /[A-Z]/.test(password),
+    lowerCase: /[a-z]/.test(password),
+    digit: /\d/.test(password),
+    specialChar: /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password),
+  };
+}
+
+function passwordValid(checks: PasswordChecks): boolean {
+  return Object.values(checks).every(Boolean);
+}
 
 function validate(values: {
   email: string;
   password: string;
+  confirmPassword: string;
   contact_number: string;
   dpa_consent: boolean;
 }): string[] {
@@ -20,10 +42,12 @@ function validate(values: {
   if (!EMAIL_RE.test(values.email)) {
     errors.push('Enter a valid email address.');
   }
-  if (!PASSWORD_RE.test(values.password)) {
-    errors.push(
-      'Password must be at least 8 characters and include an uppercase letter, a lowercase letter, and a number.',
-    );
+  const pw = checkPassword(values.password);
+  if (!passwordValid(pw)) {
+    errors.push('Password does not meet all requirements.');
+  }
+  if (values.password !== values.confirmPassword) {
+    errors.push('Passwords do not match.');
   }
   if (!CONTACT_RE.test(values.contact_number)) {
     errors.push('Enter a valid Philippine mobile number starting with 09 (11 digits).');
@@ -40,6 +64,7 @@ export default function RegisterPage() {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [contactNumber, setContactNumber] = useState('');
   const [dpaConsent, setDpaConsent] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
@@ -47,9 +72,18 @@ export default function RegisterPage() {
   const [submitting, setSubmitting] = useState(false);
   const turnstileEnabled = (process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? '') !== '';
 
+  const pwChecks = useMemo(() => checkPassword(password), [password]);
+  const showPwRequirements = password.length > 0 && !passwordValid(pwChecks);
+
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    const validationErrors = validate({ email, password, contact_number: contactNumber, dpa_consent: dpaConsent });
+    const validationErrors = validate({
+      email,
+      password,
+      confirmPassword,
+      contact_number: contactNumber,
+      dpa_consent: dpaConsent,
+    });
     if (turnstileEnabled && !turnstileToken) {
       validationErrors.push('Please complete the security check.');
     }
@@ -182,10 +216,52 @@ export default function RegisterPage() {
               name="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="At least 8 chars, A-Z, a-z, 0-9"
+              placeholder="At least 12 characters"
               aria-label="Password"
               data-testid="password"
               style={inputStyle}
+            />
+          </label>
+
+          {showPwRequirements && (
+            <div
+              data-testid="password-requirements"
+              style={{
+                background: '#F9FAFB',
+                border: '1px solid #E5E7EB',
+                borderRadius: 8,
+                padding: '10px 14px',
+                fontSize: '0.78rem',
+                color: 'var(--text-secondary)',
+              }}
+            >
+              <div style={{ fontWeight: 600, marginBottom: 6, color: 'var(--text-primary)' }}>
+                Password requirements:
+              </div>
+              <PwReq met={pwChecks.minLength} label="At least 12 characters" />
+              <PwReq met={pwChecks.upperCase} label="One uppercase letter" />
+              <PwReq met={pwChecks.lowerCase} label="One lowercase letter" />
+              <PwReq met={pwChecks.digit} label="One number" />
+              <PwReq met={pwChecks.specialChar} label="One special character (!@#$%^&*...)" />
+            </div>
+          )}
+
+          <label style={{ display: 'block' }}>
+            <span style={labelStyle}>Confirm password</span>
+            <input
+              type="password"
+              name="confirm_password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              placeholder="Re-enter your password"
+              aria-label="Confirm password"
+              data-testid="confirm_password"
+              style={{
+                ...inputStyle,
+                ...(confirmPassword.length > 0 && password !== confirmPassword
+                  ? { borderColor: '#DC2626', borderWidth: 2 }
+                  : {}),
+              }}
             />
           </label>
 
@@ -259,6 +335,25 @@ export default function RegisterPage() {
         </p>
       </div>
     </main>
+  );
+}
+
+function PwReq({ met, label }: { met: boolean; label: string }) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 6,
+        padding: '2px 0',
+        color: met ? '#16A34A' : '#9CA3AF',
+      }}
+    >
+      <span style={{ fontSize: '0.85rem', width: 16, textAlign: 'center' }}>
+        {met ? '✓' : '○'}
+      </span>
+      <span>{label}</span>
+    </div>
   );
 }
 
