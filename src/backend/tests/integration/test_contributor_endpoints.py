@@ -395,4 +395,4 @@ class TestContributorLeaderboardRemoved:
 
     def test_leaderboard_route_is_not_registered(self, client_with_reporter):
         response = client_with_reporter.get("/api/civilian/contributor/leaderboard")
-        assert response.status_code == 404
+        assert response.status_code == 410

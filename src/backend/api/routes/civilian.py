@@ -1336,6 +1336,16 @@ async def get_contributor_stats_route(
     return ContributorStatsResponse(**stats)
 
 
+@router.get("/contributor/leaderboard", status_code=410)
+async def leaderboard_removed():
+    """The public leaderboard endpoint was removed in the civilian-contributor
+    refactor. Return 410 Gone so callers can detect the removal."""
+    raise HTTPException(
+        status_code=410,
+        detail="The contributor leaderboard has been removed",
+    )
+
+
 @router.get("/contributor/{user_id}", response_model=ContributorDetailResponse)
 async def get_contributor_profile_by_id(
     user_id: str,
