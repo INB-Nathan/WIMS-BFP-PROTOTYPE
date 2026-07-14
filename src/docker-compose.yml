@@ -37,6 +37,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+      start_period: 30s
     restart: always
     ports:
       - "127.0.0.1:5432:5432"
