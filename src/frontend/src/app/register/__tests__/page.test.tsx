@@ -4,6 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock next/navigation
 const mockRouterPush = vi.fn();
+
+// Enable Turnstile in test environment
+process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY = 'test-site-key';
+
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockRouterPush, replace: vi.fn() }),
   useSearchParams: () => new URLSearchParams(),
