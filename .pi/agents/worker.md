@@ -1,7 +1,7 @@
 ---
 name: worker
 description: Implementation agent for normal tasks and approved oracle handoffs
-model: deepseek/deepseek-v4-flash
+model: opencode/deepseek-v4-flash-free
 thinking: high
 systemPromptMode: replace
 inheritProjectContext: true
