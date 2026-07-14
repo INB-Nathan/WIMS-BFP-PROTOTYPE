@@ -1,7 +1,7 @@
 ---
 title: Backend Utilities & Celery Tasks
 created: 2026-05-16
-updated: 2026-06-03
+updated: 2026-07-14
 type: backend
 tags: [wims-bfp, backend, utils, crypto, audit, session, backup, celery, exports, email, notifications]
 sources: [src/backend/utils/, src/backend/tasks/]
@@ -252,3 +252,27 @@ independent per report.
 | `SMTP_USER` | (empty) | SMTP auth user |
 | `SMTP_PASS` | (empty) | SMTP auth password |
 | `NEXT_PUBLIC_APP_URL` | `http://localhost:3000` | Dashboard link in emails |
+
+## Tamper-Proof Audit Export Foundation (#558, PR1)
+
+The reusable integrity primitives for the three-PR secure audit-export work
+live in `src/backend/services/audit_export.py` and
+`src/backend/services/audit_export_pdf.py`:
+
+- `CanonicalCsvWriter` emits UTF-8, LF-terminated CSV with a first-column
+  `row_hash` chain, a 50,000-row hard limit, and a `sha256:` final chain hash.
+- `inspect_csv_hash_chain()` verifies row hashes, canonical bytes, row count,
+  and the manifest final hash without database access.
+- `AuditExportPdfGenerator` uses ReportLab base14 fonts and an invariant canvas
+  for byte-deterministic human-readable PDFs; verification hashes supplied
+  bytes rather than regenerating the PDF.
+
+OpenBao Transit signing support is in
+`src/backend/services/kms/openbao_client.py`; the non-exportable ECDSA P-256
+`audit-export-signer` key and least-privilege paths are provisioned by
+`src/openbao/init/bootstrap-openbao.sh` and
+`src/openbao/policies/wims-app.hcl`. API/CLI orchestration is intentionally
+deferred to PR2, with integration and final wiki/gap synchronization in PR3.
+
+Related: [[security/security-baseline]], [[backend/api-route-map]],
+[[gaps/frs-codebase-gap-register]]

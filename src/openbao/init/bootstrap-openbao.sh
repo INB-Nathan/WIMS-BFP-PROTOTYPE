@@ -199,6 +199,44 @@ create_or_verify_derived_key() {
 create_or_verify_derived_key "wims-incident-pii"
 create_or_verify_derived_key "wims-backup"
 
+# Create or validate the dedicated ECDSA signing key used for tamper-proof
+# audit-export manifests.  Unlike the encryption keys above, this key must be
+# non-derived and must never be exportable.  Existing keys are validated rather
+# than replaced so bootstrap cannot destroy historical verification material.
+create_or_verify_signing_key() {
+  KEY_NAME="$1"
+  echo "Checking Transit signing key: ${KEY_NAME}"
+
+  if bao read -format=json "${TRANSIT_MOUNT}/keys/${KEY_NAME}" >/dev/null 2>&1; then
+    KEY_META=$(bao read -format=json "${TRANSIT_MOUNT}/keys/${KEY_NAME}" 2>/dev/null)
+    KEY_TYPE=$(echo "${KEY_META}" | grep -o '"type"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 || true)
+    SUPPORTS_SIGNING=$(echo "${KEY_META}" | grep -o '"supports_signing"[[:space:]]*:[[:space:]]*true' || true)
+    if ! echo "${KEY_TYPE}" | grep -q 'ecdsa-p256'; then
+      echo "ERROR: Signing key '${KEY_NAME}' is not type=ecdsa-p256." >&2
+      exit 1
+    fi
+    if [ -z "${SUPPORTS_SIGNING}" ]; then
+      echo "ERROR: Signing key '${KEY_NAME}' does not support signing." >&2
+      exit 1
+    fi
+    echo "Signing key '${KEY_NAME}' exists and supports ECDSA-P256 signing (ok)"
+  else
+    echo "Creating Transit signing key: ${KEY_NAME} (type=ecdsa-p256, non-exportable)"
+    bao write -f "${TRANSIT_MOUNT}/keys/${KEY_NAME}" \
+      type=ecdsa-p256 \
+      derived=false \
+      deletion_allowed=false \
+      exportable=false \
+      allow_plaintext_backup=false || {
+        echo "ERROR: Failed to create signing key '${KEY_NAME}'" >&2
+        exit 1
+      }
+    echo "Signing key '${KEY_NAME}' created"
+  fi
+}
+
+create_or_verify_signing_key "audit-export-signer"
+
 # ── Write least-privilege policy ─────────────────────────────────────────────
 cat > /tmp/wims-policy.hcl << 'POLICY_EOF'
 path "transit/encrypt/wims-incident-pii" { capabilities = ["create", "update"] }
@@ -209,6 +247,9 @@ path "transit/encrypt/wims-backup" { capabilities = ["create", "update"] }
 path "transit/decrypt/wims-backup" { capabilities = ["create", "update"] }
 path "transit/rewrap/wims-backup" { capabilities = ["create", "update"] }
 path "transit/keys/wims-backup" { capabilities = ["read"] }
+path "transit/sign/audit-export-signer" { capabilities = ["create", "update"] }
+path "transit/verify/audit-export-signer" { capabilities = ["create", "update"] }
+path "transit/keys/audit-export-signer" { capabilities = ["read"] }
 POLICY_EOF
 
 echo "Writing wims-app policy"
@@ -248,6 +289,7 @@ echo "==== OpenBao bootstrap complete ===="
 echo "  Transit mount:  ${TRANSIT_MOUNT}/"
 echo "  PII key:        wims-incident-pii  (derived=true, aes256-gcm96)"
 echo "  Backup key:     wims-backup        (derived=true, aes256-gcm96)"
+echo "  Audit signer:   audit-export-signer (ecdsa-p256, non-exportable)"
 echo "  App policy:     wims-app"
 echo ""
 echo "Secrets (root token / unseal key / app token) are NOT printed to logs."

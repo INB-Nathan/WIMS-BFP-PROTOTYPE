@@ -11,6 +11,11 @@ from sqlalchemy.orm import Session
 
 logger = logging.getLogger("wims.audit")
 
+# Stable action identifier for cryptographically signed audit exports.  Keep
+# this in the shared audit utility so routes, services, anomaly detection, and
+# tests cannot drift on spelling.
+AUDIT_SECURE_EXPORT = "AUDIT_SECURE_EXPORT"
+
 
 def trusted_client_ip(request: Request | None) -> str:
     """Return the real TCP-socket client IP for the current request.

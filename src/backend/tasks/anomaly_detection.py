@@ -181,7 +181,7 @@ def _detect_off_hours(db: Session) -> list[dict[str, Any]]:
     No explicit row-count bound is needed here: the 60-second window combined
     with specific action-type filters (PII_EXPORT, BACKUP_TRIGGERED,
     BREACH_STATUS_UPDATE, CREATE_INCIDENT_FROM_ALERT, AUDIT_EXPORT,
-    ROLE_CHANGE_TO_%)
+    AUDIT_SECURE_EXPORT, ROLE_CHANGE_TO_%)
     naturally limits the result set to a handful of rows under any reasonable
     audit volume.
     """
@@ -192,7 +192,8 @@ def _detect_off_hours(db: Session) -> list[dict[str, Any]]:
             WHERE (
                 action_type IN (
                     'PII_EXPORT', 'BACKUP_TRIGGERED', 'BREACH_STATUS_UPDATE',
-                    'CREATE_INCIDENT_FROM_ALERT', 'AUDIT_EXPORT', 'BULK_EXPORT'
+                    'CREATE_INCIDENT_FROM_ALERT', 'AUDIT_EXPORT',
+                    'AUDIT_SECURE_EXPORT', 'BULK_EXPORT'
                 )
                 OR action_type LIKE 'ROLE_CHANGE_TO_%'
             )

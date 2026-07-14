@@ -1,7 +1,7 @@
 ---
 title: Security Baseline
 created: 2026-05-14
-updated: 2026-07-13
+updated: 2026-07-14
 type: security
 tags: [wims-bfp, security, auth, rbac, rls, audit-log, ids, xai, privacy, fail-closed]
 sources: [raw/frs/frs-auth.md, raw/frs/frs-complianceanddataprivacy.md, raw/frs/frs-intrusiondetectionandnetworkingmonitoring.md, raw/frs/frs-threatdetectionwithexplainableai.md, raw/codebase/codebase-snapshot-2026-05-14.md, src/keycloak/demo-otp-provider, src/keycloak/bfp-realm.json, src/keycloak/import/bfp-realm.json, src/postgres-init/82_civilian_report_photos.sql, src/postgres-init/87_photo_preupload_schema.sql, src/postgres-init/88_anonymous_photo_ownership.sql, src/postgres-init/89_anonymous_pending_photo_insert.sql, src/postgres-init/90_registered_photo_ownership.sql, src/postgres-init/91_community_content_schema.sql, src/backend/alembic/versions/0008_photo_preupload_schema.py, src/backend/alembic/versions/0009_anonymous_photo_ownership_helpers.py, src/backend/alembic/versions/0010_anonymous_pending_photo_insert.py, src/backend/alembic/versions/0011_registered_photo_ownership_helper.py, src/backend/alembic/versions/0012_community_content_schema.py, src/backend/services/anonymous_sessions.py, src/backend/services/report_photos.py, src/backend/auth.py, src/backend/utils/exif.py]
@@ -9,6 +9,19 @@ status: draft
 ---
 
 # Security Baseline
+
+### Tamper-proof audit-export signing foundation (2026-07-14, PR1)
+
+The first delivery slice for issue #558 adds a dedicated non-exportable ECDSA
+P-256 Transit key (`audit-export-signer`). `src/openbao/policies/wims-app.hcl`
+and `src/openbao/init/bootstrap-openbao.sh` grant only sign, verify, and key
+metadata reads; the backend cannot rotate, delete, or export the key.
+`OpenBaoClient.sign()` and `.verify()` preserve the Vault-compatible
+`vault:vN:<base64>` signature envelope and parse the key version without
+handling private key material. The stable `AUDIT_SECURE_EXPORT` action is
+included in off-hours anomaly detection. Canonical CSV/PDF primitives are
+covered in [[backend/utilities-and-tasks]]; secure routes and verifier API are
+scheduled for PR2.
 
 ## Auth and RBAC
 FRS Module 1 defines Keycloak-backed authentication, MFA for privileged roles, session timeout, password policy, and role-based access control. Relevant implementation surfaces: `admin.py`, `sessions.py`, `user.py`, frontend auth API routes, and Keycloak config.

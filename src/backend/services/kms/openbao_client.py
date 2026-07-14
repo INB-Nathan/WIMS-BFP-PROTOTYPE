@@ -5,10 +5,12 @@ Never stores raw keys in process memory.
 """
 
 import base64
+import binascii
 import dataclasses
 import json
 import logging
 import os
+import re
 from typing import Any
 
 from utils.external_service import (
@@ -47,6 +49,14 @@ class KmsHealth:
 @dataclasses.dataclass
 class KmsCiphertext:
     ciphertext: str
+    key_version: int
+
+
+@dataclasses.dataclass(frozen=True)
+class KmsSignature:
+    """OpenBao Transit signature and the key version encoded in it."""
+
+    signature: str
     key_version: int
 
 
@@ -199,6 +209,86 @@ class OpenBaoClient:
         data = self._request("POST", f"decrypt/{key_name}", json_body=body)
         raw = data["data"]["plaintext"]
         return base64.b64decode(raw)
+
+    @staticmethod
+    def _parse_signature(signature: str) -> int:
+        """Validate an OpenBao Transit signature and return its key version.
+
+        OpenBao uses the Vault-compatible ``vault:vN:<base64>`` envelope for
+        Transit signatures.  The ``bao`` prefix is accepted for compatibility
+        with older development fixtures, but the path-like ``bao:v1/...``
+        format is deliberately rejected.
+        """
+        match = re.fullmatch(r"(?:vault|bao):v([1-9][0-9]*):([A-Za-z0-9+/=_-]+)", signature)
+        if match is None:
+            raise OpenBaoClientError(
+                "OpenBao returned a malformed Transit signature", method="sign"
+            )
+        try:
+            base64.b64decode(match.group(2), validate=True)
+        except (ValueError, binascii.Error) as exc:
+            raise OpenBaoClientError(
+                "OpenBao returned a Transit signature with invalid base64", method="sign"
+            ) from exc
+        return int(match.group(1))
+
+    def sign(self, key_name: str, data: bytes) -> KmsSignature:
+        """Sign bytes with an OpenBao Transit signing key.
+
+        Transit hashes the supplied input using ``sha2-256``.  The returned
+        signature remains in OpenBao's self-describing envelope so verifiers
+        retain the key version selected by OpenBao.
+        """
+        response = self._request(
+            "POST",
+            f"sign/{key_name}",
+            json_body={
+                "input": base64.b64encode(data).decode("ascii"),
+                "hash_algorithm": "sha2-256",
+            },
+        )
+        try:
+            signature = response["data"]["signature"]
+        except (KeyError, TypeError) as exc:
+            raise OpenBaoClientError(
+                "OpenBao sign response did not contain data.signature", method="sign"
+            ) from exc
+        if not isinstance(signature, str):
+            raise OpenBaoClientError(
+                "OpenBao sign response contained a non-string signature", method="sign"
+            )
+        key_version = self._parse_signature(signature)
+        return KmsSignature(signature=signature, key_version=key_version)
+
+    def verify(
+        self,
+        key_name: str,
+        data: bytes,
+        signature: str,
+        hash_algorithm: str = "sha2-256",
+    ) -> bool:
+        """Verify a signature over bytes with an OpenBao Transit key."""
+        self._parse_signature(signature)
+        response = self._request(
+            "POST",
+            f"verify/{key_name}",
+            json_body={
+                "input": base64.b64encode(data).decode("ascii"),
+                "signature": signature,
+                "hash_algorithm": hash_algorithm,
+            },
+        )
+        try:
+            valid = response["data"]["valid"]
+        except (KeyError, TypeError) as exc:
+            raise OpenBaoClientError(
+                "OpenBao verify response did not contain data.valid", method="verify"
+            ) from exc
+        if not isinstance(valid, bool):
+            raise OpenBaoClientError(
+                "OpenBao verify response contained a non-boolean validity result", method="verify"
+            )
+        return valid
 
     def rotate(self, key_name: str) -> KmsKeyMetadata:
         """Rotate the named Transit key — bumps latest version."""
