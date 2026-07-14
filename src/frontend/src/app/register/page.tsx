@@ -69,6 +69,7 @@ export default function RegisterPage() {
   const [dpaConsent, setDpaConsent] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const [turnstileExpired, setTurnstileExpired] = useState(false);
+  const [turnstileResetKey, setTurnstileResetKey] = useState(0);
   const [errors, setErrors] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const turnstileEnabled = (process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? '') !== '';
@@ -82,10 +83,12 @@ export default function RegisterPage() {
   const onTurnstileExpire = useCallback(() => {
     setTurnstileToken(null);
     setTurnstileExpired(true);
+    setTurnstileResetKey((k) => k + 1);
   }, []);
 
   const onTurnstileError = useCallback(() => {
     setTurnstileToken(null);
+    setTurnstileResetKey((k) => k + 1);
     setErrors((prev) => {
       if (!prev.includes('Security check failed. Please refresh the page and try again.')) {
         return [...prev, 'Security check failed. Please refresh the page and try again.'];
@@ -137,6 +140,7 @@ export default function RegisterPage() {
       // of outcome. Reset so the user gets a fresh token for the next try.
       setTurnstileToken(null);
       setTurnstileExpired(true);
+      setTurnstileResetKey((k) => k + 1);
       if (msg.toLowerCase().includes('captcha')) {
         setErrors(['Security check failed. Please complete the CAPTCHA again.']);
       } else {
@@ -336,7 +340,7 @@ export default function RegisterPage() {
           {turnstileEnabled && (
           <div data-testid="turnstile-wrapper">
             <Turnstile
-              key={siteKey}
+              key={turnstileResetKey}
               siteKey={siteKey}
               onSuccess={onTurnstileSuccess}
               onExpire={onTurnstileExpire}
