@@ -1,11 +1,38 @@
 'use client';
 
-import { useEffect } from 'react';
+import { Suspense, useEffect } from 'react';
 import Image from 'next/image';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { defaultRouteForRole } from '@/lib/roleRedirect';
 import { ArrowRight, CheckCircle, Lock } from 'lucide-react';
+
+function RegistrationBanner() {
+    const searchParams = useSearchParams();
+    const registered = searchParams.get('registered') === 'true';
+    if (!registered) return null;
+    return (
+        <div
+            role="alert"
+            className="registration-banner"
+            style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                background: '#F0FDF4',
+                border: '1px solid #BBF7D0',
+                color: '#15803D',
+                borderRadius: 8,
+                padding: '10px 14px',
+                fontSize: '0.85rem',
+                fontWeight: 600,
+            }}
+        >
+            <CheckCircle className="w-4 h-4" aria-hidden />
+            Account created! Sign in to continue.
+        </div>
+    );
+}
 
 export default function LoginPage() {
     const router = useRouter();
@@ -62,6 +89,10 @@ export default function LoginPage() {
                     <p className="wims-form-subtitle">
                         Access the WIMS-BFP dashboard
                     </p>
+
+                    <Suspense fallback={null}>
+                        <RegistrationBanner />
+                    </Suspense>
 
                     <div className="wims-form-card">
                         <div className="wims-sso-notice">
