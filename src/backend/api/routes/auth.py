@@ -414,8 +414,10 @@ async def register(
             REGISTER_RATE_WINDOW,
         )
 
-    # 2. Verify Turnstile
-    await verify_turnstile(body.turnstile_token, client_ip)
+    # 2. Verify Turnstile (skip when not configured)
+    import os as _os
+    if _os.environ.get("TURNSTILE_SECRET_KEY", ""):
+        await verify_turnstile(body.turnstile_token, client_ip)
 
     # 3. Validate email uniqueness via Keycloak lookup
     try:

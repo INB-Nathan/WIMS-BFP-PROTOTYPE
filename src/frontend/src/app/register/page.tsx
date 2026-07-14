@@ -45,11 +45,12 @@ export default function RegisterPage() {
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const turnstileEnabled = (process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? '') !== '';
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const validationErrors = validate({ email, password, contact_number: contactNumber, dpa_consent: dpaConsent });
-    if (!turnstileToken) {
+    if (turnstileEnabled && !turnstileToken) {
       validationErrors.push('Please complete the security check.');
     }
     if (validationErrors.length > 0) {
@@ -67,7 +68,7 @@ export default function RegisterPage() {
         password,
         contact_number: contactNumber,
         dpa_consent: dpaConsent,
-        turnstile_token: turnstileToken as string,
+        turnstile_token: turnstileToken || '',
       });
       router.push('/login?registered=true');
     } catch (err) {
@@ -221,12 +222,14 @@ export default function RegisterPage() {
             </span>
           </label>
 
+          {turnstileEnabled && (
           <div data-testid="turnstile-wrapper">
             <Turnstile
               siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? ''}
               onSuccess={(token: string) => setTurnstileToken(token)}
             />
           </div>
+          )}
 
           <button
             type="submit"
