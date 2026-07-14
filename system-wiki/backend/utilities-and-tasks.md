@@ -253,7 +253,7 @@ independent per report.
 | `SMTP_PASS` | (empty) | SMTP auth password |
 | `NEXT_PUBLIC_APP_URL` | `http://localhost:3000` | Dashboard link in emails |
 
-## Tamper-Proof Audit Export Foundation (#558, PR1)
+## Tamper-Proof Audit Export (#558, PR2)
 
 The reusable integrity primitives for the three-PR secure audit-export work
 live in `src/backend/services/audit_export.py` and
@@ -272,8 +272,13 @@ OpenBao Transit signing support is in
 `src/backend/services/kms/openbao_client.py`; the non-exportable ECDSA P-256
 `audit-export-signer` key and least-privilege paths are provisioned by
 `src/openbao/init/bootstrap-openbao.sh` and
-`src/openbao/policies/wims-app.hcl`. API/CLI orchestration is intentionally
-deferred to PR2, with integration and final wiki/gap synchronization in PR3.
+`src/openbao/policies/wims-app.hcl`. PR2 adds the strict manifest contracts in
+`src/backend/schemas/audit_export.py`, database-scoped orchestration in
+`src/backend/services/audit_export_orchestration.py`, ZIP safety and online/
+offline verification in `src/backend/services/audit_export_verifier.py`, and
+the `scripts/verify_audit_export.py` operator CLI. Secure admin and validator
+routes are listed in [[backend/api-route-map]]. The existing plain CSV routes
+remain unchanged.
 
 Related: [[security/security-baseline]], [[backend/api-route-map]],
 [[gaps/frs-codebase-gap-register]]

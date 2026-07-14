@@ -12,16 +12,19 @@ status: draft
 
 ### Tamper-proof audit-export signing foundation (2026-07-14, PR1)
 
-The first delivery slice for issue #558 adds a dedicated non-exportable ECDSA
-P-256 Transit key (`audit-export-signer`). `src/openbao/policies/wims-app.hcl`
-and `src/openbao/init/bootstrap-openbao.sh` grant only sign, verify, and key
+Issue #558 uses a dedicated non-exportable ECDSA P-256 Transit key
+(`audit-export-signer`). `src/openbao/policies/wims-app.hcl` and
+`src/openbao/init/bootstrap-openbao.sh` grant only sign, verify, and key
 metadata reads; the backend cannot rotate, delete, or export the key.
 `OpenBaoClient.sign()` and `.verify()` preserve the Vault-compatible
 `vault:vN:<base64>` signature envelope and parse the key version without
-handling private key material. The stable `AUDIT_SECURE_EXPORT` action is
-included in off-hours anomaly detection. Canonical CSV/PDF primitives are
-covered in [[backend/utilities-and-tasks]]; secure routes and verifier API are
-scheduled for PR2.
+handling private key material. Secure admin and validator export routes use
+the real SYSTEM_ADMIN/NATIONAL_VALIDATOR plus RLS dependencies, record a
+sensitive `AUDIT_SECURE_EXPORT` event before returning bytes, and expose a
+verifier API that validates ZIP structure before any crypto operation. The
+offline CLI uses a caller-supplied P-256 public key and never prints export
+contents or credentials. Canonical CSV/PDF primitives are covered in
+[[backend/utilities-and-tasks]].
 
 ## Auth and RBAC
 FRS Module 1 defines Keycloak-backed authentication, MFA for privileged roles, session timeout, password policy, and role-based access control. Relevant implementation surfaces: `admin.py`, `sessions.py`, `user.py`, frontend auth API routes, and Keycloak config.

@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from typing import Annotated, Any, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -21,6 +21,12 @@ from auth import get_current_wims_user, get_national_validator
 from auth import get_db_with_rls
 from database import set_rls_context
 from services.analytics_read_model import sync_incident_to_analytics
+from services.audit_export_orchestration import (
+    AuditExportAuditError,
+    AuditExportTooLargeError,
+    build_validator_export,
+)
+from services.kms.openbao_client import OpenBaoClientError
 from services.event_bus import publish_incident_event, publish_incident_event_sync
 from services.regional_incidents import (
     VALIDATOR_DEFAULT_QUEUE_STATUSES,
@@ -1106,4 +1112,48 @@ def export_validator_audit_logs(
         iter([buf.getvalue()]),
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=system_audit_trail.csv"},
+    )
+
+
+@router.get("/validator/audit-logs/export/secure")
+def export_secure_validator_audit_logs(
+    request: Request,
+    user: Annotated[dict, Depends(get_national_validator)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    region_id: Optional[int] = None,
+    actor_username: Optional[str] = None,
+    role: Optional[str] = None,
+    action: Optional[str] = None,
+):
+    """Return a signed, tamper-evident validator audit export package."""
+    try:
+        package = build_validator_export(
+            db,
+            user,
+            {
+                "date_from": date_from,
+                "date_to": date_to,
+                "region_id": region_id,
+                "actor_username": actor_username,
+                "role": role,
+                "action": action,
+            },
+            request,
+        )
+    except AuditExportTooLargeError as exc:
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
+    except OpenBaoClientError as exc:
+        raise HTTPException(status_code=503, detail="audit signing service unavailable") from exc
+    except AuditExportAuditError as exc:
+        raise HTTPException(
+            status_code=500, detail="secure export audit could not be recorded"
+        ) from exc
+    return Response(
+        content=package.zip_bytes,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="audit-export-{package.export_uuid}.zip"'
+        },
     )
