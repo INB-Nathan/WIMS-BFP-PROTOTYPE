@@ -1,8 +1,9 @@
 """
-Email verification routes for self-service email changes.
+Auth routes for self-service operations.
 
-POST /api/auth/change-email — Step 1: verify password, store pending email + code, send verification email
-POST /api/auth/verify-email — Step 2: verify code, update email in Keycloak and DB
+POST /api/auth/change-email  — Step 1: verify password, store pending email + code, send verification email
+POST /api/auth/verify-email  — Step 2: verify code, update email in Keycloak and DB
+POST /api/auth/register      — Civilian self-service signup (public, rate-limited, Turnstile)
 """
 
 from __future__ import annotations
@@ -12,6 +13,7 @@ import json
 import logging
 import os
 import secrets
+from datetime import datetime, timezone
 from typing import Annotated, Optional
 
 import redis.asyncio as aioredis
@@ -25,18 +27,21 @@ from sqlalchemy.orm import Session
 
 from auth import get_current_wims_user, get_db_with_rls
 from database import get_db
-from utils.audit import log_system_audit, trusted_client_ip
+from schemas.auth import CivilianRegisterRequest, RegisterResponse
+from services.captcha import verify_turnstile
 from services.email.sender import send_email_async
 from services.keycloak_admin import (
     _KC_BASE_URL,
     _KC_REALM,
     _get_admin_client,
+    create_keycloak_user,
     update_user_profile,
 )
+from utils.audit import log_system_audit, trusted_client_ip
 
-logger = logging.getLogger("wims.email_verify")
+logger = logging.getLogger("wims.auth")
 
-router = APIRouter(prefix="/api/auth", tags=["email-verification"])
+router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
 VERIFICATION_CODE_TTL = 600  # 10 minutes
@@ -361,6 +366,190 @@ async def verify_email(
             "message": f"Email changed to {pending_email} in identity provider, but database sync failed. Contact support if your email is missing from your profile.",
         }
     return {"status": "ok", "message": f"Email successfully changed to {pending_email}."}
+
+
+# ── Self-service registration ──────────────────────────────────────────────────
+
+REGISTER_RATE_LIMIT = 3
+REGISTER_RATE_WINDOW = 3600  # 1 hour
+
+
+def _lookup_user_by_email(adm, email: str) -> str | None:
+    """Check if a Keycloak user with the given email exists.
+
+    Returns the user_id string if found, None otherwise.
+    """
+    try:
+        users = adm.get_users({"email": email, "exact": True})
+        if users:
+            return users[0].get("id")
+        return None
+    except KeycloakError:
+        logger.warning("Keycloak get_users lookup failed for email=%s", email)
+        return None
+
+
+@router.post("/register", response_model=RegisterResponse, status_code=201)
+async def register(
+    body: CivilianRegisterRequest,
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+):
+    """
+    Civilian self-service signup.
+
+    Public — no auth required. Validates Turnstile, enforces rate limiting,
+    checks email uniqueness, creates the Keycloak user with CIVILIAN_REPORTER
+    role, inserts DB records, and records DPA consent audit when applicable.
+    """
+    client_ip = trusted_client_ip(request)
+
+    # 1. Rate limit (3/IP/hour)
+    r = await _get_redis()
+    if r is not None:
+        await _check_rate_limit(
+            r,
+            f"rate:register:{client_ip}",
+            REGISTER_RATE_LIMIT,
+            REGISTER_RATE_WINDOW,
+        )
+
+    # 2. Verify Turnstile
+    await verify_turnstile(body.turnstile_token, client_ip)
+
+    # 3. Validate email uniqueness via Keycloak lookup
+    try:
+        adm = _get_admin_client()
+    except Exception as e:
+        logger.error("Keycloak admin client unavailable for registration: %s", e)
+        raise HTTPException(status_code=503, detail="Registration service temporarily unavailable")
+
+    existing_user_id = _lookup_user_by_email(adm, body.email)
+    if existing_user_id is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="An account with this email already exists",
+        )
+
+    # 4. Create Keycloak user with CIVILIAN_REPORTER role, permanent password
+    try:
+        kc_user_id, _email_sent = create_keycloak_user(
+            email=body.email,
+            first_name=body.first_name,
+            last_name=body.last_name,
+            username=body.email,
+            role="CIVILIAN_REPORTER",
+            temp_password=body.password,
+            contact_number=body.contact_number,
+            temporary=False,
+        )
+    except KeycloakError as e:
+        logger.error("Keycloak user creation failed for %s: %s", body.email, e)
+        raise HTTPException(
+            status_code=502,
+            detail="Failed to create account. Email may already exist.",
+        )
+
+    # 5. Insert into wims.users (let user_id default to gen_random_uuid())
+    now = datetime.now(timezone.utc)
+    try:
+        result = db.execute(
+            text(
+                """INSERT INTO wims.users (keycloak_id, email, username, role, is_active, contact_number, created_at, updated_at)
+                   VALUES (:kid, :eml, :uname, :role, TRUE, :phone, :now, :now)
+                   ON CONFLICT (keycloak_id) DO UPDATE SET
+                       email = EXCLUDED.email,
+                       username = EXCLUDED.username,
+                       updated_at = EXCLUDED.updated_at
+                   RETURNING user_id"""
+            ),
+            {
+                "kid": kc_user_id,
+                "eml": body.email,
+                "uname": body.email,
+                "role": "CIVILIAN_REPORTER",
+                "phone": body.contact_number,
+                "now": now,
+            },
+        ).fetchone()
+        db.commit()
+        user_id = result.user_id if result else None
+        if not user_id:
+            raise RuntimeError("RETURNING user_id was null")
+    except Exception as e:
+        db.rollback()
+        logger.error("Failed to insert wims.users for %s (%s): %s", body.email, kc_user_id, e)
+        # Attempt to clean up Keycloak user to avoid orphan
+        try:
+            adm.delete_user(kc_user_id)
+        except Exception:
+            pass
+        raise HTTPException(status_code=502, detail="Account creation failed. Try again later.")
+
+    # 6. Insert into wims.civilian_contributors
+    dpa_consented_at = now if body.dpa_consent else None
+    try:
+        db.execute(
+            text(
+                """INSERT INTO wims.civilian_contributors
+                       (user_id, trust_score, badge, dpa_consented_at, formula_version)
+                   VALUES (:uid, 0, 'NOVICE', :dpa_at, 'reliability-v1')"""
+            ),
+            {
+                "uid": str(user_id),
+                "dpa_at": dpa_consented_at,
+            },
+        )
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.error(
+            "Failed to insert civilian_contributors for %s (%s): %s",
+            body.email,
+            user_id,
+            e,
+        )
+        # Attempt to clean up Keycloak and users row
+        try:
+            adm.delete_user(kc_user_id)
+        except Exception:
+            pass
+        try:
+            db.execute(text("DELETE FROM wims.users WHERE user_id = :uid"), {"uid": str(user_id)})
+            db.commit()
+        except Exception:
+            pass
+        raise HTTPException(status_code=502, detail="Account creation failed. Try again later.")
+
+    # 7. Audit DPA consent if given
+    if body.dpa_consent:
+        log_system_audit(
+            db,
+            str(user_id),
+            "DPA_CONSENT",
+            "wims.civilian_contributors",
+            None,
+            request,
+            new_values={
+                "dpa_consented_at": now.isoformat(),
+                "ip_address": client_ip,
+            },
+        )
+        db.commit()
+
+    logger.info(
+        "Civilian registered: user_id=%s keycloak_id=%s email=%s dpa_consent=%s",
+        user_id,
+        kc_user_id,
+        body.email,
+        body.dpa_consent,
+    )
+
+    return RegisterResponse(
+        status="ok",
+        message="Account created successfully. You can now log in.",
+        user_id=str(user_id),
+    )
 
 
 # ── Auth-lifecycle audit (RP-08, RP-18, RP-19) ────────────────────────────────

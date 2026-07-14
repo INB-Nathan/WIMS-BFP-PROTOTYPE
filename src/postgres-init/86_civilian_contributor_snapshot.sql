@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS wims.civilian_contributors (
     badge            TEXT        NOT NULL DEFAULT 'NOVICE'
                      CHECK (badge IN ('NOVICE', 'REGULAR', 'TRUSTED', 'GUARDIAN')),
     formula_version  TEXT        NOT NULL DEFAULT 'reliability-v1',
+    dpa_consented_at TIMESTAMPTZ DEFAULT NULL,
     created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -41,6 +42,10 @@ ALTER TABLE wims.civilian_contributors
     ALTER COLUMN formula_version SET NOT NULL;
 ALTER TABLE wims.civilian_contributors
     DROP COLUMN IF EXISTS opt_in_leaderboard;
+
+-- 0015: DPA consent timestamp
+ALTER TABLE wims.civilian_contributors
+    ADD COLUMN IF NOT EXISTS dpa_consented_at TIMESTAMPTZ DEFAULT NULL;
 
 -- Preserve the 0006 RLS contract on both fresh and upgraded databases.
 ALTER TABLE wims.civilian_contributors ENABLE ROW LEVEL SECURITY;

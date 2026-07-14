@@ -111,10 +111,19 @@ def create_keycloak_user(
     role: str,
     temp_password: str,
     contact_number: str | None = None,
+    temporary: bool = True,
 ) -> tuple[str, bool]:
     """
-    Create a user in Keycloak, set a temporary password (must change on first
-    login), assign the given realm role, and send the set-password-link email.
+    Create a user in Keycloak, optionally set a temporary password (must change
+    on first login), assign the given realm role, and send the set-password-link
+    email (only for temporary passwords).
+
+    When ``temporary=False`` (self-service registration), the password is set
+    as permanent and no UPDATE_PASSWORD email is sent. The user's own password
+    is used immediately.
+
+    When ``temporary=True`` (the default, for admin onboarding), a temporary
+    password is set and the set-password-link email is sent.
 
     Returns:
         (keycloak_user_id, email_sent) — email_sent is False (not raised) if
@@ -127,6 +136,10 @@ def create_keycloak_user(
     """
     adm = _get_admin_client()
 
+    required_actions: list[str] = []
+    if temporary:
+        required_actions.append("UPDATE_PASSWORD")
+
     user_payload = {
         "username": username,
         "email": email,
@@ -134,7 +147,7 @@ def create_keycloak_user(
         "lastName": last_name,
         "enabled": True,
         "emailVerified": True,
-        "requiredActions": ["UPDATE_PASSWORD"],  # Force change on first login
+        "requiredActions": required_actions,
     }
     if contact_number:
         user_payload["attributes"] = {"contact_number": [contact_number]}
@@ -145,9 +158,9 @@ def create_keycloak_user(
         logger.error(f"Keycloak create_user failed for {email}: {e}")
         raise
 
-    # Set temporary (must-change) password
+    # Set password (temporary or permanent per caller)
     try:
-        adm.set_user_password(user_id=user_id, password=temp_password, temporary=True)
+        adm.set_user_password(user_id=user_id, password=temp_password, temporary=temporary)
     except KeycloakError as e:
         logger.error(f"Keycloak set_user_password failed for {user_id}: {e}")
         # Attempt cleanup — delete the partially-created user
@@ -157,7 +170,9 @@ def create_keycloak_user(
             pass
         raise
 
-    email_sent = _send_update_account_email(adm, user_id=user_id)
+    email_sent = False
+    if temporary:
+        email_sent = _send_update_account_email(adm, user_id=user_id)
 
     # Assign realm role
     try:
@@ -166,7 +181,9 @@ def create_keycloak_user(
         logger.warning(f"Role assignment failed for {user_id} role={role}: {e}")
         # Non-fatal for onboarding — admin can re-assign manually
 
-    logger.info(f"Keycloak user created: id={user_id} email={email} role={role}")
+    logger.info(
+        f"Keycloak user created: id={user_id} email={email} role={role} temporary={temporary}"
+    )
     return user_id, email_sent
 
 
