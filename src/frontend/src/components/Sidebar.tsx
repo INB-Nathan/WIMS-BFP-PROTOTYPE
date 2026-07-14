@@ -232,6 +232,8 @@ function getNavSections(role: string | null, badgeCount: number = 0): NavSection
                 { label: 'Security Monitoring', href: '/admin/monitoring', icon: ShieldAlert },
                 { label: 'Telemetry', href: '/admin/system#telemetry', icon: ShieldAlert },
                 { label: 'Breach Notifications', href: '/admin/breach', icon: ShieldX },
+                { label: 'Civilian Management', href: '/admin/civilians', icon: Users },
+                { label: 'Information Management', href: '/admin/information', icon: FileText },
                 { label: 'System Audit', href: '/admin/audit', icon: Settings },
                 { label: 'Anomaly Detection', href: '/admin/anomalies', icon: Activity },
                 { label: 'Configuration', href: '/admin/system/config', icon: SlidersHorizontal },
