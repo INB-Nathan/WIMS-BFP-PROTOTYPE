@@ -4,9 +4,12 @@ from uuid import uuid4
 from zipfile import ZIP_DEFLATED, ZipFile
 from io import BytesIO
 
+from unittest.mock import MagicMock
+
 import pytest
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
+from sqlalchemy.orm import Session
 
 from schemas.audit_export import (
     AuditExportCsvDialect,
@@ -28,6 +31,7 @@ from services.audit_export_verifier import (
     ArchiveValidationError,
     validate_zip_package,
     verify_local_package,
+    verify_online_package,
 )
 from services.kms.openbao_client import OpenBaoClient, OpenBaoClientError
 
@@ -72,12 +76,45 @@ def _package() -> tuple[bytes, bytes]:
     ), public_key
 
 
+def _rebuild(package: bytes, **overrides: bytes) -> bytes:
+    """Rebuild a ZIP from a valid package, replacing named members."""
+    members: dict[str, bytes] = {}
+    with ZipFile(BytesIO(package), "r") as archive:
+        for name in archive.namelist():
+            members[name] = archive.read(name)
+    members.update(overrides)
+    out = BytesIO()
+    with ZipFile(out, "w", ZIP_DEFLATED) as archive:
+        for name, data in members.items():
+            archive.writestr(name, data)
+    return out.getvalue()
+
+
 def test_offline_verifier_accepts_valid_package():
     package, public_key = _package()
     verified, warnings, checks, _ = verify_local_package(package, public_key)
     assert verified is True
     assert "Freshness unavailable in offline mode" in warnings
     assert checks["csv_hash_chain"].status == "pass"
+
+
+def test_offline_verifier_rejects_mismatched_fingerprint_anchor():
+    package, public_key = _package()
+    verified, warnings, checks, _ = verify_local_package(
+        package, public_key, trusted_fingerprint="sha256:deadbeef"
+    )
+    assert verified is False
+    assert checks["public_key"].status == "fail"
+
+
+def test_offline_verifier_accepts_valid_fingerprint_anchor():
+    package, public_key = _package()
+    trusted = public_key_fingerprint(public_key)
+    verified, warnings, checks, _ = verify_local_package(
+        package, public_key, trusted_fingerprint=trusted
+    )
+    assert verified is True
+    assert checks["public_key"].status == "pass"
 
 
 def test_zip_rejects_path_traversal():
@@ -102,3 +139,68 @@ def test_public_key_errors_are_attributed_to_public_key():
     with pytest.raises(OpenBaoClientError) as error:
         client.public_key("audit-export-signer", 1)
     assert error.value.method == "public_key"
+
+
+# --- Group A: online verify (mocked OpenBaoClient + Session) ---
+
+
+def test_online_verifier_accepts_valid_package():
+    package, public_key = _package()
+    client = MagicMock(spec=OpenBaoClient)
+    client.verify.return_value = True
+    client.public_key.return_value = public_key
+    db = MagicMock(spec=Session)
+    db.execute.return_value.fetchone.return_value = None
+    verified, _warnings, checks, _manifest = verify_online_package(package, client=client, db=db)
+    assert verified is True
+    assert all(check.status == "pass" for check in checks.values())
+    assert checks["freshness"].status == "pass"
+
+
+def test_online_verifier_rejects_bad_signature():
+    package, _public_key = _package()
+    client = MagicMock(spec=OpenBaoClient)
+    client.verify.return_value = False
+    db = MagicMock(spec=Session)
+    db.execute.return_value.fetchone.return_value = None
+    verified, _warnings, checks, _manifest = verify_online_package(package, client=client, db=db)
+    assert verified is False
+    assert checks["signature"].status == "fail"
+
+
+def test_online_verifier_detects_freshness_warning():
+    package, public_key = _package()
+    client = MagicMock(spec=OpenBaoClient)
+    client.verify.return_value = True
+    client.public_key.return_value = public_key
+    db = MagicMock(spec=Session)
+    db.execute.return_value.fetchone.return_value = (str(uuid4()),)
+    verified, _warnings, checks, _manifest = verify_online_package(package, client=client, db=db)
+    assert verified is True
+    assert checks["freshness"].status == "warn"
+
+
+# --- Group B: package tamper detection (verify_local_package) ---
+
+
+def test_offline_verifier_rejects_tampered_csv():
+    package, public_key = _package()
+    tampered = _rebuild(package, **{"export.csv": b"garbage,data\n"})
+    verified, _warnings, checks, _manifest = verify_local_package(tampered, public_key)
+    assert verified is False
+    assert checks["csv_hash"].status == "fail"
+
+
+def test_offline_verifier_rejects_tampered_pdf():
+    package, public_key = _package()
+    tampered = _rebuild(package, **{"export.pdf": b"%PDF-1.7\ncorrupted\n"})
+    verified, _warnings, checks, _manifest = verify_local_package(tampered, public_key)
+    assert verified is False
+    assert checks["pdf_hash"].status == "fail"
+
+
+def test_offline_verifier_rejects_corrupt_manifest():
+    package, public_key = _package()
+    tampered = _rebuild(package, **{"export.audit.sig": b"not json"})
+    with pytest.raises(ArchiveValidationError):
+        verify_local_package(tampered, public_key)

@@ -21,6 +21,7 @@ from schemas.audit_export import (
 from services.audit_export import (
     MAX_AUDIT_EXPORT_ROWS,
     CanonicalCsvWriter,
+    build_audit_where,
     canonical_manifest_bytes,
     compute_csv_hash,
     compute_filter_hash,
@@ -76,30 +77,15 @@ VALIDATOR_COLUMNS = (
 
 
 def _admin_where(filters: Mapping[str, Any]) -> tuple[str, dict[str, Any]]:
-    clauses: list[str] = []
-    params: dict[str, Any] = {}
-    if filters.get("user_id") is not None:
-        clauses.append("sat.user_id = :user_id")
-        params["user_id"] = filters["user_id"]
-    if filters.get("action_type") is not None:
-        clauses.append("sat.action_type = :action_type")
-        params["action_type"] = filters["action_type"]
-    if filters.get("table_affected") is not None:
-        clauses.append("sat.table_affected = :table_affected")
-        params["table_affected"] = filters["table_affected"]
-    if filters.get("ip_address") is not None:
-        clauses.append("sat.ip_address = :ip_address")
-        params["ip_address"] = filters["ip_address"]
-    if filters.get("date_from") is not None:
-        clauses.append("sat.timestamp >= CAST(:date_from AS timestamptz)")
-        params["date_from"] = filters["date_from"]
-    if filters.get("date_to") is not None:
-        clauses.append("sat.timestamp <= CAST(:date_to AS timestamptz)")
-        params["date_to"] = filters["date_to"]
-    if filters.get("q") and str(filters["q"]).strip():
-        clauses.append("sat.search_vector @@ websearch_to_tsquery('english', :q)")
-        params["q"] = str(filters["q"]).strip()
-    return ("WHERE " + " AND ".join(clauses)) if clauses else "", params
+    return build_audit_where(
+        user_id=filters.get("user_id"),
+        action_type=filters.get("action_type"),
+        table_affected=filters.get("table_affected"),
+        ip_address=filters.get("ip_address"),
+        date_from=filters.get("date_from"),
+        date_to=filters.get("date_to"),
+        q=filters.get("q"),
+    )
 
 
 def _value(row: Any, key: str, index: int) -> Any:

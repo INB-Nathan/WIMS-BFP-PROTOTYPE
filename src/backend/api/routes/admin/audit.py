@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from auth import get_system_admin
 from auth import get_db_with_rls
 from services.ai_service import analyze_audit_logs
+from services.audit_export import build_audit_where
 from services.audit_export_orchestration import (
     AuditExportAuditError,
     AuditExportTooLargeError,
@@ -35,44 +36,6 @@ router = APIRouter()
 
 class AuditLogsAnalyzeRequest(BaseModel):
     audit_ids: list[int]
-
-
-def _build_audit_where(
-    *,
-    user_id: Optional[int],
-    action_type: Optional[str],
-    table_affected: Optional[str],
-    ip_address: Optional[str],
-    date_from: Optional[str],
-    date_to: Optional[str],
-    q: Optional[str],
-) -> tuple[str, dict]:
-    """Build the shared WHERE clause + params for audit-log list and export."""
-    where_clauses: list[str] = []
-    params: dict = {}
-    if user_id is not None:
-        where_clauses.append("sat.user_id = :user_id")
-        params["user_id"] = user_id
-    if action_type is not None:
-        where_clauses.append("sat.action_type = :action_type")
-        params["action_type"] = action_type
-    if table_affected is not None:
-        where_clauses.append("sat.table_affected = :table_affected")
-        params["table_affected"] = table_affected
-    if ip_address is not None:
-        where_clauses.append("sat.ip_address = :ip_address")
-        params["ip_address"] = ip_address
-    if date_from is not None:
-        where_clauses.append("sat.timestamp >= CAST(:date_from AS timestamptz)")
-        params["date_from"] = date_from
-    if date_to is not None:
-        where_clauses.append("sat.timestamp <= CAST(:date_to AS timestamptz)")
-        params["date_to"] = date_to
-    if q and q.strip():
-        where_clauses.append("sat.search_vector @@ websearch_to_tsquery('english', :q)")
-        params["q"] = q.strip()
-    where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
-    return where_sql, params
 
 
 @router.get("/audit-logs")
@@ -203,7 +166,7 @@ def export_audit_logs(
     RP-23: the export action itself is recorded in the audit trail so a
     SYSTEM_ADMIN cannot deny exporting sensitive audit data.
     """
-    where_sql, params = _build_audit_where(
+    where_sql, params = build_audit_where(
         user_id=user_id,
         action_type=action_type,
         table_affected=table_affected,
@@ -333,13 +296,13 @@ def export_secure_audit_logs(
 
 
 @router.post("/audit-logs/export/verify", response_model=AuditExportVerificationResponse)
-async def verify_secure_audit_export(
+def verify_secure_audit_export(
     _admin: Annotated[dict, Depends(get_system_admin)],
     db: Annotated[Session, Depends(get_db_with_rls)],
     file: UploadFile = File(...),
 ):
     """Verify a signed audit export and report per-component checks."""
-    payload = await file.read(100 * 1024 * 1024 + 1)
+    payload = file.file.read(100 * 1024 * 1024 + 1)
     try:
         verified, warnings, checks, manifest = verify_online_package(
             payload, client=OpenBaoClient(), db=db

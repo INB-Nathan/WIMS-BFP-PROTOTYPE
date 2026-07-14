@@ -21,6 +21,7 @@ from services.audit_export import (
     compute_csv_hash,
     compute_filter_hash,
     inspect_csv_hash_chain,
+    normalize_fingerprint,
     parse_transit_signature,
     public_key_fingerprint,
     verify_local_signature,
@@ -157,6 +158,42 @@ def _freshness_check(
     return _check("warn", warning, latest_export_uuid=row[0]), [warning]
 
 
+def _verify_content_integrity(
+    package: dict[str, bytes], manifest: AuditExportManifest
+) -> tuple[dict[str, AuditExportCheck], bool]:
+    """Run CSV/PDF/hash-chain integrity checks independent of the signing path.
+
+    Returns the content check entries and whether every content check passed.
+    """
+    checks: dict[str, AuditExportCheck] = {}
+    csv_bytes = package["export.csv"]
+    csv_hash = compute_csv_hash(csv_bytes)
+    csv_hash_passed = csv_hash == manifest.csv_hash
+    checks["csv_hash"] = _check(
+        "pass" if csv_hash_passed else "fail",
+        None if csv_hash_passed else "CSV byte hash mismatch",
+        hash=csv_hash,
+    )
+    chain = _inspect_chain(csv_bytes, manifest)
+    chain_passed = chain.valid and chain.rows_verified == manifest.row_count
+    checks["csv_hash_chain"] = _check(
+        "pass" if chain.valid else "fail", chain.error, rows_verified=chain.rows_verified
+    )
+    checks["row_count"] = _check(
+        "pass" if chain_passed else "fail",
+        None if chain_passed else "CSV row count does not match the manifest",
+    )
+    pdf_hash = compute_pdf_hash(package["export.pdf"])
+    pdf_passed = pdf_hash == manifest.pdf_hash
+    checks["pdf_hash"] = _check(
+        "pass" if pdf_passed else "fail",
+        None if pdf_passed else "PDF byte hash mismatch",
+        hash=pdf_hash,
+    )
+    content_ok = csv_hash_passed and chain_passed and pdf_passed
+    return checks, content_ok
+
+
 def verify_online_package(
     zip_bytes: bytes,
     *,
@@ -211,34 +248,9 @@ def verify_online_package(
         key_version=signature_version,
     )
 
-    csv_bytes = package["export.csv"]
-    csv_hash = compute_csv_hash(csv_bytes)
-    checks["csv_hash"] = _check(
-        "pass" if csv_hash == manifest.csv_hash else "fail",
-        None if csv_hash == manifest.csv_hash else "CSV byte hash mismatch",
-        hash=csv_hash,
-    )
-    chain = _inspect_chain(csv_bytes, manifest)
-    row_count_passed = chain.valid and chain.rows_verified == manifest.row_count
-    checks["csv_hash_chain"] = _check(
-        "pass" if chain.valid else "fail", chain.error, rows_verified=chain.rows_verified
-    )
-    checks["row_count"] = _check(
-        "pass" if row_count_passed else "fail",
-        None if row_count_passed else "CSV row count does not match the manifest",
-    )
-    pdf_hash = compute_pdf_hash(package["export.pdf"])
-    checks["pdf_hash"] = _check(
-        "pass" if pdf_hash == manifest.pdf_hash else "fail",
-        None if pdf_hash == manifest.pdf_hash else "PDF byte hash mismatch",
-        hash=pdf_hash,
-    )
-    integrity_checks = (
-        signature_passed,
-        csv_hash == manifest.csv_hash,
-        row_count_passed,
-        pdf_hash == manifest.pdf_hash,
-    )
+    content_checks, content_ok = _verify_content_integrity(package, manifest)
+    checks.update(content_checks)
+    integrity_checks = (signature_passed, content_ok)
     if all(integrity_checks):
         freshness, warnings = _freshness_check(db, manifest)
     else:
@@ -251,7 +263,7 @@ def verify_online_package(
 
 
 def verify_local_package(
-    zip_bytes: bytes, public_key_pem: str | bytes
+    zip_bytes: bytes, public_key_pem: str | bytes, trusted_fingerprint: str | None = None
 ) -> tuple[bool, list[str], dict[str, AuditExportCheck], AuditExportManifest]:
     """Verify package integrity offline with a supplied P-256 public key."""
     package = validate_zip_package(zip_bytes)
@@ -260,6 +272,13 @@ def verify_local_package(
     except Exception as exc:
         raise ArchiveValidationError("manifest is invalid or unsupported") from exc
     checks: dict[str, AuditExportCheck] = {"zip_structure": _check("pass")}
+    if trusted_fingerprint is not None:
+        actual = public_key_fingerprint(public_key_pem)
+        if normalize_fingerprint(actual) != normalize_fingerprint(trusted_fingerprint):
+            message = "Public key fingerprint does not match the trusted anchor"
+            checks["public_key"] = _check("fail", message)
+            return False, [message], checks, manifest
+        checks["public_key"] = _check("pass")
     try:
         fingerprint_passed = (
             public_key_fingerprint(public_key_pem) == manifest.signing_key.key_fingerprint
@@ -281,31 +300,9 @@ def verify_local_package(
         None if signature_passed else "public-key fingerprint or version mismatch",
         key_version=signature_version,
     )
-    csv_bytes = package["export.csv"]
-    csv_hash = compute_csv_hash(csv_bytes)
-    csv_hash_passed = csv_hash == manifest.csv_hash
-    checks["csv_hash"] = _check(
-        "pass" if csv_hash_passed else "fail",
-        None if csv_hash_passed else "CSV byte hash mismatch",
-        hash=csv_hash,
-    )
-    chain = _inspect_chain(csv_bytes, manifest)
-    chain_passed = chain.valid and chain.rows_verified == manifest.row_count
-    checks["csv_hash_chain"] = _check(
-        "pass" if chain.valid else "fail", chain.error, rows_verified=chain.rows_verified
-    )
-    checks["row_count"] = _check(
-        "pass" if chain_passed else "fail",
-        None if chain_passed else "CSV row count does not match the manifest",
-    )
-    pdf_hash = compute_pdf_hash(package["export.pdf"])
-    pdf_passed = pdf_hash == manifest.pdf_hash
-    checks["pdf_hash"] = _check(
-        "pass" if pdf_passed else "fail",
-        None if pdf_passed else "PDF byte hash mismatch",
-        hash=pdf_hash,
-    )
+    content_checks, content_ok = _verify_content_integrity(package, manifest)
+    checks.update(content_checks)
     checks["freshness"] = _check("unavailable", "offline verification cannot query freshness")
-    verified = signature_passed and csv_hash_passed and chain_passed and pdf_passed
+    verified = signature_passed and content_ok
     warnings = ["Freshness unavailable in offline mode"]
     return verified, warnings, checks, manifest

@@ -19,7 +19,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal
-from typing import Any
+from typing import Any, Optional
 from uuid import UUID
 
 from cryptography.hazmat.primitives import hashes, serialization
@@ -176,6 +176,44 @@ def compute_filter_hash(filters: Mapping[str, Any]) -> str:
     return _prefixed_hash(hashlib.sha256(canonical_filter_bytes(filters)).hexdigest())
 
 
+def build_audit_where(
+    *,
+    user_id: Optional[int],
+    action_type: Optional[str],
+    table_affected: Optional[str],
+    ip_address: Optional[str],
+    date_from: Optional[str],
+    date_to: Optional[str],
+    q: Optional[str],
+) -> tuple[str, dict]:
+    """Build the shared WHERE clause + params for audit-log list and export."""
+    where_clauses: list[str] = []
+    params: dict = {}
+    if user_id is not None:
+        where_clauses.append("sat.user_id = :user_id")
+        params["user_id"] = user_id
+    if action_type is not None:
+        where_clauses.append("sat.action_type = :action_type")
+        params["action_type"] = action_type
+    if table_affected is not None:
+        where_clauses.append("sat.table_affected = :table_affected")
+        params["table_affected"] = table_affected
+    if ip_address is not None:
+        where_clauses.append("sat.ip_address = :ip_address")
+        params["ip_address"] = ip_address
+    if date_from is not None:
+        where_clauses.append("sat.timestamp >= CAST(:date_from AS timestamptz)")
+        params["date_from"] = date_from
+    if date_to is not None:
+        where_clauses.append("sat.timestamp <= CAST(:date_to AS timestamptz)")
+        params["date_to"] = date_to
+    if q and q.strip():
+        where_clauses.append("sat.search_vector @@ websearch_to_tsquery('english', :q)")
+        params["q"] = q.strip()
+    where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+    return where_sql, params
+
+
 def _manifest_dict(manifest: AuditExportManifest | Mapping[str, Any]) -> dict[str, Any]:
     if isinstance(manifest, AuditExportManifest):
         data = manifest.model_dump(mode="json")
@@ -260,6 +298,14 @@ def public_key_fingerprint(public_key_pem: str | bytes) -> str:
         serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo
     )
     return _prefixed_hash(hashlib.sha256(der).hexdigest())
+
+
+def normalize_fingerprint(fingerprint: str) -> str:
+    """Normalize a ``sha256:``-prefixed or raw-hex fingerprint to lowercase hex."""
+    value = fingerprint.strip().lower()
+    if value.startswith(CSV_HASH_PREFIX):
+        value = value[len(CSV_HASH_PREFIX) :]
+    return value
 
 
 def verify_local_signature(

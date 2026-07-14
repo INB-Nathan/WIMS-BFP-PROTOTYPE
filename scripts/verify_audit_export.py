@@ -18,7 +18,11 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 BACKEND_ROOT = REPO_ROOT / "src" / "backend"
 sys.path.insert(0, str(BACKEND_ROOT))
 
-from services.audit_export import create_export_zip  # noqa: E402
+from services.audit_export import (  # noqa: E402
+    create_export_zip,
+    normalize_fingerprint,
+    public_key_fingerprint,
+)
 from services.audit_export_verifier import (  # noqa: E402
     ArchiveTooLargeError,
     ArchiveValidationError,
@@ -38,6 +42,10 @@ def _parser() -> argparse.ArgumentParser:
         "--public-key-file",
         type=Path,
         help="PEM P-256 public key for offline verification",
+    )
+    parser.add_argument(
+        "--public-key-fingerprint",
+        help="trusted sha256:<hex> public-key fingerprint from a secure out-of-band channel",
     )
     parser.add_argument(
         "--api-url", help="verification API base URL (for online verification)"
@@ -72,6 +80,9 @@ def _print_result(verified: bool, warnings: list[str], checks: dict) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.public_key_fingerprint is not None and not args.offline:
+        print("--public-key-fingerprint requires --offline", file=sys.stderr)
+        return 2
     if args.offline:
         if args.api_url or not args.public_key_file:
             print(
@@ -80,9 +91,28 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 2
         try:
+            public_key_pem = args.public_key_file.read_bytes()
+        except OSError as exc:
+            print(f"input error: {exc}", file=sys.stderr)
+            return 2
+        if args.public_key_fingerprint is not None:
+            try:
+                actual = public_key_fingerprint(public_key_pem)
+            except Exception as exc:
+                print(f"public key fingerprint error: {exc}", file=sys.stderr)
+                return 2
+            if normalize_fingerprint(actual) != normalize_fingerprint(
+                args.public_key_fingerprint
+            ):
+                print(
+                    "public key fingerprint does not match the trusted anchor",
+                    file=sys.stderr,
+                )
+                return 2
+        try:
             package = _load_package(args.paths)
             verified, warnings, checks, _manifest = verify_local_package(
-                package, args.public_key_file.read_bytes()
+                package, public_key_pem, trusted_fingerprint=args.public_key_fingerprint
             )
         except (
             OSError,
