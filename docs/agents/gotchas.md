@@ -26,3 +26,18 @@ Each is a real mistake a sub-agent made.
 16. **Run ruff before every commit.** E402: don't place code between import blocks. `ruff check .` and `ruff format --check .` are cheap; skipping them pushes red.
 
 17. **Target `master`, not `main`.** This repo has a stale orphan branch named `main` that is far behind `master`. Opening a PR against `main` shows 100+ unrelated commits and cannot be merged. If a PR shows far more commits than the branch has, check the base branch — it was probably opened against `main` by mistake. Always verify `gh pr view <N> --json baseRefName` before reviewing or merging. If found, close the duplicate and use the correct PR targeting `master`.
+
+18. **Don't race the automated CD/deploy pipeline with manual VPS fixes.** Every push to `master` triggers two GitHub Actions workflows that deploy automatically:
+    - **`cd.yml`**: builds `wims-backend` and `wims-frontend` Docker images, pushes them to `ghcr.io/x1n4te/<image>:latest`.
+    - **`deploy.yml`** (after CI gate passes): SSHs into the VPS, runs `git reset --hard` + `git clean -fd` (wiping manual edits to tracked files), pulls the GHCR images, and runs `scripts/deploy-vps.sh` which does `docker compose up -d` with `-f docker-compose.yml -f docker-compose.prod.yml --env-file .env.production`.
+
+    If you SSH into the VPS and manually edit files or run `docker compose` commands while this pipeline is running, you will:
+    - Have your manual edits wiped by `git reset --hard`.
+    - Race with `compose up -d` (containers may get stuck in "Created" state, get killed, or end up on the wrong image).
+    - End up with containers running stale images (`ghcr.io/...` from the last successful deploy) instead of the local builds you intended.
+
+    **Before any manual VPS intervention:**
+    1. Check GitHub Actions to see if a deploy is in progress: `gh run list --workflow=deploy.yml --limit=5`
+    2. Wait for any running deploy to finish (green check) before touching the VPS.
+    3. After it finishes, pull the latest commit and let the pipeline deploy it. Manual VPS edits should be the last resort, not the first reflex.
+    4. If you must make an emergency VPS-only fix, commit the change to the repo and push so the next deploy doesn't revert it.

@@ -28,6 +28,11 @@ data-integrity, or evidence requirements.
 5. Run the narrowest useful checks first, then the broader gate required by the
    delivery action.
 6. Re-read changed files and review `git diff` plus final `git status`.
+7. **Before any manual VPS intervention**: check GitHub Actions for a running
+   deploy (`gh run list --workflow=deploy.yml --limit=5`). Every push to
+   `master` triggers an automated CD+deploy pipeline that does `git reset --hard`
+   and `docker compose up -d` on the VPS. Manual edits race with it.
+   See `docs/agents/gotchas.md` #18 for the full pipeline description.
 
 Evidence rules:
 
@@ -111,7 +116,9 @@ Cross-cutting work also requires the relevant context pack from
 
 - Do not run `docker compose down -v`, destructive migrations, restore operations,
   production SSH/Compose tools, or bulk-delete commands without explicit approval
-  and a stated target environment.
+  and a stated target environment. **Before using VPS tools, verify no automated
+  deploy is in progress** (`gh run list --workflow=deploy.yml --limit=5`).
+  See `docs/agents/gotchas.md` #18.
 - Never commit credentials, tokens, private keys, production `.env` files, PII,
   network captures, or secret-bearing logs.
 - Do not edit or review as project source: `node_modules/`, `.next/`, caches,
