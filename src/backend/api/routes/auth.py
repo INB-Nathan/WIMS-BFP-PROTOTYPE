@@ -27,7 +27,12 @@ from sqlalchemy.orm import Session
 
 from auth import get_current_wims_user, get_db_with_rls
 from database import get_db
-from schemas.auth import CivilianRegisterRequest, RegisterResponse
+from schemas.auth import (
+    CivilianRegisterRequest,
+    RegisterResponse,
+    VerifyRegistrationRequest,
+    VerifyRegistrationResponse,
+)
 from services.captcha import verify_turnstile
 from services.email.sender import send_email_async
 from services.keycloak_admin import (
@@ -35,6 +40,7 @@ from services.keycloak_admin import (
     _KC_REALM,
     _get_admin_client,
     create_keycloak_user,
+    set_user_enabled,
     update_user_profile,
 )
 from utils.audit import log_system_audit, trusted_client_ip
@@ -393,14 +399,16 @@ def _lookup_user_by_email(adm, email: str) -> str | None:
 async def register(
     body: CivilianRegisterRequest,
     request: Request,
-    db: Annotated[Session, Depends(get_db)],
 ):
     """
-    Civilian self-service signup.
+    Civilian self-service signup (verify-first flow).
 
     Public — no auth required. Validates Turnstile, enforces rate limiting,
-    checks email uniqueness, creates the Keycloak user with CIVILIAN_REPORTER
-    role, inserts DB records, and records DPA consent audit when applicable.
+    checks email uniqueness, and creates a DISABLED Keycloak user with
+    CIVILIAN_REPORTER role. A 6-digit verification code is stored in Redis and
+    emailed to the user. The account is finalized (DB records created and the
+    Keycloak user enabled) only after the user verifies via
+    POST /api/auth/verify-registration.
     """
     client_ip = trusted_client_ip(request)
 
@@ -415,8 +423,7 @@ async def register(
         )
 
     # 2. Verify Turnstile (skip when not configured)
-    import os as _os
-    if _os.environ.get("TURNSTILE_SECRET_KEY", ""):
+    if os.environ.get("TURNSTILE_SECRET_KEY", ""):
         await verify_turnstile(body.turnstile_token, client_ip)
 
     # 3. Validate email uniqueness via Keycloak lookup
@@ -433,7 +440,7 @@ async def register(
             detail="An account with this email already exists",
         )
 
-    # 4. Create Keycloak user with CIVILIAN_REPORTER role, permanent password
+    # 4. Create DISABLED Keycloak user (enabled only after email verification)
     try:
         kc_user_id, _email_sent = create_keycloak_user(
             email=body.email,
@@ -444,6 +451,8 @@ async def register(
             temp_password=body.password,
             contact_number=body.contact_number,
             temporary=False,
+            enabled=False,
+            email_verified=False,
         )
     except KeycloakError as e:
         logger.error("Keycloak user creation failed for %s: %s", body.email, e)
@@ -454,6 +463,7 @@ async def register(
         http_status = 502
         if e.response_code == 400 and e.response_body:
             import json as _json
+
             try:
                 body_data = _json.loads(e.response_body)
                 detail = body_data.get("error_description")
@@ -464,8 +474,182 @@ async def register(
                 pass
         raise HTTPException(status_code=http_status, detail=http_detail)
 
-    # 5. Insert into wims.users (let user_id default to gen_random_uuid())
+    # 5. Store verification code in Redis and send verification email.
+    #    The DB account record is created only after verification (see
+    #    /verify-registration). contact_number and dpa_consent are carried in
+    #    the Redis payload because that endpoint receives only email + code.
+    if r is None:
+        # Cannot complete the verify-first flow without Redis; roll back the
+        # disabled Keycloak account to avoid an orphan.
+        try:
+            adm.delete_user(kc_user_id)
+        except Exception:
+            pass
+        raise HTTPException(
+            status_code=503,
+            detail="Verification service temporarily unavailable. Try again later.",
+        )
+
+    code = _generate_code()
+    redis_key = f"reg_verify:{body.email.lower()}"
+    try:
+        await r.setex(
+            redis_key,
+            VERIFICATION_CODE_TTL,
+            json.dumps(
+                {
+                    "code": code,
+                    "contact_number": body.contact_number,
+                    "dpa_consent": body.dpa_consent,
+                }
+            ),
+        )
+    except Exception as e:
+        logger.error("Failed to store verification code for %s: %s", body.email, e)
+        try:
+            adm.delete_user(kc_user_id)
+        except Exception:
+            pass
+        raise HTTPException(
+            status_code=503,
+            detail="Verification service temporarily unavailable. Try again later.",
+        )
+
+    try:
+        await send_email_async(
+            to=body.email,
+            template_name="email_verification",
+            context={
+                "username": body.email,
+                "pending_email": body.email,
+                "code": code,
+            },
+        )
+    except Exception as e:
+        logger.error("Failed to send verification email to %s: %s", body.email, e)
+        # Clean up the Redis key and the disabled Keycloak user so we don't
+        # leave an orphan disabled account that can never be verified.
+        try:
+            await r.delete(redis_key)
+        except Exception:
+            pass
+        try:
+            adm.delete_user(kc_user_id)
+        except Exception:
+            pass
+        raise HTTPException(
+            status_code=502,
+            detail="Failed to send verification email. Try again later.",
+        )
+
+    logger.info(
+        "Civilian registration initiated: keycloak_id=%s email=%s (verification pending)",
+        kc_user_id,
+        body.email,
+    )
+
+    return RegisterResponse(
+        status="ok",
+        message=f"Verification email sent to {body.email}",
+        email=body.email,
+    )
+
+
+@router.post(
+    "/verify-registration",
+    response_model=VerifyRegistrationResponse,
+    status_code=200,
+)
+async def verify_registration(
+    body: VerifyRegistrationRequest,
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+):
+    """
+    Finalize civilian self-service registration (verify-first flow).
+
+    Public — no auth required. Validates the 6-digit code emailed during
+    /register, enables the (previously disabled) Keycloak account, marks the
+    email verified, and creates the wims.users + wims.civilian_contributors
+    records. On success the user may log in.
+    """
+    r = await _get_redis()
+    if r is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Email verification is temporarily unavailable. Try again later.",
+        )
+
+    # Rate limit: 5 code attempts per 10 minutes per email
+    await _check_rate_limit(
+        r,
+        f"rate:reg_verify:{body.email}",
+        5,
+        VERIFICATION_CODE_TTL,
+    )
+
+    if not body.code or not body.code.strip():
+        raise HTTPException(status_code=400, detail="Verification code is required")
+    code = body.code.strip()
+
+    redis_key = f"reg_verify:{body.email.lower()}"
+    raw = await r.get(redis_key)
+    if raw is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No pending registration found. The code may have expired or already been used.",
+        )
+
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        await r.delete(redis_key)
+        raise HTTPException(status_code=500, detail="Invalid verification state")
+
+    stored_code = data.get("code")
+    if not stored_code:
+        await r.delete(redis_key)
+        raise HTTPException(status_code=500, detail="Invalid verification state")
+
+    if code != stored_code:
+        logger.warning("Registration verification code mismatch for %s", body.email)
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid verification code. Please check and try again.",
+        )
+
+    # Look up the Keycloak user by email to obtain the keycloak_id (the user
+    # was created disabled during /register).
+    try:
+        adm = _get_admin_client()
+    except Exception as e:
+        logger.error("Keycloak admin client unavailable for verify-registration: %s", e)
+        raise HTTPException(status_code=503, detail="Verification service temporarily unavailable")
+
+    kc_user_id = _lookup_user_by_email(adm, body.email)
+    if kc_user_id is None:
+        # Should not happen if a code was issued, but guard against drift.
+        await r.delete(redis_key)
+        raise HTTPException(
+            status_code=404,
+            detail="No account found for this email. Please register again.",
+        )
+
+    # Enable the Keycloak user and mark the email as verified.
+    try:
+        set_user_enabled(kc_user_id, enabled=True, email_verified=True)
+    except KeycloakError as e:
+        logger.error("Keycloak enable failed for %s: %s", kc_user_id, e)
+        raise HTTPException(
+            status_code=502,
+            detail="Failed to activate account. Try again later.",
+        )
+
+    contact_number = data.get("contact_number")
     now = datetime.now(timezone.utc)
+    dpa_consented_at = now if data.get("dpa_consent") else None
+
+    # ── Create wims.users (moved from register()) ──
     try:
         result = db.execute(
             text(
@@ -482,7 +666,7 @@ async def register(
                 "eml": body.email,
                 "uname": body.email,
                 "role": "CIVILIAN_REPORTER",
-                "phone": body.contact_number,
+                "phone": contact_number,
                 "now": now,
             },
         ).fetchone()
@@ -500,8 +684,7 @@ async def register(
             pass
         raise HTTPException(status_code=502, detail="Account creation failed. Try again later.")
 
-    # 6. Insert into wims.civilian_contributors
-    dpa_consented_at = now if body.dpa_consent else None
+    # ── Create wims.civilian_contributors (moved from register()) ──
     try:
         db.execute(
             text(
@@ -535,8 +718,8 @@ async def register(
             pass
         raise HTTPException(status_code=502, detail="Account creation failed. Try again later.")
 
-    # 7. Audit DPA consent if given
-    if body.dpa_consent:
+    # ── Audit DPA consent if given (moved from register()) ──
+    if dpa_consented_at is not None:
         log_system_audit(
             db,
             str(user_id),
@@ -545,24 +728,25 @@ async def register(
             None,
             request,
             new_values={
-                "dpa_consented_at": now.isoformat(),
-                "ip_address": client_ip,
+                "dpa_consented_at": dpa_consented_at.isoformat(),
+                "ip_address": trusted_client_ip(request),
             },
         )
         db.commit()
 
+    # Clean up Redis after successful verification
+    await r.delete(redis_key)
+
     logger.info(
-        "Civilian registered: user_id=%s keycloak_id=%s email=%s dpa_consent=%s",
+        "Civilian registration verified: user_id=%s keycloak_id=%s email=%s",
         user_id,
         kc_user_id,
         body.email,
-        body.dpa_consent,
     )
 
-    return RegisterResponse(
+    return VerifyRegistrationResponse(
         status="ok",
-        message="Account created successfully. You can now log in.",
-        user_id=str(user_id),
+        message="Email verified. You can now log in.",
     )
 
 

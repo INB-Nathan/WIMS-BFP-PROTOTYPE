@@ -49,8 +49,29 @@ class CivilianRegisterRequest(BaseModel):
 
 
 class RegisterResponse(BaseModel):
-    """Response body for successful civilian registration."""
+    """Response body for POST /api/auth/register — civilian self-service signup.
+
+    After the verify-first change, registration only creates a disabled
+    Keycloak account and sends a verification email; the DB record is created
+    later by /verify-registration. ``user_id`` is therefore optional/absent at
+    this stage.
+    """
 
     status: str
     message: str
-    user_id: str
+    email: str
+    user_id: str | None = None
+
+
+class VerifyRegistrationRequest(BaseModel):
+    """Request body for POST /api/auth/verify-registration."""
+
+    email: str
+    code: str
+
+
+class VerifyRegistrationResponse(BaseModel):
+    """Response body for POST /api/auth/verify-registration."""
+
+    status: str
+    message: str

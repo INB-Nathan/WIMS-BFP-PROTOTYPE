@@ -130,7 +130,7 @@ export default function RegisterPage() {
         dpa_consent: dpaConsent,
         turnstile_token: turnstileToken || '',
       });
-      router.push('/login?registered=true');
+      router.push(`/verify-sent?email=${encodeURIComponent(email)}`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Registration failed. Please try again.';
       // Turnstile tokens are single-use — consumed by this attempt regardless

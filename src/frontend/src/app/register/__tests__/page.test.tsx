@@ -31,8 +31,8 @@ vi.mock('next/link', () => ({
 // Mock the registration API
 const mockRegisterCivilian = vi.fn().mockResolvedValue({
   status: 'ok',
-  message: 'Account created successfully. You can now log in.',
-  user_id: 'abc-123',
+  message: 'Verification email sent to juan@example.com',
+  email: 'juan@example.com',
 });
 vi.mock('@/lib/api/civilian', () => ({
   registerCivilian: (...args: unknown[]) => mockRegisterCivilian(...args),
@@ -62,8 +62,8 @@ describe('RegisterPage — field validation', () => {
     vi.clearAllMocks();
     mockRegisterCivilian.mockResolvedValue({
       status: 'ok',
-      message: 'Account created successfully. You can now log in.',
-      user_id: 'abc-123',
+      message: 'Verification email sent to juan@example.com',
+      email: 'juan@example.com',
     });
   });
 
@@ -156,12 +156,12 @@ describe('RegisterPage — successful submit', () => {
     vi.clearAllMocks();
     mockRegisterCivilian.mockResolvedValue({
       status: 'ok',
-      message: 'Account created successfully. You can now log in.',
-      user_id: 'abc-123',
+      message: 'Verification email sent to juan@example.com',
+      email: 'juan@example.com',
     });
   });
 
-  it('submits valid data and redirects to /login?registered=true', async () => {
+  it('submits valid data and redirects to /verify-sent?email=juan%40example.com', async () => {
     const user = userEvent.setup();
     const { default: RegisterPage } = await import('../page');
     render(<RegisterPage />);
@@ -193,7 +193,7 @@ describe('RegisterPage — successful submit', () => {
       turnstile_token: 'mock-turnstile-token',
     });
 
-    expect(mockRouterPush).toHaveBeenCalledWith('/login?registered=true');
+    expect(mockRouterPush).toHaveBeenCalledWith('/verify-sent?email=juan%40example.com');
   });
 
   it('shows the server error message when registration fails', async () => {

@@ -112,6 +112,8 @@ def create_keycloak_user(
     temp_password: str,
     contact_number: str | None = None,
     temporary: bool = True,
+    enabled: bool = True,
+    email_verified: bool = True,
 ) -> tuple[str, bool]:
     """
     Create a user in Keycloak, optionally set a temporary password (must change
@@ -145,8 +147,8 @@ def create_keycloak_user(
         "email": email,
         "firstName": first_name,
         "lastName": last_name,
-        "enabled": True,
-        "emailVerified": True,
+        "enabled": enabled,
+        "emailVerified": email_verified,
         "requiredActions": required_actions,
     }
     if contact_number:
@@ -193,18 +195,27 @@ def _assign_realm_role(adm: KeycloakAdmin, *, user_id: str, role_name: str) -> N
     adm.assign_realm_roles(user_id=user_id, roles=[role])
 
 
-def set_user_enabled(keycloak_id: str, *, enabled: bool) -> None:
+def set_user_enabled(
+    keycloak_id: str, *, enabled: bool, email_verified: bool | None = None
+) -> None:
     """
     Enable or disable a user in Keycloak. When disabled, all existing sessions
     are also revoked so the user is immediately logged out.
+
+    When ``email_verified`` is provided (not None), the user's ``emailVerified``
+    flag is updated in the same call (used by the civilian verify-first
+    registration flow).
 
     Raises:
         KeycloakError: on API failure.
         RuntimeError: if admin client is not configured.
     """
     adm = _get_admin_client()
+    payload: dict = {"enabled": enabled}
+    if email_verified is not None:
+        payload["emailVerified"] = email_verified
     try:
-        adm.update_user(user_id=keycloak_id, payload={"enabled": enabled})
+        adm.update_user(user_id=keycloak_id, payload=payload)
         if not enabled:
             # Force logout all existing sessions
             try:

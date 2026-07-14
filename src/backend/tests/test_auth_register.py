@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import json
 import pytest
 from fastapi.testclient import TestClient
 from keycloak.exceptions import KeycloakError
@@ -21,7 +22,10 @@ from pydantic import ValidationError
 
 import api.routes.auth as auth_routes
 from database import get_db
-from schemas.auth import CivilianRegisterRequest, RegisterResponse
+from schemas.auth import (
+    CivilianRegisterRequest,
+    RegisterResponse,
+)
 from main import app
 
 
@@ -228,11 +232,12 @@ class TestRegisterResponse:
     def test_valid_response(self):
         resp = RegisterResponse(
             status="ok",
-            message="Account created",
-            user_id="user-uuid-001",
+            message="Verification email sent",
+            email="test@example.com",
         )
         assert resp.status == "ok"
-        assert resp.user_id == "user-uuid-001"
+        assert resp.email == "test@example.com"
+        assert resp.user_id is None
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -263,6 +268,7 @@ class TestRegisterEndpoint:
         with (
             patch("api.routes.auth._get_redis", return_value=mock_redis),
             patch("api.routes.auth.verify_turnstile", return_value=True),
+            patch("api.routes.auth.send_email_async") as mock_send,
             kc_p1,
             kc_p2,
         ):
@@ -270,14 +276,29 @@ class TestRegisterEndpoint:
         assert response.status_code == 201, response.json()
         data = response.json()
         assert data["status"] == "ok"
-        assert data["user_id"] == "00000000-0000-0000-0000-000000000001"
+        assert data["email"] == "test@example.com"
+        assert "Verification email sent" in data["message"]
+        # Verify-first: no DB record created at registration time.
+        mock_db.execute.assert_not_called()
+        # Keycloak user created disabled + email unverified.
+        create_payload = mock_keycloak_admin.create_user.call_args[0][0]
+        assert create_payload["enabled"] is False
+        assert create_payload["emailVerified"] is False
         mock_keycloak_admin.set_user_password.assert_called_once_with(
             user_id="user-uuid-reg-001",
             password="StrongPass1",
             temporary=False,
         )
         mock_keycloak_admin.assign_realm_roles.assert_called_once()
-        assert mock_db.execute.call_count >= 2
+        # Verification code stored in Redis and email sent.
+        mock_redis.setex.assert_called_once()
+        args, kwargs = mock_redis.setex.call_args
+        assert args[0] == "reg_verify:test@example.com"
+        assert args[1] == 600
+        mock_send.assert_called_once()
+        assert mock_send.call_args.kwargs["template_name"] == "email_verification"
+        assert mock_send.call_args.kwargs["context"]["code"]
+        assert mock_send.call_args.kwargs["context"]["pending_email"] == "test@example.com"
 
     def test_success_without_dpa_consent(
         self, client: TestClient, valid_payload, mock_redis, mock_keycloak_admin, mock_db
@@ -288,12 +309,14 @@ class TestRegisterEndpoint:
         with (
             patch("api.routes.auth._get_redis", return_value=mock_redis),
             patch("api.routes.auth.verify_turnstile", return_value=True),
+            patch("api.routes.auth.send_email_async"),
             kc_p1,
             kc_p2,
         ):
             response = client.post("/api/auth/register", json=payload)
         assert response.status_code == 201, response.json()
         assert response.json()["status"] == "ok"
+        assert response.json()["email"] == "test@example.com"
 
     def test_rate_limit_exceeded_returns_429(
         self, client: TestClient, valid_payload, mock_redis, mock_db
@@ -341,9 +364,11 @@ class TestRegisterEndpoint:
         assert "already exists" in response.json()["detail"].lower()
         mock_keycloak_admin.create_user.assert_not_called()
 
-    def test_redis_unavailable_still_processes(
+    def test_redis_unavailable_returns_503_and_cleans_up(
         self, client: TestClient, valid_payload, mock_keycloak_admin, mock_db
     ):
+        # Redis is required to store the verification code; without it the
+        # disabled Keycloak user must be rolled back to avoid an orphan.
         app.dependency_overrides[get_db] = lambda: mock_db
         kc_p1, kc_p2 = _kc_patches(mock_keycloak_admin)
         with (
@@ -353,8 +378,30 @@ class TestRegisterEndpoint:
             kc_p2,
         ):
             response = client.post("/api/auth/register", json=valid_payload)
-        assert response.status_code == 201, response.json()
-        assert response.json()["status"] == "ok"
+        assert response.status_code == 503
+        mock_keycloak_admin.create_user.assert_called_once()
+        mock_keycloak_admin.delete_user.assert_called_once()
+
+    def test_email_send_failure_cleans_up_keycloak(
+        self, client: TestClient, valid_payload, mock_redis, mock_keycloak_admin, mock_db
+    ):
+        app.dependency_overrides[get_db] = lambda: mock_db
+        kc_p1, kc_p2 = _kc_patches(mock_keycloak_admin)
+        with (
+            patch("api.routes.auth._get_redis", return_value=mock_redis),
+            patch("api.routes.auth.verify_turnstile", return_value=True),
+            patch(
+                "api.routes.auth.send_email_async",
+                side_effect=RuntimeError("smtp down"),
+            ),
+            kc_p1,
+            kc_p2,
+        ):
+            response = client.post("/api/auth/register", json=valid_payload)
+        assert response.status_code == 502
+        # Redis key and disabled Keycloak user both cleaned up.
+        mock_redis.delete.assert_called_once_with("reg_verify:test@example.com")
+        mock_keycloak_admin.delete_user.assert_called_once()
 
     def test_keycloak_creation_failure_returns_502(
         self, client: TestClient, valid_payload, mock_redis, mock_keycloak_admin, mock_db
@@ -371,20 +418,126 @@ class TestRegisterEndpoint:
             response = client.post("/api/auth/register", json=valid_payload)
         assert response.status_code == 502
 
-    def test_db_insert_failure_cleans_up_keycloak(
-        self, client: TestClient, valid_payload, mock_redis, mock_keycloak_admin
+
+class TestVerifyRegistrationEndpoint:
+    """Integration tests for POST /api/auth/verify-registration with all mocks."""
+
+    def _redis_payload(self, **overrides):
+        payload = {
+            "code": "123456",
+            "contact_number": "09171234567",
+            "dpa_consent": True,
+        }
+        payload.update(overrides)
+        return payload
+
+    def test_success_enables_user_and_inserts_db(
+        self, client: TestClient, mock_redis, mock_keycloak_admin, mock_db
     ):
+        app.dependency_overrides[get_db] = lambda: mock_db
+        mock_redis.get.return_value = json.dumps(self._redis_payload())
+        # The disabled Keycloak user created during /register.
+        mock_keycloak_admin.get_users.return_value = [{"id": "user-uuid-reg-001"}]
+        kc_p1, kc_p2 = _kc_patches(mock_keycloak_admin)
+        with (
+            patch("api.routes.auth._get_redis", return_value=mock_redis),
+            patch("api.routes.auth.set_user_enabled") as mock_enable,
+            kc_p1,
+            kc_p2,
+        ):
+            response = client.post(
+                "/api/auth/verify-registration",
+                json={"email": "test@example.com", "code": "123456"},
+            )
+        assert response.status_code == 200, response.json()
+        data = response.json()
+        assert data["status"] == "ok"
+        assert "verified" in data["message"].lower()
+        # Keycloak user enabled + email marked verified.
+        mock_enable.assert_called_once_with("user-uuid-reg-001", enabled=True, email_verified=True)
+        # DB inserts: wims.users, wims.civilian_contributors, DPA audit.
+        assert mock_db.execute.call_count >= 2
+        # Redis key deleted after success.
+        mock_redis.delete.assert_called_with("reg_verify:test@example.com")
+
+    def test_wrong_code_returns_400(
+        self, client: TestClient, mock_redis, mock_keycloak_admin, mock_db
+    ):
+        app.dependency_overrides[get_db] = lambda: mock_db
+        mock_redis.get.return_value = json.dumps(self._redis_payload())
+        kc_p1, kc_p2 = _kc_patches(mock_keycloak_admin)
+        with (
+            patch("api.routes.auth._get_redis", return_value=mock_redis),
+            patch("api.routes.auth.set_user_enabled") as mock_enable,
+            kc_p1,
+            kc_p2,
+        ):
+            response = client.post(
+                "/api/auth/verify-registration",
+                json={"email": "test@example.com", "code": "000000"},
+            )
+        assert response.status_code == 400
+        mock_enable.assert_not_called()
+
+    def test_rate_limit_exceeded_returns_429(
+        self, client: TestClient, mock_redis, mock_keycloak_admin, mock_db
+    ):
+        app.dependency_overrides[get_db] = lambda: mock_db
+        mock_redis.get.return_value = json.dumps(self._redis_payload())
+        mock_redis.incr = AsyncMock(return_value=6)
+        kc_p1, kc_p2 = _kc_patches(mock_keycloak_admin)
+        with (
+            patch("api.routes.auth._get_redis", return_value=mock_redis),
+            patch("api.routes.auth.set_user_enabled") as mock_enable,
+            kc_p1,
+            kc_p2,
+        ):
+            response = client.post(
+                "/api/auth/verify-registration",
+                json={"email": "test@example.com", "code": "123456"},
+            )
+        assert response.status_code == 429
+        mock_enable.assert_not_called()
+
+    def test_missing_redis_key_returns_404(
+        self, client: TestClient, mock_redis, mock_keycloak_admin, mock_db
+    ):
+        app.dependency_overrides[get_db] = lambda: mock_db
+        mock_redis.get.return_value = None
+        kc_p1, kc_p2 = _kc_patches(mock_keycloak_admin)
+        with (
+            patch("api.routes.auth._get_redis", return_value=mock_redis),
+            patch("api.routes.auth.set_user_enabled") as mock_enable,
+            kc_p1,
+            kc_p2,
+        ):
+            response = client.post(
+                "/api/auth/verify-registration",
+                json={"email": "test@example.com", "code": "123456"},
+            )
+        assert response.status_code == 404
+        mock_enable.assert_not_called()
+
+    def test_db_insert_failure_cleans_up_keycloak(
+        self, client: TestClient, mock_redis, mock_keycloak_admin, mock_db
+    ):
+        mock_redis.get.return_value = json.dumps(self._redis_payload())
+        # The disabled Keycloak user created during /register.
+        mock_keycloak_admin.get_users.return_value = [{"id": "user-uuid-reg-001"}]
         db_fail = MagicMock(name="db_session")
         db_fail.execute.side_effect = Exception("DB constraint violation")
         app.dependency_overrides[get_db] = lambda: db_fail
         kc_p1, kc_p2 = _kc_patches(mock_keycloak_admin)
         with (
             patch("api.routes.auth._get_redis", return_value=mock_redis),
-            patch("api.routes.auth.verify_turnstile", return_value=True),
+            patch("api.routes.auth.set_user_enabled"),
             kc_p1,
             kc_p2,
         ):
-            response = client.post("/api/auth/register", json=valid_payload)
+            response = client.post(
+                "/api/auth/verify-registration",
+                json={"email": "test@example.com", "code": "123456"},
+            )
         assert response.status_code == 502
         mock_keycloak_admin.delete_user.assert_called_once()
 

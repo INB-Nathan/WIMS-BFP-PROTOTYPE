@@ -159,7 +159,14 @@ export interface CivilianRegisterPayload {
 export interface RegisterResponse {
   status: string;
   message: string;
-  user_id: string;
+  email: string;
+  user_id?: string | null;
+}
+
+/** Response body for successful email verification (mirrors backend VerifyRegistrationResponse). */
+export interface VerifyRegistrationResponse {
+  status: string;
+  message: string;
 }
 
 /**
@@ -178,6 +185,22 @@ export async function registerCivilian(
   payload: CivilianRegisterPayload,
 ): Promise<RegisterResponse> {
   return apiFetch<RegisterResponse>('/auth/register', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+/**
+ * POST /api/auth/verify-registration — finalize civilian self-service signup.
+ * Verifies the 6-digit code emailed during /register and enables the account.
+ * Returns the backend VerifyRegistrationResponse on HTTP 200. Throws
+ * ApiRequestError on invalid/expired code or server failures so the caller can
+ * surface a message.
+ */
+export async function verifyCivilianRegistration(
+  payload: { email: string; code: string },
+): Promise<VerifyRegistrationResponse> {
+  return apiFetch<VerifyRegistrationResponse>('/auth/verify-registration', {
     method: 'POST',
     body: JSON.stringify(payload),
   });
