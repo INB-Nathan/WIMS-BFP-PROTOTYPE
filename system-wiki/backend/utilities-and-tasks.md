@@ -261,6 +261,7 @@ live in `src/backend/services/audit_export.py` and
 
 - `CanonicalCsvWriter` emits UTF-8, LF-terminated CSV with a first-column
   `row_hash` chain, a 50,000-row hard limit, and a `sha256:` final chain hash.
+- Arbitrary byte cells are represented as deterministic `base64:<ascii>` text.
 - `inspect_csv_hash_chain()` verifies row hashes, canonical bytes, row count,
   and the manifest final hash without database access.
 - `AuditExportPdfGenerator` uses ReportLab base14 fonts and an invariant canvas

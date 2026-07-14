@@ -81,6 +81,15 @@ def test_verify_returns_false_for_valid_openbao_negative_result(monkeypatch):
     assert client.verify("audit-export-signer", b"manifest-bytes", _SIGNATURE) is False
 
 
+def test_verify_signature_parse_errors_are_attributed_to_verify(monkeypatch):
+    client = _client(monkeypatch)
+
+    with pytest.raises(OpenBaoClientError) as exc_info:
+        client.verify("audit-export-signer", b"manifest-bytes", "vault:v1:not-valid")
+
+    assert exc_info.value.method == "verify"
+
+
 def test_verify_forwards_requested_hash_algorithm(monkeypatch):
     client = _client(monkeypatch)
     client._request = MagicMock(return_value={"data": {"valid": False}})
