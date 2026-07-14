@@ -338,6 +338,13 @@ class ContributorStatsResponse(ContributorTrustScoreBreakdown):
     monthly_report_counts: list[dict] = []
 
 
+class ContributorDetailResponse(BaseModel):
+    """Validator view: a civilian contributor's profile plus paginated reports."""
+
+    profile: ContributorProfileResponse
+    reports: ContributorReportsResponse
+
+
 class PendingPhotoUploadResponse(BaseModel):
     """Contract for an encrypted pre-upload row before report attachment.
 

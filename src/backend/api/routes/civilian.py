@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Uplo
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+from uuid import UUID
 
 from database import get_db
 from services.event_bus import publish_verification_event_sync
@@ -35,7 +36,7 @@ from utils.rate_limit import (
     RETRY_AFTER_FLOOR_SECONDS,
 )
 
-from auth import get_anonymous_session_id, get_current_wims_user, get_photo_db, optional_auth
+from auth import get_anonymous_session_id, get_current_wims_user, get_national_validator, get_photo_db, optional_auth
 from schemas.civilian import (
     CivilianFollowupCreate,
     CivilianFollowupResponse,
@@ -43,6 +44,7 @@ from schemas.civilian import (
     CivilianReportCreate,
     CivilianReportResponse,
     CivilianTrackingResponse,
+    ContributorDetailResponse,
     ContributorProfileResponse,
     ContributorReportsResponse,
     ContributorStatsResponse,
@@ -1326,6 +1328,31 @@ async def get_contributor_stats_route(
         )
     stats = contributor_stats(user["user_id"], db)
     return ContributorStatsResponse(**stats)
+
+
+@router.get("/contributor/{user_id}", response_model=ContributorDetailResponse)
+async def get_contributor_profile_by_id(
+    user_id: str,
+    _validator: Annotated[dict, Depends(get_national_validator)],
+    db: Annotated[Session, Depends(get_db)],
+) -> ContributorDetailResponse:
+    """Validator view of an arbitrary contributor's profile + reports.
+
+    Reuses the existing contributor services (which accept any user_id). RBAC is
+    enforced server-side via get_national_validator; REGIONAL_VALIDATOR is not a
+    live role in this schema, so NATIONAL_VALIDATOR is the gate.
+    """
+    try:
+        target = str(UUID(user_id))
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid user_id UUID")
+
+    profile = contributor_profile(target, db)
+    reports = get_contributor_reports(target, page=1, limit=20, db=db)
+    return ContributorDetailResponse(
+        profile=ContributorProfileResponse(**profile),
+        reports=ContributorReportsResponse(**reports),
+    )
 
 
 def _get_count_bucket(count: int) -> str:
