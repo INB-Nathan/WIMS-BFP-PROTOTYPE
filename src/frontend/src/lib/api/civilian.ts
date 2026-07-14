@@ -142,3 +142,43 @@ export async function fetchReportStatus(
     `/civilian/reports/${reportId}?device_id=${encodeURIComponent(deviceId)}`,
   );
 }
+
+// ── Civilian self-service registration (PR4) ────────────────────────────────
+
+export interface CivilianRegisterPayload {
+  email: string;
+  first_name: string;
+  last_name: string;
+  password: string;
+  contact_number: string;
+  dpa_consent: boolean;
+  turnstile_token: string;
+}
+
+/** Response body for successful civilian registration (mirrors backend RegisterResponse). */
+export interface RegisterResponse {
+  status: string;
+  message: string;
+  user_id: string;
+}
+
+/**
+ * Public fetch for anonymous civilian endpoints. Zero-trust: never sends
+ * cookies, never redirects to login. Use for self-service registration.
+ */
+export const apiFetch = publicApiFetch;
+
+/**
+ * POST /api/auth/register — civilian self-service signup.
+ * Returns the backend RegisterResponse on HTTP 201. Throws ApiRequestError
+ * on validation / rate-limit / server failures so the caller can surface a
+ * message.
+ */
+export async function registerCivilian(
+  payload: CivilianRegisterPayload,
+): Promise<RegisterResponse> {
+  return apiFetch<RegisterResponse>('/auth/register', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
