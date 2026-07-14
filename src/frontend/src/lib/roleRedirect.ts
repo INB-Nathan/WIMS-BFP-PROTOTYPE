@@ -4,9 +4,10 @@ const DEFAULT_STAFF_ROUTES: Record<string, string> = {
   ENCODER: '/dashboard/regional',
   NATIONAL_VALIDATOR: '/dashboard/validator',
   NATIONAL_ANALYST: '/dashboard/analyst',
+  CIVILIAN_REPORTER: '/contributor',
 };
 
-const GENERIC_LOGIN_PATHS = new Set(['/login', '/callback', '/dashboard', '/home']);
+const GENERIC_LOGIN_PATHS = new Set(['/login', '/callback', '/dashboard', '/home', '/contributor']);
 
 export function defaultRouteForRole(role?: string | null): string {
   return role ? DEFAULT_STAFF_ROUTES[role] ?? '/dashboard' : '/dashboard';
