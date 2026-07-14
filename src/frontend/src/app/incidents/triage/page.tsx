@@ -52,6 +52,7 @@ export default function TriagePage() {
   const [selectedIdentity, setSelectedIdentity] = useState<TriageItemIdentity | null>(null);
   const [selectedReportId, setSelectedReportId] = useState<number | null>(null);
   const [selectionNotice, setSelectionNotice] = useState<string | null>(null);
+  const [sourceFilter, setSourceFilter] = useState<string>('all');
 
   const canAccess =
     role === 'REGIONAL_ENCODER' ||
@@ -65,8 +66,9 @@ export default function TriagePage() {
     });
     const confidence = searchParams.get('confidence');
     if (confidence) params.confidence = confidence;
+    if (sourceFilter !== 'all') params.source = sourceFilter;
     return params;
-  }, [searchParams]);
+  }, [searchParams, sourceFilter]);
 
   const loadQueue = useCallback(async () => {
     setError(null);
@@ -269,6 +271,15 @@ export default function TriagePage() {
 
       <div className="flex flex-wrap items-center gap-2">
         <Filter className="h-4 w-4 text-slate-500" />
+        <select
+          value={sourceFilter}
+          onChange={(e) => setSourceFilter(e.target.value)}
+          className="rounded-md border border-slate-300 px-3 py-1.5 text-sm bg-white"
+        >
+          <option value="all">All Reports</option>
+          <option value="registered">Registered</option>
+          <option value="anonymous">Anonymous</option>
+        </select>
         {FILTERS.map((filter) => {
           const active = searchParams.get(filter.key) === 'true';
           return (
