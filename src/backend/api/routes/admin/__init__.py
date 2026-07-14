@@ -19,6 +19,7 @@ from . import (
     security,
     sync,
     users,
+    information,
 )
 
 router = APIRouter(tags=["admin"])
@@ -38,3 +39,4 @@ router.include_router(anomalies.router)
 router.include_router(ip_blocklist.router, prefix="/ip-blocklist", tags=["admin-ip-blocklist"])
 router.include_router(sync.router)
 router.include_router(community.admin_router)
+router.include_router(information.router)
