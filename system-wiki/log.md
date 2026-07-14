@@ -531,3 +531,11 @@ Removed the AI incident narrative feature (PR #104 / #69) — backend-only featu
 - **Validation:** Targeted Ruff, formatting, compileall, and direct valid-package
   verification passed. Pytest invocation was attempted but blocked by the
   repository's Redis/session-management startup dependency.
+
+## [2026-07-14] fix(audit): PR2 review hardening (#595)
+
+- **Scope:** Ignore whitespace-only admin search terms, attribute OpenBao public
+  key failures to `public_key`, and bound verifier member/aggregate
+  materialization to 64/128 MiB.
+- **Validation:** Added regression tests; the focused verifier suite passes 4/4
+  and the GitHub CI rerun is green across all required jobs.

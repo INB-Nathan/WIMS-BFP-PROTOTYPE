@@ -278,7 +278,10 @@ OpenBao Transit signing support is in
 offline verification in `src/backend/services/audit_export_verifier.py`, and
 the `scripts/verify_audit_export.py` operator CLI. Secure admin and validator
 routes are listed in [[backend/api-route-map]]. The existing plain CSV routes
-remain unchanged.
+remain unchanged. The verifier rejects members larger than 64 MiB or an
+aggregate archive larger than 128 MiB before materializing member bytes, while
+also enforcing the compressed upload and compression-ratio limits in the
+verifier service.
 
 Related: [[security/security-baseline]], [[backend/api-route-map]],
 [[gaps/frs-codebase-gap-register]]
