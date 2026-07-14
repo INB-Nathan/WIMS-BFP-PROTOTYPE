@@ -211,12 +211,23 @@ create_or_verify_signing_key() {
     KEY_META=$(bao read -format=json "${TRANSIT_MOUNT}/keys/${KEY_NAME}" 2>/dev/null)
     KEY_TYPE=$(echo "${KEY_META}" | grep -o '"type"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 || true)
     SUPPORTS_SIGNING=$(echo "${KEY_META}" | grep -o '"supports_signing"[[:space:]]*:[[:space:]]*true' || true)
+    IS_DERIVED=$(echo "${KEY_META}" | grep -o '"derived"[[:space:]]*:[[:space:]]*false' || true)
+    DELETION_DISABLED=$(echo "${KEY_META}" | grep -o '"deletion_allowed"[[:space:]]*:[[:space:]]*false' || true)
+    IS_NON_EXPORTABLE=$(echo "${KEY_META}" | grep -o '"exportable"[[:space:]]*:[[:space:]]*false' || true)
+    BACKUP_DISABLED=$(echo "${KEY_META}" | grep -o '"allow_plaintext_backup"[[:space:]]*:[[:space:]]*false' || true)
     if ! echo "${KEY_TYPE}" | grep -q 'ecdsa-p256'; then
       echo "ERROR: Signing key '${KEY_NAME}' is not type=ecdsa-p256." >&2
       exit 1
     fi
     if [ -z "${SUPPORTS_SIGNING}" ]; then
       echo "ERROR: Signing key '${KEY_NAME}' does not support signing." >&2
+      exit 1
+    fi
+    if [ -z "${IS_DERIVED}" ] || [ -z "${DELETION_DISABLED}" ] || \
+       [ -z "${IS_NON_EXPORTABLE}" ] || [ -z "${BACKUP_DISABLED}" ]; then
+      echo "ERROR: Signing key '${KEY_NAME}' does not satisfy non-exportable security constraints." >&2
+      echo "       Required: derived=false, deletion_allowed=false, exportable=false," >&2
+      echo "       allow_plaintext_backup=false." >&2
       exit 1
     fi
     echo "Signing key '${KEY_NAME}' exists and supports ECDSA-P256 signing (ok)"

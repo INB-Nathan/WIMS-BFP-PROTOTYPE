@@ -211,7 +211,7 @@ class OpenBaoClient:
         return base64.b64decode(raw)
 
     @staticmethod
-    def _parse_signature(signature: str) -> int:
+    def _parse_signature(signature: str, *, operation: str = "sign") -> int:
         """Validate an OpenBao Transit signature and return its key version.
 
         OpenBao uses the Vault-compatible ``vault:vN:<base64>`` envelope for
@@ -222,13 +222,13 @@ class OpenBaoClient:
         match = re.fullmatch(r"(?:vault|bao):v([1-9][0-9]*):([A-Za-z0-9+/=_-]+)", signature)
         if match is None:
             raise OpenBaoClientError(
-                "OpenBao returned a malformed Transit signature", method="sign"
+                "OpenBao returned a malformed Transit signature", method=operation
             )
         try:
             base64.b64decode(match.group(2), validate=True)
         except (ValueError, binascii.Error) as exc:
             raise OpenBaoClientError(
-                "OpenBao returned a Transit signature with invalid base64", method="sign"
+                "OpenBao returned a Transit signature with invalid base64", method=operation
             ) from exc
         return int(match.group(1))
 
@@ -268,7 +268,7 @@ class OpenBaoClient:
         hash_algorithm: str = "sha2-256",
     ) -> bool:
         """Verify a signature over bytes with an OpenBao Transit key."""
-        self._parse_signature(signature)
+        self._parse_signature(signature, operation="verify")
         response = self._request(
             "POST",
             f"verify/{key_name}",
