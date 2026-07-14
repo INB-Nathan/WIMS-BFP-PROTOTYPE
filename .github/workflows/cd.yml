@@ -70,6 +70,7 @@ jobs:
             NEXT_PUBLIC_API_URL=${{ vars.NEXT_PUBLIC_API_URL || 'https://wimsbfp.tech/api' }}
             NEXT_PUBLIC_OIDC_REDIRECT_URI=${{ vars.NEXT_PUBLIC_OIDC_REDIRECT_URI || 'https://wimsbfp.tech/callback' }}
             NEXT_PUBLIC_OIDC_AUTHORITY=${{ vars.NEXT_PUBLIC_OIDC_AUTHORITY || 'https://wimsbfp.tech/auth/realms/bfp-realm' }}
+            NEXT_PUBLIC_TURNSTILE_SITE_KEY=${{ vars.NEXT_PUBLIC_TURNSTILE_SITE_KEY || '' }}
 
   # ===========================================================================
   # NOTIFY — build summary
