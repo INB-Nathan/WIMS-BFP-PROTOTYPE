@@ -23,11 +23,13 @@ from services.audit_export import (
     public_key_fingerprint,
 )
 from services.audit_export_pdf import compute_pdf_hash
+from services.audit_export_orchestration import _admin_where
 from services.audit_export_verifier import (
     ArchiveValidationError,
     validate_zip_package,
     verify_local_package,
 )
+from services.kms.openbao_client import OpenBaoClient, OpenBaoClientError
 
 
 def _package() -> tuple[bytes, bytes]:
@@ -86,3 +88,17 @@ def test_zip_rejects_path_traversal():
         archive.writestr("export.audit.sig", b"{}")
     with pytest.raises(ArchiveValidationError):
         validate_zip_package(payload.getvalue())
+
+
+def test_admin_filter_ignores_whitespace_query():
+    where_sql, params = _admin_where({"q": "   "})
+    assert where_sql == ""
+    assert params == {}
+
+
+def test_public_key_errors_are_attributed_to_public_key():
+    client = OpenBaoClient.__new__(OpenBaoClient)
+    client._request = lambda *_args, **_kwargs: {"data": {"keys": {}}}
+    with pytest.raises(OpenBaoClientError) as error:
+        client.public_key("audit-export-signer", 1)
+    assert error.value.method == "public_key"

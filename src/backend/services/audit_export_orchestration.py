@@ -96,7 +96,7 @@ def _admin_where(filters: Mapping[str, Any]) -> tuple[str, dict[str, Any]]:
     if filters.get("date_to") is not None:
         clauses.append("sat.timestamp <= CAST(:date_to AS timestamptz)")
         params["date_to"] = filters["date_to"]
-    if filters.get("q"):
+    if filters.get("q") and str(filters["q"]).strip():
         clauses.append("sat.search_vector @@ websearch_to_tsquery('english', :q)")
         params["q"] = str(filters["q"]).strip()
     return ("WHERE " + " AND ".join(clauses)) if clauses else "", params

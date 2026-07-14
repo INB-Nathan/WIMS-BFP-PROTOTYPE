@@ -333,11 +333,11 @@ class OpenBaoClient:
         except (KeyError, TypeError) as exc:
             raise OpenBaoClientError(
                 "OpenBao signing key metadata did not contain the requested public key",
-                method="metadata",
+                method="public_key",
             ) from exc
         if not isinstance(public_key, str) or not public_key.strip():
             raise OpenBaoClientError(
-                "OpenBao returned an invalid signing public key", method="metadata"
+                "OpenBao returned an invalid signing public key", method="public_key"
             )
         return public_key
 

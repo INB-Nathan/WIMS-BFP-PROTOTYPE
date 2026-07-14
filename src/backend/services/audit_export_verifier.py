@@ -30,8 +30,11 @@ from services.kms.openbao_client import OpenBaoClient, OpenBaoClientError
 
 
 MAX_COMPRESSED_ZIP_BYTES = 100 * 1024 * 1024
-MAX_UNCOMPRESSED_MEMBER_BYTES = 500 * 1024 * 1024
-MAX_UNCOMPRESSED_TOTAL_BYTES = 500 * 1024 * 1024
+# Secure exports are bounded to 50,000 rows; these limits leave generous room
+# for a large PDF while preventing a single request from allocating hundreds
+# of megabytes in the API process.
+MAX_UNCOMPRESSED_MEMBER_BYTES = 64 * 1024 * 1024
+MAX_UNCOMPRESSED_TOTAL_BYTES = 128 * 1024 * 1024
 MAX_COMPRESSION_RATIO = 100
 _WINDOWS_PATH_RE = re.compile(r"^(?:[A-Za-z]:|//|\\\\)")
 
