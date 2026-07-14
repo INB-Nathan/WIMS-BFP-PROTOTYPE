@@ -112,6 +112,7 @@ def get_queue(
     claimed_by_me: bool = Query(False),
     actioned_today: bool = Query(False),
     rejected_today: bool = Query(False),
+    source: str | None = Query(None),  # registered | anonymous | all
 ) -> TriageQueueResponse:
     """
     Cluster-oriented civilian report triage queue for validators.
@@ -153,6 +154,13 @@ def get_queue(
         base_filters.append("cr.safety_status = 'SOMEONE_ELSE_NEEDS_HELP'")
     if unreviewed:
         base_filters.append("cr.status = 'PENDING'")
+
+    # Source split: registered (contributor_user_id set) vs anonymous (null).
+    if source == "registered":
+        base_filters.append("cr.contributor_user_id IS NOT NULL")
+    elif source == "anonymous":
+        base_filters.append("cr.contributor_user_id IS NULL")
+    # Any other value (including None / 'all') applies no source filter.
 
     # Ensure appended public updates are grouped with their parent report even
     # when the update is outside the spatial/time suggestion window.

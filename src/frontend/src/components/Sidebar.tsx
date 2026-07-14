@@ -30,6 +30,8 @@ import {
     SlidersHorizontal,
     Activity,
     Timer,
+    Megaphone,
+    Newspaper,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -230,6 +232,8 @@ function getNavSections(role: string | null, badgeCount: number = 0): NavSection
                 { label: 'Security Monitoring', href: '/admin/monitoring', icon: ShieldAlert },
                 { label: 'Telemetry', href: '/admin/system#telemetry', icon: ShieldAlert },
                 { label: 'Breach Notifications', href: '/admin/breach', icon: ShieldX },
+                { label: 'Civilian Management', href: '/admin/civilians', icon: Users },
+                { label: 'Information Management', href: '/admin/information', icon: FileText },
                 { label: 'System Audit', href: '/admin/audit', icon: Settings },
                 { label: 'Anomaly Detection', href: '/admin/anomalies', icon: Activity },
                 { label: 'Configuration', href: '/admin/system/config', icon: SlidersHorizontal },
@@ -313,6 +317,27 @@ function getNavSections(role: string | null, badgeCount: number = 0): NavSection
                 { label: 'Response Time', href: '/dashboard/analyst/response-time', icon: Clock },
                 { label: 'Top-N Hotspots', href: '/dashboard/analyst/top-n', icon: ListChecks },
                 { label: 'Incident Explorer', href: '/dashboard/analyst/incident-explorer', icon: Search },
+            ],
+        });
+        sections.push({ label: 'Account', items: [{ label: 'My Profile', href: '/profile', icon: UserCircle }] });
+        return sections;
+    }
+
+    // Civilian reporters get the Contributor dashboard and the public
+    // Information page (announcements, emergencies, reporting guide).
+    if (role === 'CIVILIAN_REPORTER') {
+        sections.push({
+            label: 'Navigation',
+            items: [
+                { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+                { label: 'Operations', href: '/home', icon: Home },
+            ],
+        });
+        sections.push({
+            label: 'Civilian',
+            items: [
+                { label: 'Contributor', href: '/contributor', icon: Megaphone },
+                { label: 'Information', href: '/information', icon: Newspaper },
             ],
         });
         sections.push({ label: 'Account', items: [{ label: 'My Profile', href: '/profile', icon: UserCircle }] });

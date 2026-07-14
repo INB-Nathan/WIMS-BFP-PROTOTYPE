@@ -11,6 +11,16 @@ class BulkPromoteRequest(BaseModel):
     report_ids: list[int]
 
 
+class BulkDismissRequest(BaseModel):
+    report_ids: list[int]
+    reason: str
+
+
+class BulkLinkRequest(BaseModel):
+    report_ids: list[int]
+    incident_id: int
+
+
 class ClusterClaimRequest(BaseModel):
     reason: str | None = None
 
