@@ -87,7 +87,7 @@
     <main class="pf-v5-c-login__main">
       <header class="pf-v5-c-login__main-header">
         <h1 class="pf-v5-c-title pf-m-3xl"><#nested "header"></h1>
-        <#if realm.internationalizationEnabled  && locale.supported?size gt 1>
+        <#if realm.internationalizationEnabled && locale.supported?? && locale.supported?size gt 1>
         <div class="pf-v5-c-login__main-header-utilities">
           <div class="pf-v5-c-select">
             <span id="login-select-label" hidden>Choose one</span>
