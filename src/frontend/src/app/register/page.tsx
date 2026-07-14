@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Turnstile } from '@marsidev/react-turnstile';
@@ -68,9 +68,31 @@ export default function RegisterPage() {
   const [contactNumber, setContactNumber] = useState('');
   const [dpaConsent, setDpaConsent] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const [turnstileExpired, setTurnstileExpired] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const turnstileEnabled = (process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? '') !== '';
+  const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? '';
+
+  const onTurnstileSuccess = useCallback((token: string) => {
+    setTurnstileToken(token);
+    setTurnstileExpired(false);
+  }, []);
+
+  const onTurnstileExpire = useCallback(() => {
+    setTurnstileToken(null);
+    setTurnstileExpired(true);
+  }, []);
+
+  const onTurnstileError = useCallback(() => {
+    setTurnstileToken(null);
+    setErrors((prev) => {
+      if (!prev.includes('Security check failed. Please refresh the page and try again.')) {
+        return [...prev, 'Security check failed. Please refresh the page and try again.'];
+      }
+      return prev;
+    });
+  }, []);
 
   const pwChecks = useMemo(() => checkPassword(password), [password]);
   const showPwRequirements = password.length > 0 && !passwordValid(pwChecks);
@@ -85,7 +107,11 @@ export default function RegisterPage() {
       dpa_consent: dpaConsent,
     });
     if (turnstileEnabled && !turnstileToken) {
-      validationErrors.push('Please complete the security check.');
+      validationErrors.push(
+        turnstileExpired
+          ? 'Security check expired. Please complete it again.'
+          : 'Please complete the security check.',
+      );
     }
     if (validationErrors.length > 0) {
       setErrors(validationErrors);
@@ -106,7 +132,16 @@ export default function RegisterPage() {
       });
       router.push('/login?registered=true');
     } catch (err) {
-      setErrors([err instanceof Error ? err.message : 'Registration failed. Please try again.']);
+      const msg = err instanceof Error ? err.message : 'Registration failed. Please try again.';
+      // Turnstile tokens are single-use — consumed by this attempt regardless
+      // of outcome. Reset so the user gets a fresh token for the next try.
+      setTurnstileToken(null);
+      setTurnstileExpired(true);
+      if (msg.toLowerCase().includes('captcha')) {
+        setErrors(['Security check failed. Please complete the CAPTCHA again.']);
+      } else {
+        setErrors([msg]);
+      }
     } finally {
       setSubmitting(false);
     }
@@ -301,9 +336,17 @@ export default function RegisterPage() {
           {turnstileEnabled && (
           <div data-testid="turnstile-wrapper">
             <Turnstile
-              siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? ''}
-              onSuccess={(token: string) => setTurnstileToken(token)}
+              key={siteKey}
+              siteKey={siteKey}
+              onSuccess={onTurnstileSuccess}
+              onExpire={onTurnstileExpire}
+              onError={onTurnstileError}
             />
+            {turnstileExpired && (
+              <p style={{ fontSize: '0.78rem', color: '#D97706', marginTop: 6 }}>
+                ⚠ Security check expired. Please complete it again.
+              </p>
+            )}
           </div>
           )}
 

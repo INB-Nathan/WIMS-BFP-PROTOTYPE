@@ -213,5 +213,7 @@ describe('RegisterPage — successful submit', () => {
 
     expect(await screen.findByText('An account with this email already exists')).toBeInTheDocument();
     expect(mockRouterPush).not.toHaveBeenCalled();
+    // Turnstile token consumed — expired warning should appear for retry
+    expect(screen.getByText(/Security check expired/)).toBeInTheDocument();
   });
 });
