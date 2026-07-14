@@ -447,10 +447,22 @@ async def register(
         )
     except KeycloakError as e:
         logger.error("Keycloak user creation failed for %s: %s", body.email, e)
-        raise HTTPException(
-            status_code=502,
-            detail="Failed to create account. Email may already exist.",
-        )
+        # Surface Keycloak password-policy violations (400) with the actual
+        # message so the user can fix their password. Everything else is an
+        # upstream infrastructure failure (502).
+        http_detail = "Failed to create account. Email may already exist."
+        http_status = 502
+        if e.response_code == 400 and e.response_body:
+            import json as _json
+            try:
+                body_data = _json.loads(e.response_body)
+                detail = body_data.get("error_description")
+                if detail:
+                    http_detail = detail
+                    http_status = 400
+            except _json.JSONDecodeError:
+                pass
+        raise HTTPException(status_code=http_status, detail=http_detail)
 
     # 5. Insert into wims.users (let user_id default to gen_random_uuid())
     now = datetime.now(timezone.utc)
