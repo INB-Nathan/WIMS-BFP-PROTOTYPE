@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { AuthProvider as AuthContextProvider } from "@/context/AuthContext";
 import { LayoutShell } from "@/components/LayoutShell";
+import { GeolocationProvider } from "@/components/GeolocationProvider";
 import { Toaster } from "sonner";
 
 const inter = Inter({ subsets: ["latin"] });
@@ -30,7 +31,7 @@ export default function RootLayout({
       <body className={inter.className}>
         <AuthContextProvider>
           <LayoutShell>
-            {children}
+            <GeolocationProvider>{children}</GeolocationProvider>
           </LayoutShell>
           <Toaster position="top-right" richColors />
         </AuthContextProvider>

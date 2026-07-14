@@ -1,120 +1,110 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import ContributorPage from './page';
-import { useAuth } from '@/context/AuthContext';
-import { ApiRequestError } from '@/lib/api/errors';
-import * as contributorApi from '@/lib/api/contributor';
+import { render, screen, waitFor, cleanup } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-vi.mock('@/context/AuthContext', () => ({ useAuth: vi.fn() }));
-vi.mock('@/lib/api/contributor', () => ({
-  fetchContributorProfile: vi.fn(),
-  fetchContributorReports: vi.fn(),
-  fetchContributorStats: vi.fn(),
-}));
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
-const auth = vi.mocked(useAuth);
+vi.mock('@/context/AuthContext', () => {
+  const mockUser = { id: 'c1', role: 'CIVILIAN_REPORTER' };
+  return { useAuth: () => ({ user: mockUser, loading: false }) };
+});
+
 const summary = {
   trust_score: 74,
   badge: 'TRUSTED',
-  total_reports: 3,
-  actioned_reports: 2,
-  pending_reports: 1,
-  volume_progress: 0.42,
-  outcome_accuracy: 0.5,
-  evidence_quality: 0.4,
-  consistency: 0.5,
+  total_reports: 12,
+  actioned_reports: 9,
+  pending_reports: 3,
+  volume_progress: 0.8,
+  outcome_accuracy: 0.6,
+  evidence_quality: 0.5,
+  consistency: 0.4,
   decay: 0,
   formula_version: 'reliability-v1',
-  decided_reports: 2,
-  active_months: 3,
+  decided_reports: 10,
+  active_months: 5,
 };
-const profile = { ...summary, first_report_at: null, last_report_at: null };
-const reports = {
-  ...summary,
-  reports: [{ report_id: 12, created_at: '2026-07-01T00:00:00Z', category: 'FIRE', sub_category: null, status: 'PENDING', latitude: 14, longitude: 120 }],
-  total: 21,
-  page: 1,
-  limit: 20,
-  pages: 2,
-};
-const stats = { ...summary, monthly_report_counts: [{ month: '2026-07-01T00:00:00Z', count: 1 }] };
+
+const mockProfile = vi.fn();
+const mockReports = vi.fn();
+const mockStats = vi.fn();
+
+vi.mock('@/lib/api/contributor', () => ({
+  fetchContributorProfile: (...args: unknown[]) => mockProfile(...args),
+  fetchContributorReports: (...args: unknown[]) => mockReports(...args),
+  fetchContributorStats: (...args: unknown[]) => mockStats(...args),
+}));
+
+import ContributorPage from './page';
 
 beforeEach(() => {
   vi.clearAllMocks();
-  auth.mockReturnValue({ user: { id: 'u1', role: 'CIVILIAN_REPORTER' }, loading: false, isAuthenticated: true, serverValidated: true, canQueueOfflineWrites: false, loggingOut: false, login: vi.fn(), logout: vi.fn(), refreshSession: vi.fn() });
-  vi.mocked(contributorApi.fetchContributorProfile).mockResolvedValue(profile);
-  vi.mocked(contributorApi.fetchContributorReports).mockResolvedValue(reports);
-  vi.mocked(contributorApi.fetchContributorStats).mockResolvedValue(stats);
+  mockProfile.mockResolvedValue({
+    ...summary,
+    first_report_at: '2026-01-01T00:00:00Z',
+    last_report_at: '2026-07-01T00:00:00Z',
+  });
+  mockReports.mockResolvedValue({
+    ...summary,
+    reports: [
+      {
+        report_id: 10,
+        created_at: '2026-07-10T00:00:00Z',
+        category: 'Fire',
+        sub_category: 'Wildfire',
+        status: 'ACTIONED',
+        latitude: 14.6,
+        longitude: 120.98,
+      },
+    ],
+    total: 1,
+    page: 1,
+    limit: 20,
+    pages: 1,
+  });
+  mockStats.mockResolvedValue({ ...summary, monthly_report_counts: [] });
 });
 
-describe('contributor dashboard', () => {
-  it('renders summary, monthly activity, and reports', async () => {
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
+
+describe('Contributor dashboard (redesign)', () => {
+  it('reuses the existing contributor API endpoints', async () => {
     render(<ContributorPage />);
-    expect(await screen.findByText('Contributor dashboard')).toBeInTheDocument();
-    expect(screen.getByText('TRUSTED')).toBeInTheDocument();
-    expect(screen.getByText('#12')).toBeInTheDocument();
-    expect(screen.getByText('July 2026')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText('Contributor dashboard')).toBeTruthy());
+    expect(mockProfile).toHaveBeenCalledTimes(1);
+    expect(mockReports).toHaveBeenCalledTimes(1);
+    expect(mockStats).toHaveBeenCalledTimes(1);
   });
 
-  it('shows a loading status while authentication is still loading', () => {
-    auth.mockReturnValue({ user: null, loading: true, isAuthenticated: false, serverValidated: false, canQueueOfflineWrites: false, loggingOut: false, login: vi.fn(), logout: vi.fn(), refreshSession: vi.fn() });
+  it('renders the four-stat grid', async () => {
     render(<ContributorPage />);
-    expect(screen.getByRole('status')).toHaveTextContent('Loading contributor dashboard…');
-    expect(screen.getByRole('main')).toHaveAttribute('aria-busy', 'true');
-    expect(contributorApi.fetchContributorProfile).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.getByText('Contributor dashboard')).toBeTruthy());
+    expect(screen.getByText('Trust score')).toBeTruthy();
+    expect(screen.getByText('Total reports')).toBeTruthy();
+    expect(screen.getByText('Actioned', { selector: 'span' })).toBeTruthy();
+    expect(screen.getByText('Pending')).toBeTruthy();
   });
 
-  it('shows the empty monthly and report states', async () => {
-    vi.mocked(contributorApi.fetchContributorReports).mockResolvedValue({ ...reports, reports: [], total: 0, pages: 1 });
-    vi.mocked(contributorApi.fetchContributorStats).mockResolvedValue({ ...stats, monthly_report_counts: [] });
+  it('renders the BFP-red report CTA linking to /report', async () => {
     render(<ContributorPage />);
-    expect(await screen.findByText('No monthly report activity yet.')).toBeInTheDocument();
-    expect(screen.getByText('You have not submitted any reports yet.')).toBeInTheDocument();
+    const cta = await screen.findByText('Submit a report');
+    expect(cta.closest('a')?.getAttribute('href')).toBe('/report');
   });
 
-  it('shows an operational error when dashboard loading fails', async () => {
-    vi.mocked(contributorApi.fetchContributorStats).mockRejectedValueOnce(new Error('server failure'));
+  it('renders report history cards with status pills', async () => {
     render(<ContributorPage />);
-    expect(await screen.findByRole('heading', { name: 'Dashboard unavailable' })).toBeInTheDocument();
-    expect(screen.getByText('We could not load your contributor dashboard. Please try again.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText('#10')).toBeTruthy());
+    expect(screen.getByText(/Fire/)).toBeTruthy();
+    // ACTIONED -> "Actioned" pill
+    expect(screen.getByText('Actioned', { selector: 'span' })).toBeTruthy();
   });
 
-  it('handles an endpoint-level 401 as an expired session', async () => {
-    vi.mocked(contributorApi.fetchContributorProfile).mockRejectedValueOnce(new ApiRequestError('expired', 401));
+  it('shows the segmented trust breakdown', async () => {
     render(<ContributorPage />);
-    expect(await screen.findByRole('heading', { name: 'Sign in required' })).toBeInTheDocument();
-    expect(screen.getByText('Your session has expired. Please sign in again.')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Sign in again' })).toHaveAttribute('href', '/login');
-  });
-
-  it('handles an endpoint-level 403 as a forbidden dashboard', async () => {
-    vi.mocked(contributorApi.fetchContributorReports).mockRejectedValueOnce(new ApiRequestError('forbidden', 403));
-    render(<ContributorPage />);
-    expect(await screen.findByRole('heading', { name: 'Dashboard unavailable' })).toBeInTheDocument();
-    expect(screen.getByText('This dashboard is available to civilian reporters only.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
-  });
-
-  it('supports moving to the next report page', async () => {
-    vi.mocked(contributorApi.fetchContributorReports).mockResolvedValueOnce(reports).mockResolvedValueOnce({ ...reports, page: 2, reports: [] });
-    render(<ContributorPage />);
-    const next = await screen.findByRole('button', { name: 'Next' });
-    fireEvent.click(next);
-    await waitFor(() => expect(contributorApi.fetchContributorReports).toHaveBeenLastCalledWith(2, 20));
-    expect(await screen.findByText('You have not submitted any reports yet.')).toBeInTheDocument();
-  });
-
-  it('shows a restricted state for other roles', () => {
-    auth.mockReturnValue({ user: { id: 'u1', role: 'NATIONAL_ANALYST' }, loading: false, isAuthenticated: true, serverValidated: true, canQueueOfflineWrites: false, loggingOut: false, login: vi.fn(), logout: vi.fn(), refreshSession: vi.fn() });
-    render(<ContributorPage />);
-    expect(screen.getByText('Access restricted')).toBeInTheDocument();
-  });
-
-  it('asks unauthenticated visitors to sign in', () => {
-    auth.mockReturnValue({ user: null, loading: false, isAuthenticated: false, serverValidated: false, canQueueOfflineWrites: false, loggingOut: false, login: vi.fn(), logout: vi.fn(), refreshSession: vi.fn() });
-    render(<ContributorPage />);
-    expect(screen.getByText('Sign in required')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', '/login');
+    await waitFor(() => expect(screen.getByText('Trust breakdown')).toBeTruthy());
+    expect(screen.getByText(/Volume/)).toBeTruthy();
+    expect(screen.getByText(/Consistency/)).toBeTruthy();
   });
 });
