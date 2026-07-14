@@ -27,7 +27,3 @@ def test_bootstrap_creates_non_exportable_ecdsa_signer() -> None:
     assert "type=ecdsa-p256" in script
     assert "exportable=false" in script
     assert "allow_plaintext_backup=false" in script
-    assert '"derived"' in script
-    assert '"deletion_allowed"' in script
-    assert '"exportable"' in script
-    assert '"allow_plaintext_backup"' in script

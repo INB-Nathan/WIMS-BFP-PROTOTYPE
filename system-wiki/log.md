@@ -1,3 +1,16 @@
+## [2026-07-14] feat(audit): tamper-proof export foundation (#558, PR1)
+
+- **Scope:** Added OpenBao Transit `sign()`/`verify()` client methods, a
+  non-exportable ECDSA P-256 `audit-export-signer` bootstrap key and least-
+  privilege policy paths, plus the stable `AUDIT_SECURE_EXPORT` anomaly action.
+- **Artifacts:** Added canonical UTF-8/LF hash-chain CSV writer/verifier and
+  deterministic ReportLab PDF generator with focused unit tests.
+- **Documentation:** Updated the approved three-PR design contract, OpenBao
+  runbook, `.env.example`, and the backend/security wiki routing pages.
+- **Validation:** `compileall`, targeted Ruff checks, and direct artifact tests
+  passed. Full pytest collection remains blocked by the repository's startup
+  Redis/session-management dependency; no gap-register entry changed.
+
 ## [2026-07-13] feat(agents): add WIMS Wayfinder decision-mapping workflow
 
 - **Scope:** Added the manual-only `.pi/skills/wims-wayfinder/` profile over the user-global Wayfinder method, with GitHub-native child/dependency operations, batch-confirmed chart creation, append-only ticket claims, serialized conflict-checked map updates, and one non-research decision per session.

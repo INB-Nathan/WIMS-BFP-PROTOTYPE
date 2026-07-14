@@ -7,7 +7,6 @@ functions from both the API verifier and the offline auditor CLI.
 
 from __future__ import annotations
 
-import base64
 import csv
 import hashlib
 import io
@@ -62,7 +61,7 @@ def _canonical_cell(value: Any) -> str:
     if isinstance(value, Decimal):
         return format(value, "f")
     if isinstance(value, bytes):
-        return f"base64:{base64.b64encode(value).decode('ascii')}"
+        return value.decode("utf-8")
     return str(value)
 
 
@@ -223,18 +222,6 @@ def inspect_csv_hash_chain(
         return CsvHashChainResult(False, 0, error=str(exc))
 
 
-def verify_csv_hash_chain(
-    csv_bytes: bytes,
-    expected_final_hash: str,
-    *,
-    max_rows: int = MAX_AUDIT_EXPORT_ROWS,
-) -> bool:
-    """Return whether a CSV satisfies the canonical hash-chain contract.
-
-    Oversized input is treated as invalid here; callers that need to distinguish
-    a policy-limit violation can use :func:`inspect_csv_hash_chain` directly.
-    """
-    try:
-        return inspect_csv_hash_chain(csv_bytes, expected_final_hash, max_rows=max_rows).valid
-    except AuditExportTooLargeError:
-        return False
+def verify_csv_hash_chain(csv_bytes: bytes, expected_final_hash: str) -> bool:
+    """Return whether a CSV satisfies the canonical hash-chain contract."""
+    return inspect_csv_hash_chain(csv_bytes, expected_final_hash).valid

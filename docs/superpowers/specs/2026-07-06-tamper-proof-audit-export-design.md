@@ -127,7 +127,6 @@ The implementation follows these corrections to the original sketch above:
 
 - There is no `audit_export_registry` table or numeric `export_id` in this delivery. The package identity is `export_uuid`; the export audit record uses that UUID as its record identifier.
 - CSV chaining uses `SHA256(hex(previous_hash) || row_data_bytes)`, where `row_data_bytes` is the canonical LF-terminated row without `row_hash`. The final hash is `sha256:SHA256(hex(last_row_hash))`; the header-only export hashes the canonical header seed.
-- Canonical CSV cell serialization encodes arbitrary `bytes` values as `base64:<ascii>` rather than assuming UTF-8.
 - PDF generation uses ReportLab built-in fonts and an invariant canvas. Verification hashes the supplied bytes and never regenerates the PDF.
 - OpenBao returns the Vault-compatible `vault:vN:<base64>` signature envelope; the client parses the key version from that envelope. No separate `key_fingerprint` is required in the manifest.
 - Freshness is checked against completed audit-export records with the same filter scope, actor scope, and filter hash, excluding the export currently being verified.

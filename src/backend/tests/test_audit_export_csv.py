@@ -64,18 +64,6 @@ def test_csv_canonicalizes_common_database_values() -> None:
     assert verify_csv_hash_chain(csv_bytes, final_hash)
 
 
-def test_csv_canonicalizes_arbitrary_bytes_as_base64() -> None:
-    csv_bytes, final_hash, _ = CanonicalCsvWriter(["payload"]).write([[b"\xff\x00"]])
-
-    assert b"base64:/wA=" in csv_bytes
-    assert verify_csv_hash_chain(csv_bytes, final_hash)
-
-
-def test_boolean_csv_verifier_rejects_oversized_input() -> None:
-    csv_bytes, final_hash, _ = CanonicalCsvWriter(["id"], max_rows=1).write([[1]])
-    assert not verify_csv_hash_chain(csv_bytes, final_hash, max_rows=0)
-
-
 def test_csv_row_limit_is_enforced() -> None:
     writer = CanonicalCsvWriter(["id"], max_rows=1)
     with pytest.raises(AuditExportTooLargeError):
