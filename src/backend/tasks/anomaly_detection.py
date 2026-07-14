@@ -55,6 +55,7 @@ from sqlalchemy.orm import Session
 
 from celery_config import celery_app
 from database import SYSTEM_TASK_USER_ID, get_session
+from utils.audit import AUDIT_SECURE_EXPORT
 
 logger = logging.getLogger(__name__)
 
@@ -181,7 +182,7 @@ def _detect_off_hours(db: Session) -> list[dict[str, Any]]:
     No explicit row-count bound is needed here: the 60-second window combined
     with specific action-type filters (PII_EXPORT, BACKUP_TRIGGERED,
     BREACH_STATUS_UPDATE, CREATE_INCIDENT_FROM_ALERT, AUDIT_EXPORT,
-    ROLE_CHANGE_TO_%)
+    AUDIT_SECURE_EXPORT, ROLE_CHANGE_TO_%)
     naturally limits the result set to a handful of rows under any reasonable
     audit volume.
     """
@@ -192,7 +193,8 @@ def _detect_off_hours(db: Session) -> list[dict[str, Any]]:
             WHERE (
                 action_type IN (
                     'PII_EXPORT', 'BACKUP_TRIGGERED', 'BREACH_STATUS_UPDATE',
-                    'CREATE_INCIDENT_FROM_ALERT', 'AUDIT_EXPORT', 'BULK_EXPORT'
+                    'CREATE_INCIDENT_FROM_ALERT', 'AUDIT_EXPORT',
+                    :audit_secure_export, 'BULK_EXPORT'
                 )
                 OR action_type LIKE 'ROLE_CHANGE_TO_%'
             )
@@ -202,7 +204,8 @@ def _detect_off_hours(db: Session) -> list[dict[str, Any]]:
               )
               AND timestamp >= now() - interval '60 seconds'
               AND user_id IS NOT NULL
-        """)
+        """),
+        {"audit_secure_export": AUDIT_SECURE_EXPORT},
     ).fetchall()
 
     results = []

@@ -28,3 +28,16 @@ path "transit/rewrap/wims-backup" {
 path "transit/keys/wims-backup" {
   capabilities = ["read"]
 }
+
+# Tamper-proof audit export signer — signing/verification only.  The backend
+# never receives private key material and cannot create, rotate, delete, or
+# export the key.
+path "transit/sign/audit-export-signer" {
+  capabilities = ["create", "update"]
+}
+path "transit/verify/audit-export-signer" {
+  capabilities = ["create", "update"]
+}
+path "transit/keys/audit-export-signer" {
+  capabilities = ["read"]
+}

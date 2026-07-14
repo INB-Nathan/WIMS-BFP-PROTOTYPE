@@ -1,7 +1,7 @@
 # Tamper-Proof Audit Log Export — Design Spec
 
 **Date:** 2026-07-06
-**Status:** Draft
+**Status:** Approved implementation contract (three-PR delivery)
 **Sources:** NIST SP 800-53 (AU-9), OWASP auditability guidelines, RFC 5848, OpenBao Transit docs, GPT-5.5 oracle + reviewer subagents
 
 ---
@@ -22,7 +22,7 @@ Third-party auditors have no way to independently verify that an export file has
 | Threat | Actor | Severity | Mitigation |
 |--------|-------|----------|------------|
 | Tamper with export file after creation | SYSTEM_ADMIN, external attacker | High | Hash-chain CSV + signed manifest |
-| Replace newer export with older one | SYSTEM_ADMIN | Medium | Export registry + verifier warning |
+| Replace newer export with older one | SYSTEM_ADMIN | Medium | Filter-scoped freshness query + verifier warning |
 | Intercept/modify in transit | External attacker | Medium | ZIP envelope + signature verification |
 | Repudiate export authenticity | SYSTEM_ADMIN | High | Key-bound signature via OpenBao Transit |
 | DB tampering before export | DB superuser | Out of scope | See §10 |
@@ -36,10 +36,10 @@ Every secure export produces a ZIP containing three files. The ZIP itself is val
 | File | Format | Purpose | Verifiability |
 |------|--------|---------|---------------|
 | `export.csv` | Hash-chain CSV | Machine-readable audit data | Hash-chain recomputed from scratch |
-| `export.pdf` | PDF (WeasyPrint) | Human-readable audit report | SHA256 compared against manifest |
+| `export.pdf` | Deterministic ReportLab PDF | Human-readable audit report | SHA256 compared against manifest |
 | `export.audit.sig` | Signed JSON manifest | Cryptographic binding + metadata | OpenBao Transit verify |
 
-### 3.2 Data Flow
+### 3.2 Data Flow (superseded sketch)
 
 ```
 SYSTEM_ADMIN requests export with filter params
@@ -121,6 +121,17 @@ GET /api/admin/audit-logs/export/secure?date_from=...&date_to=...
     └─ 11. Return ZIP stream: export.csv + export.pdf + export.audit.sig
 ```
 
+### 3.2.1 Approved implementation corrections
+
+The implementation follows these corrections to the original sketch above:
+
+- There is no `audit_export_registry` table or numeric `export_id` in this delivery. The package identity is `export_uuid`; the export audit record uses that UUID as its record identifier.
+- CSV chaining uses `SHA256(hex(previous_hash) || row_data_bytes)`, where `row_data_bytes` is the canonical LF-terminated row without `row_hash`. The final hash is `sha256:SHA256(hex(last_row_hash))`; the header-only export hashes the canonical header seed.
+- Canonical CSV cell serialization encodes arbitrary `bytes` values as `base64:<ascii>` rather than assuming UTF-8.
+- PDF generation uses ReportLab built-in fonts and an invariant canvas. Verification hashes the supplied bytes and never regenerates the PDF.
+- OpenBao returns the Vault-compatible `vault:vN:<base64>` signature envelope; the client parses the key version from that envelope. No separate `key_fingerprint` is required in the manifest.
+- Freshness is checked against completed audit-export records with the same filter scope, actor scope, and filter hash, excluding the export currently being verified.
+
 ### 3.3 ZIP Security
 
 The ZIP returned by the secure export endpoint must be validated during extraction:
@@ -158,13 +169,13 @@ Row 0 (header):
   prev_hash = SHA256(header_bytes)
 
 Row N (data):
-  row_data_bytes = the CSV line bytes WITHOUT the row_hash column
+  row_data_bytes = the canonical LF-terminated CSV line bytes WITHOUT the row_hash column
   row_hash = SHA256(hex(prev_hash) || row_data_bytes)
   full_row = hex(row_hash) + "," + row_data_bytes + "\n"
   prev_hash = row_hash
 
 Final:
-  csv_chain_final_hash = SHA256(hex(last_row_hash))
+  csv_chain_final_hash = sha256:SHA256(hex(last_row_hash))
 ```
 
 The `row_hash` column is **always the first column** in the CSV. When computing the hash for a row, the `row_hash` value and its leading comma are excluded from `row_data_bytes`. This avoids circular hashing.
@@ -181,10 +192,10 @@ The verifier:
 
 ### 5.1 Generation
 
-- **Library**: WeasyPrint (HTML → PDF)
-- **Input**: Inline HTML with inline CSS only — no external stylesheet files
-- **Content**: BFP header with logo, filter parameters, export metadata (export_id, timestamp), paginated table of audit rows, page numbers in footer
-- **Security**: No external resource fetching — images must be base64-encoded inline or excluded. This prevents SSRF via HTML/CSS.
+- **Library**: ReportLab with built-in base14 fonts and an invariant canvas
+- **Input**: Structured rows and metadata; no external resources or network fetches
+- **Content**: BFP header, filter parameters, export metadata (export_uuid, timestamp), paginated table of audit rows, page numbers in footer
+- **Security**: Text-only output prevents SSRF and host-resource-dependent rendering.
 
 ### 5.2 Verification
 
@@ -210,15 +221,20 @@ The signature covers the canonical JSON serialization of the manifest **without 
 
 ```json
 {
-  "signature": "bao:v1/transit/sign/audit-export-signer:v3:abc123def456...",
-  "signing_key_version": 3,
+  "signature": "vault:v3:abc123def456...",
   "signed_at": "2026-07-06T06:30:00Z"
 }
 ```
 
-The `signature` field is a self-describing string: `bao:v1/{path}:{key_version}:{base64_signature}`.
+The `signature` field is the OpenBao/Vault Transit envelope `vault:vN:<base64_signature>`; the client extracts `N` as the signing key version.
 
-## 7. Export Registry Table
+## 7. Export Registry Table (deferred)
+
+This registry schema is retained as a future option only and is **not** part of
+the approved three-PR implementation. The current verifier performs freshness
+queries against completed `AUDIT_SECURE_EXPORT` audit records using the
+manifest's export UUID, actor scope, filter scope, and filter hash; it excludes
+the export being verified. No numeric export ID is exposed.
 
 ```sql
 CREATE TABLE IF NOT EXISTS wims.audit_export_registry (
@@ -308,20 +324,12 @@ bao write -f transit/keys/audit-export-signer \
 # Sign (backend)
 client = OpenBaoClient()
 manifest_bytes = canonical_json_bytes(manifest_without_signature)
-response = client._request("POST", "sign/audit-export-signer", {
-    "input": base64.b64encode(manifest_bytes).decode(),
-    "hash_algorithm": "sha2-256",
-})
-signature = response["data"]["signature"]
-key_version = response["data"]["key_version"]
+signed = client.sign("audit-export-signer", manifest_bytes)
+signature = signed.signature
+key_version = signed.key_version
 
 # Verify (verifier)
-response = client._request("POST", "verify/audit-export-signer", {
-    "input": base64.b64encode(manifest_bytes).decode(),
-    "signature": signature,
-    "hash_algorithm": "sha2-256",
-})
-is_valid = response["data"]["valid"]  # True/False
+is_valid = client.verify("audit-export-signer", manifest_bytes, signature)
 ```
 
 ### 8.3 Required Client Addition
@@ -335,6 +343,10 @@ Add `sign(key_name, data)` and `verify(key_name, data, signature)` methods to `s
 `POST /api/admin/audit-logs/export/verify`
 
 Accepts multipart upload of the three files (CSV, PDF, .audit.sig). Returns:
+
+The response uses `export_uuid` (not a registry `export_id`). The `registry`
+check shown in the historical example is replaced by a `freshness` check keyed
+by the manifest's actor/filter scope and filter hash.
 
 ```json
 {
@@ -389,28 +401,18 @@ INTEGRITY: PASS (with warnings)
 
 ## 11. Implementation Order
 
-### Phase 1 — Foundation
-1. Add `sign()` and `verify()` methods to `OpenBaoClient` in `src/backend/services/kms/openbao_client.py`
-2. Create `audit_export_registry` table migration (`src/postgres-init/`)
-3. Add `AUDIT_SECURE_EXPORT` to audit action types
+### PR 1 — Foundation and deterministic artifacts (#559, #562, #563)
+1. Add OpenBao Transit `sign()`/`verify()` support, signer bootstrap/policy, and `AUDIT_SECURE_EXPORT`.
+2. Implement and test the canonical hash-chain CSV writer/verifier.
+3. Implement and test the deterministic ReportLab PDF generator.
 
-### Phase 2 — Core Export
-4. Implement canonical CSV writer with hash-chain in `src/backend/services/audit_export.py`
-5. Implement PDF generation via WeasyPrint
-6. Implement `/api/admin/audit-logs/export/secure` endpoint
-7. Wire OpenBao signing into the export pipeline
+### PR 2 — Secure export and verification (#560, #561)
+4. Add the RLS/RBAC-protected secure ZIP export endpoint and signed manifest.
+5. Add the multipart verifier API and the online/offline CLI.
 
-### Phase 3 — Verification
-8. Implement `/api/admin/audit-logs/export/verify` API endpoint
-9. Implement `scripts/verify_audit_export.py` CLI script
-10. Add registry freshness check logic
-
-### Phase 4 — Tests
-11. Unit tests for hash-chain CSV (correctness + edge cases)
-12. Unit tests for manifest construction + signing round-trip
-13. Integration test for full export → verify cycle
-14. Integration test for tamper detection
-
+### PR 3 — Integration and hardening (#564)
+6. Add integration, tamper, freshness, ZIP safety, and performance coverage.
+7. Complete CI, runbook, system-wiki, and gap-register synchronization.
 ## 12. Env Vars
 
 | Variable | Default | Purpose |
@@ -418,4 +420,6 @@ INTEGRITY: PASS (with warnings)
 | `OPENBAO_TRANSIT_MOUNT` | `transit` | Existing — Transit engine mount path |
 | `WIMS_AUDIT_EXPORT_SIGNING_KEY` | `audit-export-signer` | Signing key name |
 
-No new env vars needed — reuses existing OpenBao connection config (`OPENBAO_ADDR`, `OPENBAO_TOKEN`).
+The signing-key name is configurable through `WIMS_AUDIT_EXPORT_SIGNING_KEY`;
+all other OpenBao connection settings reuse the existing configuration
+(`OPENBAO_ADDR`, `OPENBAO_TOKEN`, and `OPENBAO_TRANSIT_MOUNT`).

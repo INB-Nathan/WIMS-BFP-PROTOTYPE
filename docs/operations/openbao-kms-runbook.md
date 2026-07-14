@@ -1,7 +1,7 @@
 # OpenBao KMS Operations Runbook
 
 **Issue**: GH #152 Phase 8 — hardening, validation hooks, operator runbook  
-**Last updated**: 2026-06-11 (credential persistence, health-unsealed guard, backend env plumbing, derived-key safe-delete warning)  
+**Last updated**: 2026-07-14 (audit-export signer bootstrap and least-privilege policy)
 **Status**: Phase 1-7 code paths implemented; live ops drill pending; derived-key guard active
 
 ---
@@ -58,7 +58,8 @@ curl -sf http://localhost:8200/v1/sys/health | jq .
 curl -sf -H "X-Vault-Token: ${OPENBAO_TOKEN:?set OPENBAO_TOKEN}" http://localhost:8200/v1/transit/keys | jq '.data.keys'
 ```
 
-Expected output: `["wims-incident-pii", "wims-backup"]`.
+Expected output includes `"wims-incident-pii"`, `"wims-backup"`, and
+`"audit-export-signer"`.
 
 ### Tear down
 
@@ -89,6 +90,7 @@ cd src && docker compose down
 |---|---|---|
 | `OPENBAO_PII_KEY_NAME` | `wims-incident-pii` | Transit key for PII field encryption |
 | `OPENBAO_BACKUP_KEY_NAME` | `wims-backup` | Transit key for backup file encryption |
+| `WIMS_AUDIT_EXPORT_SIGNING_KEY` | `audit-export-signer` | Non-exportable ECDSA P-256 key for audit-export signatures |
 
 ### Provider selection
 
@@ -229,6 +231,9 @@ The `wims-app` policy (`src/openbao/policies/wims-app.hcl`) grants exactly:
 | `transit/decrypt/wims-backup` | `create`, `update` | Decrypt backup files |
 | `transit/rewrap/wims-backup` | `create`, `update` | Rewrap backup key |
 | `transit/keys/wims-backup` | `read` | Read backup key metadata |
+| `transit/sign/audit-export-signer` | `create`, `update` | Sign canonical audit-export manifests |
+| `transit/verify/audit-export-signer` | `create`, `update` | Verify audit-export manifests |
+| `transit/keys/audit-export-signer` | `read` | Read signing-key version metadata |
 
 **Important**: This policy does NOT grant `sudo`, `root`, `create-key`, `delete-key`, or mount management. Those operations require the root token or separate admin token — never the backend/celery service token.
 
