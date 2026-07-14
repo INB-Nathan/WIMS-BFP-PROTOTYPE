@@ -342,8 +342,7 @@ def _bulk_set_status(
 
     db.execute(
         text(
-            f"UPDATE wims.citizen_reports SET {', '.join(set_clauses)} "
-            f"WHERE report_id = ANY(:ids)"
+            f"UPDATE wims.citizen_reports SET {', '.join(set_clauses)} WHERE report_id = ANY(:ids)"
         ),
         params,
     )

@@ -36,7 +36,13 @@ from utils.rate_limit import (
     RETRY_AFTER_FLOOR_SECONDS,
 )
 
-from auth import get_anonymous_session_id, get_current_wims_user, get_national_validator, get_photo_db, optional_auth
+from auth import (
+    get_anonymous_session_id,
+    get_current_wims_user,
+    get_national_validator,
+    get_photo_db,
+    optional_auth,
+)
 from schemas.civilian import (
     CivilianFollowupCreate,
     CivilianFollowupResponse,

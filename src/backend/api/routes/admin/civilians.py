@@ -201,9 +201,7 @@ def _set_suspended(
     try:
         set_user_enabled(keycloak_id, enabled=not suspend)
     except Exception as exc:  # Keycloak sync is best-effort; DB state is authoritative
-        logger.warning(
-            "Keycloak enable=%s sync failed for %s: %s", not suspend, keycloak_id, exc
-        )
+        logger.warning("Keycloak enable=%s sync failed for %s: %s", not suspend, keycloak_id, exc)
         warning = f"Keycloak sync failed: {exc}"
 
     return CivilianActionResponse(
@@ -273,8 +271,7 @@ def get_civilian_audit(
 
     # record_id is INTEGER; the civilian target is a UUID stored in new_values.
     where = (
-        "(user_id = :uid) "
-        "OR (table_affected ILIKE '%civilian%' AND new_values->>'user_id' = :uid)"
+        "(user_id = :uid) OR (table_affected ILIKE '%civilian%' AND new_values->>'user_id' = :uid)"
     )
 
     total = db.execute(

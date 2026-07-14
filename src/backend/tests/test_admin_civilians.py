@@ -156,11 +156,10 @@ class TestSuspendActivate:
 
         app.dependency_overrides[get_db_with_rls] = mock_get_db
 
-        with patch(
-            "api.routes.admin.civilians.set_user_enabled"
-        ) as mock_kc, patch(
-            "api.routes.admin.civilians.log_system_audit"
-        ) as mock_audit:
+        with (
+            patch("api.routes.admin.civilians.set_user_enabled") as mock_kc,
+            patch("api.routes.admin.civilians.log_system_audit") as mock_audit,
+        ):
             resp = client.post(f"/api/admin/civilians/{uid}/suspend")
 
         assert resp.status_code == 200
@@ -186,11 +185,10 @@ class TestSuspendActivate:
 
         app.dependency_overrides[get_db_with_rls] = mock_get_db
 
-        with patch(
-            "api.routes.admin.civilians.set_user_enabled"
-        ) as mock_kc, patch(
-            "api.routes.admin.civilians.log_system_audit"
-        ) as mock_audit:
+        with (
+            patch("api.routes.admin.civilians.set_user_enabled") as mock_kc,
+            patch("api.routes.admin.civilians.log_system_audit") as mock_audit,
+        ):
             resp = client.post(f"/api/admin/civilians/{uid}/suspend")
 
         assert resp.status_code == 200
@@ -243,11 +241,10 @@ class TestSuspendActivate:
 
         app.dependency_overrides[get_db_with_rls] = mock_get_db
 
-        with patch(
-            "api.routes.admin.civilians.set_user_enabled"
-        ) as mock_kc, patch(
-            "api.routes.admin.civilians.log_system_audit"
-        ) as mock_audit:
+        with (
+            patch("api.routes.admin.civilians.set_user_enabled") as mock_kc,
+            patch("api.routes.admin.civilians.log_system_audit") as mock_audit,
+        ):
             resp = client.post(f"/api/admin/civilians/{uid}/activate")
 
         assert resp.status_code == 200

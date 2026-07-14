@@ -104,11 +104,14 @@ class TestValidatorCivilianProfile:
         app.dependency_overrides[database.get_db] = mock_get_db
 
         uid = uuid.uuid4()
-        with patch(
-            "api.routes.civilian.contributor_profile", return_value=dict(VALIDATOR_PROFILE)
-        ) as mock_profile, patch(
-            "api.routes.civilian.get_contributor_reports", return_value=dict(VALIDATOR_REPORTS)
-        ) as mock_reports:
+        with (
+            patch(
+                "api.routes.civilian.contributor_profile", return_value=dict(VALIDATOR_PROFILE)
+            ) as mock_profile,
+            patch(
+                "api.routes.civilian.get_contributor_reports", return_value=dict(VALIDATOR_REPORTS)
+            ) as mock_reports,
+        ):
             resp = client.get(f"/api/civilian/contributor/{uid}")
 
         assert resp.status_code == 200

@@ -115,8 +115,7 @@ class TestBulkPromote:
         mock_audit.assert_not_called()
         # No UPDATE should have been issued (reject-all semantics).
         assert not any(
-            "UPDATE wims.citizen_reports" in str(c[0][0])
-            for c in mock_db.execute.call_args_list
+            "UPDATE wims.citizen_reports" in str(c[0][0]) for c in mock_db.execute.call_args_list
         )
 
     def test_rejects_over_max(self, client: TestClient):
@@ -124,9 +123,7 @@ class TestBulkPromote:
         mock_db, mock_get_db = _mock_db(existing_ids=[])
         app.dependency_overrides[get_db_with_rls] = mock_get_db
 
-        resp = client.post(
-            "/api/triage/bulk-promote", json={"report_ids": list(range(101))}
-        )
+        resp = client.post("/api/triage/bulk-promote", json={"report_ids": list(range(101))})
         assert resp.status_code == 422
 
     def test_requires_encoder_or_validator(self, client: TestClient):

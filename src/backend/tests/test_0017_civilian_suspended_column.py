@@ -90,7 +90,11 @@ class TestCivilianSuspendedColumn:
                     "VALUES (:uid, :kid, :uname, 'CIVILIAN_REPORTER', TRUE) "
                     "ON CONFLICT (user_id) DO NOTHING"
                 ),
-                {"uid": str(user_id), "kid": str(uuid.uuid4()), "uname": f"sus_test_{user_id.hex[:8]}"},
+                {
+                    "uid": str(user_id),
+                    "kid": str(uuid.uuid4()),
+                    "uname": f"sus_test_{user_id.hex[:8]}",
+                },
             )
             conn.execute(
                 text(

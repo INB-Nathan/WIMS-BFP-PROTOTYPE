@@ -264,7 +264,7 @@ export default function AdminInformationPage() {
                 <div className="flex items-center gap-2">
                   <h4 className="font-medium truncate">{a.title}</h4>
                   <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${urgencyColor(a.urgency)}`}>{a.urgency}</span>
-                  {a.published ? <Eye className="w-4 h-4 text-green-500" title="Published" /> : <EyeOff className="w-4 h-4 text-gray-400" title="Draft" />}
+                  {a.published ? <Eye className="w-4 h-4 text-green-500" aria-label="Published" /> : <EyeOff className="w-4 h-4 text-gray-400" aria-label="Draft" />}
                 </div>
                 <p className="text-sm text-gray-500 truncate mt-1">{a.body.slice(0, 100)}</p>
                 {a.image_path && <span className="text-xs text-blue-500 mt-1"><Upload className="w-3 h-3 inline mr-1" />Has image</span>}

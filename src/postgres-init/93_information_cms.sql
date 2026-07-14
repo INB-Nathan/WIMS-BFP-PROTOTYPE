@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS wims.information_emergencies (
                               CHECK (severity IN ('critical', 'high', 'moderate', 'low')),
     status                    TEXT NOT NULL DEFAULT 'ongoing'
                               CHECK (status IN ('ongoing', 'contained', 'monitoring', 'resolved')),
-    promoted_from_incident_id INTEGER REFERENCES wims.incidents(id),
+    promoted_from_incident_id INTEGER,
     published                 BOOLEAN NOT NULL DEFAULT false,
     published_at              TIMESTAMPTZ,
     created_by                TEXT NOT NULL,
