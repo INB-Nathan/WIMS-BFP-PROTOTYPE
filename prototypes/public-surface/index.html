@@ -807,6 +807,75 @@ body {
   justify-content: center; color: var(--text-muted); font-size: 0.72rem;
 }
 
+/* Trust badge */
+.trust-badge {
+  display: inline-flex; align-items: center; gap: 4px; font-size: 0.62rem;
+  font-weight: 700; color: var(--green); background: var(--green-bg);
+  padding: 2px 8px; border-radius: 999px; margin-left: 8px; vertical-align: middle;
+}
+
+/* Status breakdown (segmented bar) */
+.status-breakdown { margin-top: 10px; }
+.status-bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--bg-surface); }
+.status-bar .seg { height: 100%; }
+.status-bar .seg.verified { background: var(--green); }
+.status-bar .seg.review { background: var(--orange); }
+.status-bar .seg.pending { background: var(--yellow); }
+.status-bar .seg.rejected { background: var(--red); }
+.status-legend { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; font-size: 0.62rem; color: var(--text-muted); }
+.status-legend span { display: inline-flex; align-items: center; gap: 4px; }
+.status-legend i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+
+/* Drafts */
+.contrib-draft-card {
+  background: var(--bg-elevated); border: 1px dashed var(--border-strong);
+  border-radius: var(--radius); padding: 12px 16px; margin-bottom: 8px;
+  display: flex; align-items: center; gap: 12px;
+}
+.contrib-draft-card .draft-title { font-size: 0.78rem; font-weight: 600; flex: 1; min-width: 0; }
+.contrib-draft-card .draft-meta { font-size: 0.62rem; color: var(--text-muted); }
+
+/* Empty state */
+.empty-state {
+  text-align: center; padding: 40px 20px; background: var(--bg-elevated);
+  border: 1px dashed var(--border); border-radius: var(--radius);
+}
+.empty-state .empty-icon { font-size: 2rem; margin-bottom: 12px; }
+.empty-state h4 { font-size: 0.9rem; font-weight: 700; margin-bottom: 6px; }
+.empty-state p { font-size: 0.72rem; color: var(--text-muted); margin-bottom: 16px; }
+
+/* Report row track link */
+.rep-track {
+  font-size: 0.62rem; color: var(--red); text-decoration: underline;
+  cursor: pointer; flex-shrink: 0; background: none; border: none;
+}
+
+/* ── Report Tracking scene ───────────────────────────────────── */
+.tracking-container { max-width: 640px; margin: 80px auto 0; padding: 0 20px 40px; }
+.tracking-card {
+  background: var(--bg-elevated); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); padding: 28px; box-shadow: var(--shadow);
+}
+.tracking-token {
+  font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.85rem; font-weight: 600;
+  background: var(--bg-surface); padding: 8px 14px; border-radius: var(--radius-sm);
+  display: inline-block; margin-bottom: 4px;
+}
+.tracking-status-pill {
+  font-size: 0.7rem; font-weight: 700; padding: 4px 12px; border-radius: 999px;
+  display: inline-block;
+}
+.tracking-status-pill.received { background: var(--green-bg); color: var(--green); }
+.tracking-status-pill.review { background: rgba(255,140,0,0.12); color: var(--orange); }
+.tracking-status-pill.pending { background: rgba(255,204,0,0.12); color: var(--yellow); }
+.tracking-detail-row {
+  display: flex; justify-content: space-between; font-size: 0.74rem; padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.tracking-detail-row:last-child { border-bottom: none; }
+.tracking-detail-row .k { color: var(--text-muted); }
+.tracking-detail-row .v { color: var(--text-secondary); font-weight: 600; }
+
 /* ── Mobile: stations split → stacked ─────────────────────────── */
 @media (max-width: 768px) {
   .stations-split { flex-direction: column; }
@@ -1460,7 +1529,7 @@ body {
 
   <div class="contrib-container">
     <div class="contrib-welcome">
-      <h2>Welcome back, Maria</h2>
+      <h2>Welcome back, Maria <span class="trust-badge">✓ Verified Reporter</span></h2>
       <p>Civilian Reporter · Pasig City</p>
     </div>
 
@@ -1469,17 +1538,48 @@ body {
       <div class="contrib-stat-card">
         <div class="stat-value">23</div>
         <div class="stat-label">Reports you filed</div>
+        <div class="stat-sub">↑ 4 this month</div>
       </div>
       <div class="contrib-stat-card">
-        <div class="stat-value">12 <span style="font-size:0.65rem;color:var(--text-muted)">of 15</span></div>
-        <div class="stat-label">Verified reports</div>
-        <div class="stat-sub">↑ 4 this month</div>
+        <div class="stat-value">15 <span style="font-size:0.65rem;color:var(--text-muted)">total</span></div>
+        <div class="stat-label">Verification status</div>
+        <div class="status-breakdown">
+          <div class="status-bar">
+            <div class="seg verified" style="width:60%"></div>
+            <div class="seg review" style="width:20%"></div>
+            <div class="seg pending" style="width:13%"></div>
+            <div class="seg rejected" style="width:7%"></div>
+          </div>
+          <div class="status-legend">
+            <span><i style="background:var(--green)"></i>9 Verified</span>
+            <span><i style="background:var(--orange)"></i>3 In review</span>
+            <span><i style="background:var(--yellow)"></i>2 Pending</span>
+            <span><i style="background:var(--red)"></i>1 Rejected</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Drafts -->
+    <div class="contrib-section">
+      <h3>Drafts</h3>
+      <div class="contrib-draft-card">
+        <div class="rep-status review" style="background:var(--text-muted)"></div>
+        <div class="rep-info">
+          <div class="draft-title">Unfinished report — Taguig</div>
+          <div class="draft-meta">Saved 2 hours ago · Location pinned, photo missing</div>
+        </div>
+        <button class="btn btn-outline" style="font-size:0.65rem;padding:5px 12px" onclick="showScene('wizard')">Resume</button>
       </div>
     </div>
 
     <!-- Reports list -->
     <div class="contrib-section">
-      <h3>Your reports</h3>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <h3 style="margin-bottom:0">Your reports</h3>
+        <button class="btn btn-ghost" style="font-size:0.62rem;padding:3px 8px" onclick="toggleEmptyState()">Preview empty</button>
+      </div>
+      <div id="reports-list">
       <div class="contrib-report-card" onclick="openModal()" style="cursor:pointer">
         <div class="rep-status verified"></div>
         <div class="rep-info">
@@ -1487,6 +1587,7 @@ body {
           <div class="rep-meta">📍 Brgy. Mayamot, Antipolo</div>
         </div>
         <span style="font-size:0.6rem;padding:2px 7px;border-radius:999px;background:var(--green-bg);color:var(--green);font-weight:600">Verified</span>
+        <button class="rep-track" onclick="event.stopPropagation();openTracking('BFP-7X3Q-P91')">Track →</button>
         <div class="rep-date">Jul 14</div>
       </div>
       <div class="contrib-report-card" onclick="openModal()" style="cursor:pointer">
@@ -1496,6 +1597,7 @@ body {
           <div class="rep-meta">📍 Brgy. Ugong, Pasig</div>
         </div>
         <span style="font-size:0.6rem;padding:2px 7px;border-radius:999px;background:rgba(255,204,0,0.12);color:var(--yellow);font-weight:600">Pending</span>
+        <button class="rep-track" onclick="event.stopPropagation();openTracking('BFP-2K9M-L44')">Track →</button>
         <div class="rep-date">Jul 15</div>
       </div>
       <div class="contrib-report-card" onclick="openModal()" style="cursor:pointer">
@@ -1505,7 +1607,15 @@ body {
           <div class="rep-meta">📍 Brgy. Santolan, Pasig</div>
         </div>
         <span style="font-size:0.6rem;padding:2px 7px;border-radius:999px;background:rgba(255,140,0,0.12);color:var(--orange);font-weight:600">In review</span>
+        <button class="rep-track" onclick="event.stopPropagation();openTracking('BFP-9P2R-T88')">Track →</button>
         <div class="rep-date">Jul 13</div>
+      </div>
+      </div>
+      <div id="reports-empty" class="empty-state" style="display:none">
+        <div class="empty-icon">🔥</div>
+        <h4>No reports yet</h4>
+        <p>You haven't submitted any fire reports. Every report helps keep your community safe.</p>
+        <button class="btn btn-primary" onclick="showScene('wizard')">Report your first fire</button>
       </div>
     </div>
 
@@ -1519,8 +1629,70 @@ body {
   </div>
 
   <footer class="landing-footer">
-    <p><strong style="color:var(--text-secondary)">WIMS-BFP</strong> · Bureau of Protection · Republic of the Philippines</p>
+    <p><strong style="color:var(--text-secondary)">WIMS-BFP</strong> · Bureau of Fire Protection · Republic of the Philippines</p>
   </footer>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- SCENE: REPORT TRACKING (/tracking/:id) -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="scene" id="scene-tracking">
+  <header class="landing-header">
+    <div class="landing-header-left">
+      <a href="#" onclick="showScene('contributor')" style="display:flex;align-items:center;gap:10px;text-decoration:none;color:inherit">
+        <div class="landing-header-logo">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round">
+            <path d="M12 2L2 22h20L12 2z"/><line x1="12" y1="10" x2="12" y2="16"/><circle cx="12" cy="19" r="1" fill="#fff" stroke="none"/>
+          </svg>
+        </div>
+        <span class="landing-header-title">WIMS-BFP</span>
+      </a>
+    </div>
+    <div class="landing-header-right">
+      <button class="btn btn-ghost" onclick="showScene('contributor')" style="font-size:0.72rem">Dashboard</button>
+      <button class="btn btn-primary" onclick="showScene('wizard')" style="font-size:0.72rem">Report a Fire</button>
+    </div>
+  </header>
+
+  <div class="tracking-container">
+    <div class="tracking-card">
+      <div style="text-align:center;margin-bottom:20px">
+        <div style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.1em;color:var(--text-muted);margin-bottom:6px">Report Tracking</div>
+        <div class="tracking-token" id="track-token">BFP-7X3Q-P91</div>
+      </div>
+      <div style="text-align:center;margin-bottom:20px">
+        <span class="tracking-status-pill received" id="track-status">Received</span>
+      </div>
+      <div class="tracking-detail-row"><span class="k">Incident</span><span class="v" id="track-incident">Grass fire — Marcos Highway</span></div>
+      <div class="tracking-detail-row"><span class="k">Location</span><span class="v">Brgy. Mayamot, Antipolo</span></div>
+      <div class="tracking-detail-row"><span class="k">Submitted</span><span class="v">15 July 2026 · 14:32 PST</span></div>
+      <div class="tracking-detail-row"><span class="k">Est. verification</span><span class="v">2–5 minutes</span></div>
+      <div class="tracking-detail-row"><span class="k">Your contribution</span><span class="v">Photo + observations</span></div>
+
+      <div style="margin-top:24px">
+        <h4 style="font-size:0.8rem;margin-bottom:12px">Timeline</h4>
+        <div class="modal-timeline">
+          <div class="tl-item">
+            <div class="tl-time">14:32 PST — Today</div>
+            <div class="tl-text">Report received. Verification in progress.</div>
+          </div>
+          <div class="tl-item">
+            <div class="tl-time">14:22 PST — Today</div>
+            <div class="tl-text">Clustered with 2 other civilian reports in the area.</div>
+          </div>
+          <div class="tl-item">
+            <div class="tl-time">14:10 PST — Today</div>
+            <div class="tl-text">Report submitted with photo and location pin.</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:10px;margin-top:24px">
+        <button class="btn btn-outline" style="flex:1" onclick="showScene('contributor')">Back to dashboard</button>
+        <button class="btn btn-primary" style="flex:1" onclick="showScene('wizard')">Report nearby</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
@@ -1814,6 +1986,31 @@ function openModal() {
 }
 function closeModal() {
   document.getElementById('incident-modal').style.display = 'none';
+}
+
+// ── Contributor: empty state demo + tracking ────────────────────
+function toggleEmptyState() {
+  var list = document.getElementById('reports-list');
+  var empty = document.getElementById('reports-empty');
+  var btn = event.target;
+  if (list.style.display === 'none') {
+    list.style.display = ''; empty.style.display = 'none'; btn.textContent = 'Preview empty';
+  } else {
+    list.style.display = 'none'; empty.style.display = ''; btn.textContent = 'Show reports';
+  }
+}
+var trackingData = {
+  'BFP-7X3Q-P91': { incident: 'Grass fire — Marcos Highway', status: 'Received', cls: 'received' },
+  'BFP-2K9M-L44': { incident: 'Smoke from commercial building', status: 'Pending review', cls: 'pending' },
+  'BFP-9P2R-T88': { incident: 'Electrical fire near substation', status: 'In review', cls: 'review' }
+};
+function openTracking(token) {
+  var d = trackingData[token] || { incident: 'Your report', status: 'Received', cls: 'received' };
+  document.getElementById('track-token').textContent = token;
+  document.getElementById('track-incident').textContent = d.incident;
+  var pill = document.getElementById('track-status');
+  pill.textContent = d.status; pill.className = 'tracking-status-pill ' + d.cls;
+  showScene('tracking');
 }
 
 // ── Theme toggle ──────────────────────────────────────────────────
