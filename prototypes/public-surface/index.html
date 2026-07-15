@@ -349,18 +349,19 @@ body {
 .heat-blob.h2 { width: 90px; height: 90px; background: var(--orange); left: 50%; top: 44%; }
 .heat-blob.h3 { width: 70px; height: 70px; background: var(--yellow); left: 60%; top: 50%; }
 
-/* ── Landing map with sidebar ──────────────────────────────────── */
+/* ── Landing map with floating sidebar ─────────────────────────── */
 .landing-layout {
-  display: flex; height: calc(100vh - 52px - 44px); /* subtract header + proto nav */
-  overflow: hidden;
+  position: relative; height: calc(100vh - 52px - 44px);
 }
 .landing-map {
-  flex: 1; min-width: 0; position: relative;
+  position: absolute; inset: 0;
   background: var(--bg-elevated);
 }
 .landing-sidebar {
-  width: 340px; flex-shrink: 0; background: var(--bg-base);
-  border-left: 1px solid var(--border); overflow-y: auto;
+  position: absolute; top: 12px; right: 12px; bottom: 12px;
+  width: 340px; background: var(--bg-base);
+  border: 1px solid var(--border); border-radius: var(--radius-lg);
+  box-shadow: var(--shadow); overflow-y: auto; z-index: 10;
   display: flex; flex-direction: column;
 }
 .landing-sidebar-header {
@@ -833,13 +834,14 @@ body {
   @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
   .modal-handle { display: block; width: 36px; height: 4px; border-radius: 2px; background: var(--border-strong); margin: 0 auto 16px; }
 
-  /* Landing: sidebar → overlay on mobile */
+  /* Landing: sidebar → full overlay on mobile */
   .landing-sidebar {
-    position: fixed; inset: 52px 0 0 0; z-index: 300; width: 100%;
-    transform: translateX(100%); transition: transform 0.25s ease;
-    border-left: none;
+    position: fixed; inset: 56px 0 0 0; z-index: 300; width: 100%;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    transform: translateY(100%); transition: transform 0.25s ease;
+    border: none; border-top: 1px solid var(--border);
   }
-  .landing-sidebar.open { transform: translateX(0); }
+  .landing-sidebar.open { transform: translateY(0); }
   .landing-sidebar-toggle { display: flex; }
 }
 @media (min-width: 769px) {
@@ -854,6 +856,7 @@ body {
   <span class="label">Prototype scenes</span>
   <button onclick="showScene('intent')" class="active" id="nav-intent">Intent Modal</button>
   <button onclick="showScene('landing')" id="nav-landing">Landing</button>
+  <button onclick="showScene('incidents')" id="nav-incidents">Incidents</button>
   <button onclick="showScene('information')" id="nav-information">Information</button>
   <button onclick="showScene('wizard')" id="nav-wizard">Report Wizard</button>
   <button onclick="showScene('stations')" id="nav-stations">Fire Stations</button>
@@ -970,7 +973,7 @@ body {
         <p style="font-size:0.64rem;color:var(--text-muted);margin-top:8px;text-align:center">Showing verified BFP incidents</p>
       </div>
       <div class="landing-sidebar-footer">
-        <a href="#" onclick="showScene('information')">📋 View all incidents →</a>
+        <a href="#" onclick="showScene('incidents')">📋 View all incidents →</a>
         <a href="#" onclick="showScene('stations')">🚒 Find a fire station →</a>
       </div>
     </div>
@@ -1159,27 +1162,25 @@ body {
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- SCENE 5: INFORMATION HUB -->
 <!-- ═══════════════════════════════════════════════════════════════ -->
-<div class="scene" id="scene-information">
-  <!-- Header (same as landing) -->
+<!-- SCENE: INCIDENTS (all active incidents, filterable) -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="scene" id="scene-incidents">
   <header class="landing-header">
     <div class="landing-header-left">
       <a href="#" onclick="showScene('landing')" style="display:flex;align-items:center;gap:10px;text-decoration:none;color:inherit">
         <div class="landing-header-logo">
           <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round">
-            <path d="M12 2L2 22h20L12 2z"/>
-            <line x1="12" y1="10" x2="12" y2="16"/>
-            <circle cx="12" cy="19" r="1" fill="#fff" stroke="none"/>
+            <path d="M12 2L2 22h20L12 2z"/><line x1="12" y1="10" x2="12" y2="16"/><circle cx="12" cy="19" r="1" fill="#fff" stroke="none"/>
           </svg>
         </div>
         <span class="landing-header-title">WIMS-BFP</span>
       </a>
     </div>
     <div class="landing-header-right">
-      <button class="btn btn-ghost">Home</button>
-      <button class="btn btn-ghost" style="color:var(--red);border-bottom:2px solid var(--red);border-radius:0">Information</button>
-      <button class="btn btn-ghost">Register</button>
+      <button class="btn btn-ghost show-mobile" onclick="showScene('landing')">Home</button>
+      <button class="btn btn-ghost" style="color:var(--red);border-bottom:2px solid var(--red);border-radius:0;font-weight:600">Incidents</button>
+      <button class="btn btn-ghost" onclick="showScene('register')">Register</button>
       <button class="btn btn-outline">Sign In</button>
       <button class="btn btn-primary" onclick="showScene('wizard')">Report a Fire</button>
     </div>
@@ -1187,79 +1188,72 @@ body {
 
   <div class="info-container">
     <div class="info-header-row">
-      <h2>📋 Incident Information Hub</h2>
+      <h2>🔥 All Active Incidents</h2>
     </div>
-    <p style="font-size:0.78rem;color:var(--text-muted);margin-bottom:20px">All verified emergency incidents and BFP announcements. Public access — no account required.</p>
+    <p style="font-size:0.78rem;color:var(--text-muted);margin-bottom:20px">Verified BFP incidents across the Philippines. Click any row for details.</p>
 
-    <!-- Filters -->
     <div class="info-filters">
       <input type="text" placeholder="Search by location or description...">
-      <select>
-        <option>All severities</option>
-        <option>Critical</option>
-        <option>High</option>
-        <option>Moderate</option>
-        <option>Low</option>
-      </select>
-      <select>
-        <option>All time</option>
-        <option>Today</option>
-        <option>This week</option>
-        <option>This month</option>
-      </select>
+      <select><option>All severities</option><option>Critical</option><option>High</option><option>Moderate</option><option>Low</option></select>
+      <select><option>All time</option><option>Today</option><option>This week</option><option>This month</option></select>
     </div>
 
-    <!-- Emergency table -->
     <table class="info-table">
-      <thead>
-        <tr>
-          <th>Incident</th>
-          <th>Location</th>
-          <th>Severity</th>
-          <th>Status</th>
-          <th>Reported</th>
-        </tr>
-      </thead>
+      <thead><tr><th>Incident</th><th>Location</th><th>Severity</th><th>Status</th><th>Reported</th></tr></thead>
       <tbody>
-        <tr onclick="openModal()" style="cursor:pointer">
-          <td>Grass fire — Marcos Highway</td>
-          <td data-label="Location">Brgy. Mayamot, Antipolo</td>
-          <td data-label="Severity"><span class="sev-badge crit">Critical</span></td>
-          <td data-label="Status"><span style="color:var(--orange)">Ongoing</span></td>
-          <td data-label="Reported">14:22 PST</td>
-        </tr>
-        <tr>
-          <td>Structure fire — residential</td>
-          <td data-label="Location">Brgy. Dela Paz, Pasig</td>
-          <td data-label="Severity"><span class="sev-badge high">High</span></td>
-          <td data-label="Status"><span style="color:var(--orange)">Ongoing</span></td>
-          <td data-label="Reported">13:47 PST</td>
-        </tr>
-        <tr>
-          <td>Smoke reported — commercial</td>
-          <td data-label="Location">Brgy. Ugong, Pasig</td>
-          <td data-label="Severity"><span class="sev-badge mod">Moderate</span></td>
-          <td data-label="Status"><span style="color:var(--yellow)">Monitoring</span></td>
-          <td data-label="Reported">12:10 PST</td>
-        </tr>
-        <tr>
-          <td>Electrical fire — substation</td>
-          <td data-label="Location">Brgy. Santolan, Pasig</td>
-          <td data-label="Severity"><span class="sev-badge high">High</span></td>
-          <td data-label="Status"><span style="color:var(--green)">Contained</span></td>
-          <td data-label="Reported">10:03 PST</td>
-        </tr>
-        <tr>
-          <td>Forest fire — watershed area</td>
-          <td data-label="Location">Brgy. San Rafael, Rodriguez</td>
-          <td data-label="Severity"><span class="sev-badge crit">Critical</span></td>
-          <td data-label="Status"><span style="color:var(--orange)">Ongoing</span></td>
-          <td data-label="Reported">08:55 PST</td>
-        </tr>
+        <tr onclick="openModal()" style="cursor:pointer"><td>Grass fire — Marcos Highway</td><td data-label="Location">Brgy. Mayamot, Antipolo</td><td data-label="Severity"><span class="sev-badge crit">Critical</span></td><td data-label="Status"><span style="color:var(--orange)">Ongoing</span></td><td data-label="Reported">14:22 PST</td></tr>
+        <tr onclick="openModal()" style="cursor:pointer"><td>Structure fire — residential</td><td data-label="Location">Brgy. Dela Paz, Pasig</td><td data-label="Severity"><span class="sev-badge high">High</span></td><td data-label="Status"><span style="color:var(--orange)">Ongoing</span></td><td data-label="Reported">13:47 PST</td></tr>
+        <tr onclick="openModal()" style="cursor:pointer"><td>Smoke reported — commercial</td><td data-label="Location">Brgy. Ugong, Pasig</td><td data-label="Severity"><span class="sev-badge mod">Moderate</span></td><td data-label="Status"><span style="color:var(--yellow)">Monitoring</span></td><td data-label="Reported">12:10 PST</td></tr>
+        <tr onclick="openModal()" style="cursor:pointer"><td>Electrical fire — substation</td><td data-label="Location">Brgy. Santolan, Pasig</td><td data-label="Severity"><span class="sev-badge high">High</span></td><td data-label="Status"><span style="color:var(--green)">Contained</span></td><td data-label="Reported">10:03 PST</td></tr>
+        <tr onclick="openModal()" style="cursor:pointer"><td>Forest fire — watershed area</td><td data-label="Location">Brgy. San Rafael, Rodriguez</td><td data-label="Severity"><span class="sev-badge crit">Critical</span></td><td data-label="Status"><span style="color:var(--orange)">Ongoing</span></td><td data-label="Reported">08:55 PST</td></tr>
       </tbody>
     </table>
 
-    <!-- Announcements archive -->
+    <div class="info-cta">
+      <h4>Want to track all your reports?</h4>
+      <p>Register as a civilian reporter to track every report you submit and get status updates.</p>
+      <button class="btn btn-primary btn-lg" onclick="showScene('register')">Register as a Reporter</button>
+    </div>
+  </div>
+
+  <footer class="landing-footer">
+    <p><strong style="color:var(--text-secondary)">WIMS-BFP</strong> · Bureau of Fire Protection · Republic of the Philippines</p>
+    <p><a href="#">Privacy Policy</a></p>
+  </footer>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- SCENE 5: INFORMATION HUB (announcements + guide + admin content) -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="scene" id="scene-information">
+  <header class="landing-header">
+    <div class="landing-header-left">
+      <a href="#" onclick="showScene('landing')" style="display:flex;align-items:center;gap:10px;text-decoration:none;color:inherit">
+        <div class="landing-header-logo">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round">
+            <path d="M12 2L2 22h20L12 2z"/><line x1="12" y1="10" x2="12" y2="16"/><circle cx="12" cy="19" r="1" fill="#fff" stroke="none"/>
+          </svg>
+        </div>
+        <span class="landing-header-title">WIMS-BFP</span>
+      </a>
+    </div>
+    <div class="landing-header-right">
+      <button class="btn btn-ghost" onclick="showScene('landing')">Home</button>
+      <button class="btn btn-ghost" onclick="showScene('incidents')">Incidents</button>
+      <button class="btn btn-ghost" style="color:var(--red);border-bottom:2px solid var(--red);border-radius:0;font-weight:600">Information</button>
+      <button class="btn btn-ghost" onclick="showScene('register')">Register</button>
+      <button class="btn btn-outline">Sign In</button>
+      <button class="btn btn-primary" onclick="showScene('wizard')">Report a Fire</button>
+    </div>
+  </header>
+
+  <div class="info-container">
+    <div class="info-header-row">
+      <h2>📢 Information & Announcements</h2>
+    </div>
+    <p style="font-size:0.78rem;color:var(--text-muted);margin-bottom:24px">Official BFP announcements, safety guides, and community information.</p>
+
+    <!-- Announcements -->
     <div class="sheet-section">
       <h2>📢 BFP Announcements</h2>
       <div style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;margin-bottom:8px">
@@ -1269,8 +1263,13 @@ body {
       </div>
       <div style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;margin-bottom:8px">
         <div style="font-size:0.82rem;font-weight:600">Volunteer fire brigade recruitment</div>
-        <div style="font-size:0.7rem;color:var(--text-muted);margin-top:2px">BFP Region IV-A is recruiting volunteer fire brigades. Training starts April 2026. Register at your nearest fire station.</div>
+        <div style="font-size:0.7rem;color:var(--text-muted);margin-top:2px">BFP Region IV-A is recruiting volunteer fire brigades. Training starts April 2026.</div>
         <div style="font-size:0.62rem;color:var(--text-muted);margin-top:4px">Posted 5 days ago</div>
+      </div>
+      <div style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;margin-bottom:8px">
+        <div style="font-size:0.82rem;font-weight:600">Community fire safety seminar</div>
+        <div style="font-size:0.7rem;color:var(--text-muted);margin-top:2px">Free seminar on basic fire suppression and evacuation. Open to all residents. Saturday, 9AM at Barangay Hall.</div>
+        <div style="font-size:0.62rem;color:var(--text-muted);margin-top:4px">Posted 1 week ago</div>
       </div>
     </div>
 
@@ -1291,33 +1290,47 @@ body {
         <div class="guide-step">
           <div class="step-num">3</div>
           <div class="step-title">Describe what you see</div>
-          <div class="step-desc">Tell us what you observe — flames, smoke, structures at risk. No assessment needed.</div>
+          <div class="step-desc">Tell us what you observe — no assessment needed.</div>
         </div>
         <div class="guide-step">
           <div class="step-num">4</div>
           <div class="step-title">Take a photo</div>
-          <div class="step-desc">A photo helps responders assess the situation. Optional but highly recommended.</div>
+          <div class="step-desc">A photo helps responders. Optional but recommended.</div>
         </div>
         <div class="guide-step">
           <div class="step-num">5</div>
-          <div class="step-title">Submit & save your receipt</div>
-          <div class="step-desc">You'll get a QR-coded receipt. Screenshot it to track your report later.</div>
+          <div class="step-title">Submit & save receipt</div>
+          <div class="step-desc">You'll get a QR-coded receipt to track your report.</div>
         </div>
       </div>
     </div>
 
-    <!-- Registration CTA -->
-    <div class="info-cta">
+    <!-- Admin-managed content section -->
+    <div class="sheet-section">
+      <h2>📋 Community Resources</h2>
+      <p style="font-size:0.72rem;color:var(--text-muted);margin-bottom:12px">Managed by BFP system administrators.</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius);padding:16px">
+          <div style="font-size:0.8rem;font-weight:600;margin-bottom:4px">🔥 Fire Safety Tips</div>
+          <div style="font-size:0.68rem;color:var(--text-muted)">Essential precautions for homes and workplaces during dry season.</div>
+        </div>
+        <div style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius);padding:16px">
+          <div style="font-size:0.8rem;font-weight:600;margin-bottom:4px">📞 Emergency Numbers</div>
+          <div style="font-size:0.68rem;color:var(--text-muted)">BFP hotlines, local stations, and emergency contacts by region.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="info-cta" style="margin-top:24px">
       <h4>Want to track all your reports?</h4>
       <p>Register as a civilian reporter to track every report you submit, get status updates, and contribute verified reports to your community.</p>
-      <button class="btn btn-primary btn-lg">Register as a Reporter</button>
+      <button class="btn btn-primary btn-lg" onclick="showScene('register')">Register as a Reporter</button>
     </div>
   </div>
 
-  <!-- Footer -->
   <footer class="landing-footer">
     <p><strong style="color:var(--text-secondary)">WIMS-BFP</strong> · Bureau of Fire Protection · Republic of the Philippines</p>
-    <p><a href="#">Privacy Policy</a> · <a href="#">Register as a reporter</a></p>
+    <p><a href="#">Privacy Policy</a></p>
   </footer>
 </div>
 
@@ -1418,6 +1431,7 @@ body {
     <div class="landing-header-left" style="gap:4px">
       <button class="btn btn-ghost" onclick="showScene('landing')" style="font-size:0.72rem">Home</button>
       <button class="btn btn-ghost" style="font-size:0.72rem;color:var(--red);border-bottom:2px solid var(--red);border-radius:0;font-weight:600">Dashboard</button>
+      <button class="btn btn-ghost" onclick="showScene('incidents')" style="font-size:0.72rem">Incidents</button>
       <button class="btn btn-ghost" onclick="showScene('information')" style="font-size:0.72rem">Information</button>
     </div>
     <div class="landing-header-right">
