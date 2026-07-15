@@ -5,6 +5,7 @@ import { WifiOff } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { Header } from './Header';
 import { Sidebar } from './Sidebar';
+import { PublicHeader } from './PublicHeader';
 import { usePathname } from 'next/navigation';
 import { registerServiceWorker } from '@/lib/swRegistration';
 import { useNetworkStatus } from '@/lib/useNetworkStatus';
@@ -82,12 +83,23 @@ export function LayoutShell({ children }: { children: ReactNode }) {
         );
     }
 
+    // Public routes without authentication requirements (landing, report, fire-stations, tracking, privacy)
     const isPublicRoute = pathname === '/' || pathname === '/login' || pathname === '/register' || pathname === '/report' || pathname === '/callback' || pathname === '/verify-sent' || pathname === '/verify' || pathname.startsWith('/tracking') || pathname.startsWith('/fire-stations') || pathname.startsWith('/privacy');
 
-    if (isPublicRoute) {
-        return <>{children}</>;
+    // Civilian-only routes (contributor dashboard, information hub)
+    const isCivilianRoute = pathname === '/contributor' || pathname === '/information';
+
+    // Public surface (anonymous or civilian) — uses PublicHeader
+    if (isPublicRoute || isCivilianRoute) {
+        return (
+            <>
+                <PublicHeader />
+                {children}
+            </>
+        );
     }
 
+    // Staff surface (encoder, validator, analyst, admin) — uses Sidebar + Header
     return (
         <div className="flex h-screen overflow-hidden bg-theme-surface-subtle">
             {/* Sidebar */}
