@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import json
 import pytest
+from urllib.parse import quote
 from fastapi.testclient import TestClient
 from keycloak.exceptions import KeycloakError
 from pydantic import ValidationError
@@ -299,6 +300,10 @@ class TestRegisterEndpoint:
         assert mock_send.call_args.kwargs["template_name"] == "email_verification"
         assert mock_send.call_args.kwargs["context"]["code"]
         assert mock_send.call_args.kwargs["context"]["pending_email"] == "test@example.com"
+        # The email must link the user into the verify page with code + email.
+        verify_url = mock_send.call_args.kwargs["context"]["verify_url"]
+        assert verify_url.startswith("https://wimsbfp.tech/verify?code=")
+        assert f"&email={quote('test@example.com')}" in verify_url
 
     def test_success_without_dpa_consent(
         self, client: TestClient, valid_payload, mock_redis, mock_keycloak_admin, mock_db

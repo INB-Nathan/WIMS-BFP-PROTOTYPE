@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import secrets
+from urllib.parse import quote
 from datetime import datetime, timezone
 from typing import Annotated, Optional
 
@@ -515,6 +516,9 @@ async def register(
             detail="Verification service temporarily unavailable. Try again later.",
         )
 
+    frontend_url = os.environ.get("FRONTEND_URL", "https://wimsbfp.tech").rstrip("/")
+    verify_url = f"{frontend_url}/verify?code={code}&email={quote(body.email)}"
+
     try:
         await send_email_async(
             to=body.email,
@@ -523,6 +527,7 @@ async def register(
                 "username": body.email,
                 "pending_email": body.email,
                 "code": code,
+                "verify_url": verify_url,
             },
         )
     except Exception as e:
