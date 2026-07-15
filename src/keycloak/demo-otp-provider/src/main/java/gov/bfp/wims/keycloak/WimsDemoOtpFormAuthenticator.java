@@ -7,6 +7,7 @@ import org.keycloak.authentication.AuthenticationFlowContext;
 import org.keycloak.authentication.authenticators.browser.AbstractUsernameFormAuthenticator;
 import org.keycloak.authentication.authenticators.browser.OTPFormAuthenticator;
 import org.keycloak.events.Errors;
+import org.keycloak.forms.login.freemarker.model.TotpLoginBean;
 import org.keycloak.models.UserModel;
 
 public class WimsDemoOtpFormAuthenticator extends OTPFormAuthenticator {
@@ -28,6 +29,10 @@ public class WimsDemoOtpFormAuthenticator extends OTPFormAuthenticator {
         // Required because Keycloak 26's OTPFormAuthenticator.authenticate()
         // silently calls context.success() when the user has no OTP
         // credential, which bypasses MFA for role-triggered OTP.
+        // Must manually set the otpLogin form attribute since we bypass
+        // createLoginTotp() (which normally populates it via TotpLoginBean).
+        context.form().setAttribute("otpLogin",
+            new TotpLoginBean(context.getSession(), context.getRealm(), user, null));
         Response challenge = context.form().createForm("login-otp.ftl");
         context.challenge(challenge);
     }
