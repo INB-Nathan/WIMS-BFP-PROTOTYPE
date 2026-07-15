@@ -1,0 +1,1239 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WIMS-BFP · Public Surface Prototype</title>
+<style>
+/* ── Design tokens ─────────────────────────────────────────────── */
+:root {
+  --bg-deep: #0f0f0f;
+  --bg-base: #1a1a1a;
+  --bg-elevated: #242424;
+  --bg-surface: #2d2d2d;
+  --bg-hover: rgba(255,255,255,0.06);
+  --text-primary: #ffffff;
+  --text-secondary: rgba(255,255,255,0.72);
+  --text-muted: rgba(255,255,255,0.45);
+  --border: rgba(255,255,255,0.08);
+  --border-strong: rgba(255,255,255,0.14);
+  --red: #d00;
+  --red-light: #ff6b6b;
+  --red-deep: #C62828;
+  --red-bg: rgba(220,0,0,0.12);
+  --orange: #e87;
+  --orange-light: #ffa726;
+  --yellow: #fc0;
+  --green: #4a0;
+  --green-bg: rgba(68,170,0,0.12);
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-lg: 16px;
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --shadow: 0 2px 12px rgba(0,0,0,0.4);
+  --transition: 180ms ease;
+}
+
+[data-theme="light"] {
+  --bg-deep: #f5f5f7;
+  --bg-base: #ffffff;
+  --bg-elevated: #f8f9fa;
+  --bg-surface: #eef0f2;
+  --bg-hover: rgba(0,0,0,0.04);
+  --text-primary: #1a1d23;
+  --text-secondary: rgba(0,0,0,0.65);
+  --text-muted: rgba(0,0,0,0.42);
+  --border: rgba(0,0,0,0.06);
+  --border-strong: rgba(0,0,0,0.12);
+  --red-light: #e53935;
+  --red-bg: rgba(220,0,0,0.08);
+  --orange-light: #e65100;
+  --yellow: #c78f00;
+  --green: #3a0;
+  --green-bg: rgba(68,170,0,0.08);
+  --shadow: 0 2px 12px rgba(0,0,0,0.08);
+}
+
+/* ── Light mode overrides (things tokens can't handle) ─────────── */
+[data-theme="light"] .intent-bg {
+  background:
+    linear-gradient(160deg, rgba(245,245,247,0.96) 0%, rgba(255,240,240,0.92) 50%, rgba(220,60,60,0.12) 100%),
+    repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.015) 2px, rgba(0,0,0,0.015) 4px);
+}
+[data-theme="light"] .intent-bg::after {
+  background: radial-gradient(ellipse at 30% 70%, rgba(220,0,0,0.06) 0%, transparent 60%),
+              radial-gradient(ellipse at 70% 30%, rgba(220,80,0,0.04) 0%, transparent 50%);
+}
+[data-theme="light"] .intent-card.report {
+  background: linear-gradient(145deg, rgba(198,40,40,0.08), rgba(180,20,20,0.04));
+  border-color: rgba(220,0,0,0.2);
+}
+[data-theme="light"] .intent-card.browse {
+  background: rgba(0,0,0,0.02);
+  border-color: rgba(0,0,0,0.08);
+}
+[data-theme="light"] .intent-heading { color: var(--text-secondary); }
+[data-theme="light"] .intent-card.report:hover { box-shadow: 0 0 30px rgba(220,0,0,0.08); }
+[data-theme="light"] .intent-card.browse:hover { box-shadow: 0 0 30px rgba(0,0,0,0.03); border-color: rgba(0,0,0,0.16); }
+[data-theme="light"] .landing-map-placeholder {
+  background:
+    radial-gradient(circle at 30% 45%, rgba(220,0,0,0.04) 0%, transparent 40%),
+    radial-gradient(circle at 65% 60%, rgba(255,140,0,0.03) 0%, transparent 35%),
+    var(--bg-elevated);
+}
+[data-theme="light"] .landing-map-placeholder::before {
+  background-image:
+    linear-gradient(rgba(0,0,0,0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,0,0,0.03) 1px, transparent 1px);
+}
+[data-theme="light"] .map-pin { border-color: rgba(0,0,0,0.4); }
+[data-theme="light"] .map-pin::after { background: rgba(0,0,0,0.7); }
+[data-theme="light"] .safety-banner { background: rgba(230,80,0,0.05); border-color: rgba(230,80,0,0.15); }
+[data-theme="light"] .btn-outline:hover { border-color: rgba(0,0,0,0.2); }
+[data-theme="light"] .btn-primary:hover { box-shadow: 0 0 16px rgba(220,0,0,0.15); }
+[data-theme="light"] .receipt-qr { background: var(--bg-surface); border: 1px solid var(--border-strong); }
+[data-theme="light"] .receipt-qr-placeholder {
+  background: repeating-linear-gradient(0deg, #999, #999 6px, var(--bg-surface) 6px, var(--bg-surface) 12px),
+              repeating-linear-gradient(90deg, #999, #999 6px, var(--bg-surface) 6px, var(--bg-surface) 12px);
+  opacity: 0.2;
+}
+[data-theme="light"] .info-cta { background: linear-gradient(145deg, rgba(198,40,40,0.05), rgba(180,20,20,0.02)); border-color: rgba(220,0,0,0.15); }
+[data-theme="light"] .proto-nav { border-color: var(--border-strong); }
+[data-theme="light"] .landing-header { border-color: var(--border-strong); }
+[data-theme="light"] .landing-footer { border-color: var(--border-strong); }
+[data-theme="light"] @keyframes skeleton-pulse { 0%, 100% { opacity: 0.3; } 50% { opacity: 0.6; } }
+
+/* ── Reset & base ──────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-size: 16px; -webkit-font-smoothing: antialiased; }
+body {
+  font-family: var(--font);
+  background: var(--bg-deep);
+  color: var(--text-primary);
+  line-height: 1.5;
+  min-height: 100vh;
+}
+
+/* ── Scene switching ───────────────────────────────────────────── */
+.scene { display: none; }
+.scene.active { display: block; }
+
+/* ── Prototype nav ─────────────────────────────────────────────── */
+.proto-nav {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 1000;
+  background: var(--bg-base); border-bottom: 1px solid var(--border);
+  padding: 10px 20px; display: flex; gap: 8px; align-items: center;
+  flex-wrap: wrap;
+}
+.proto-nav button {
+  padding: 6px 14px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong); background: transparent;
+  color: var(--text-secondary); font-size: 0.78rem; font-weight: 600;
+  cursor: pointer; transition: all var(--transition);
+  font-family: var(--font);
+}
+.proto-nav button:hover { background: var(--bg-hover); color: var(--text-primary); }
+.proto-nav button.active { background: var(--red-bg); border-color: var(--red); color: var(--red); }
+.proto-nav .label { font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; margin-right: 4px; }
+
+/* ── 1. INTENT MODAL ───────────────────────────────────────────── */
+.intent-overlay {
+  position: fixed; inset: 0; z-index: 900;
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px;
+}
+.intent-bg {
+  position: absolute; inset: 0;
+  background:
+    linear-gradient(160deg, rgba(15,15,15,0.92) 0%, rgba(90,21,21,0.85) 50%, rgba(198,40,40,0.6) 100%),
+    repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,0.015) 2px, rgba(255,255,255,0.015) 4px);
+  z-index: 0;
+}
+.intent-bg::after {
+  content: ''; position: absolute; inset: 0;
+  background: radial-gradient(ellipse at 30% 70%, rgba(220,0,0,0.15) 0%, transparent 60%),
+              radial-gradient(ellipse at 70% 30%, rgba(255,140,0,0.08) 0%, transparent 50%);
+}
+.intent-content {
+  position: relative; z-index: 1; text-align: center;
+  max-width: 560px; width: 100%;
+}
+.intent-logo {
+  width: 56px; height: 56px; margin: 0 auto 24px;
+  background: var(--red-deep); border-radius: 14px;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 0 40px rgba(198,40,40,0.3);
+}
+.intent-logo svg { width: 32px; height: 32px; }
+.intent-heading {
+  font-size: 1.4rem; font-weight: 700; letter-spacing: -0.02em;
+  margin-bottom: 28px; color: rgba(255,255,255,0.9);
+}
+.intent-cards {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
+  margin-bottom: 18px;
+}
+@media (max-width: 480px) { .intent-cards { grid-template-columns: 1fr; } }
+.intent-card {
+  padding: 28px 20px 24px; border-radius: var(--radius-lg);
+  border: 1.5px solid; cursor: pointer; transition: all var(--transition);
+  text-decoration: none; display: block; position: relative; overflow: hidden;
+}
+.intent-card::after {
+  content: ''; position: absolute; inset: 0; opacity: 0; transition: opacity var(--transition);
+}
+.intent-card:hover::after { opacity: 1; }
+.intent-card.report {
+  background: linear-gradient(145deg, rgba(198,40,40,0.25), rgba(180,20,20,0.15));
+  border-color: rgba(220,0,0,0.35);
+}
+.intent-card.report::after { background: radial-gradient(circle at center, rgba(220,0,0,0.18), transparent); }
+.intent-card.report:hover { border-color: var(--red); transform: translateY(-1px); box-shadow: 0 0 30px rgba(220,0,0,0.2); }
+.intent-card.browse {
+  background: rgba(255,255,255,0.04);
+  border-color: rgba(255,255,255,0.1);
+}
+.intent-card.browse::after { background: radial-gradient(circle at center, rgba(255,255,255,0.04), transparent); }
+.intent-card.browse:hover { border-color: rgba(255,255,255,0.22); transform: translateY(-1px); box-shadow: 0 0 30px rgba(255,255,255,0.04); }
+.intent-card-icon { font-size: 2rem; margin-bottom: 10px; display: block; }
+.intent-card-label { font-size: 0.95rem; font-weight: 700; color: var(--text-primary); }
+.intent-card.report .intent-card-label { color: var(--red-light); }
+.intent-subtitle {
+  font-size: 0.75rem; color: var(--text-muted);
+}
+.intent-subtitle strong { color: var(--text-secondary); }
+
+/* ── 2. LANDING PAGE ───────────────────────────────────────────── */
+.landing-header {
+  background: var(--bg-base); border-bottom: 1px solid var(--border);
+  padding: 0 20px; height: 52px; display: flex; align-items: center;
+  justify-content: space-between; position: sticky; top: 44px; z-index: 100;
+}
+.landing-header-left { display: flex; align-items: center; gap: 10px; }
+.landing-header-logo {
+  width: 30px; height: 30px; background: var(--red-deep); border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+}
+.landing-header-logo svg { width: 18px; height: 18px; }
+.landing-header-title { font-size: 0.82rem; font-weight: 700; color: var(--text-primary); }
+.landing-header-right { display: flex; align-items: center; gap: 10px; }
+.btn {
+  padding: 7px 16px; border-radius: var(--radius-sm); font-size: 0.76rem;
+  font-weight: 600; cursor: pointer; border: none; font-family: var(--font);
+  transition: all var(--transition); text-decoration: none; display: inline-flex;
+  align-items: center; gap: 6px;
+}
+.btn-ghost {
+  background: transparent; color: var(--text-secondary); border: 1px solid transparent;
+}
+.btn-ghost:hover { color: var(--text-primary); background: var(--bg-hover); }
+.btn-primary {
+  background: var(--red); color: #fff;
+}
+.btn-primary:hover { background: #e01010; box-shadow: 0 0 16px rgba(220,0,0,0.3); }
+.btn-outline {
+  background: transparent; color: var(--text-primary); border: 1px solid var(--border-strong);
+}
+.btn-outline:hover { border-color: rgba(255,255,255,0.3); background: var(--bg-hover); }
+
+.landing-map {
+  height: 55vh; background: var(--bg-elevated); position: relative;
+  border-bottom: 1px solid var(--border);
+}
+.landing-map-placeholder {
+  position: absolute; inset: 0; display: flex; align-items: center;
+  justify-content: center; flex-direction: column; gap: 10px;
+  background:
+    radial-gradient(circle at 30% 45%, rgba(220,0,0,0.08) 0%, transparent 40%),
+    radial-gradient(circle at 65% 60%, rgba(255,140,0,0.06) 0%, transparent 35%),
+    var(--bg-elevated);
+}
+.landing-map-placeholder::before {
+  content: ''; position: absolute; inset: 0;
+  background-image:
+    linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+.landing-map-label { font-size: 0.7rem; color: var(--text-muted); position: relative; z-index: 1; text-transform: uppercase; letter-spacing: 0.1em; }
+
+/* Map pins (decorative) */
+.map-pin {
+  position: absolute; z-index: 2; width: 22px; height: 22px; border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg); border: 2px solid rgba(255,255,255,0.6);
+}
+.map-pin::after { content: ''; position: absolute; width: 8px; height: 8px; border-radius: 50%; background: #fff; top: 5px; left: 5px; }
+.map-pin.red { background: var(--red); left: 28%; top: 35%; }
+.map-pin.orange { background: var(--orange); left: 52%; top: 48%; }
+.map-pin.yellow { background: var(--yellow); left: 62%; top: 55%; }
+.map-pin.red2 { background: var(--red); left: 44%; top: 28%; width: 18px; height: 18px; }
+.map-pin.orange2 { background: var(--orange); left: 18%; top: 60%; width: 16px; height: 16px; }
+
+/* Heat blobs */
+.heat-blob {
+  position: absolute; z-index: 1; border-radius: 50%; filter: blur(20px); opacity: 0.25;
+}
+.heat-blob.h1 { width: 120px; height: 120px; background: var(--red); left: 24%; top: 30%; }
+.heat-blob.h2 { width: 90px; height: 90px; background: var(--orange); left: 50%; top: 44%; }
+.heat-blob.h3 { width: 70px; height: 70px; background: var(--yellow); left: 60%; top: 50%; }
+
+/* Bottom sheet */
+.landing-sheet {
+  max-width: 960px; margin: 0 auto; padding: 24px 20px 40px;
+}
+.sheet-section { margin-bottom: 28px; }
+.sheet-section h2 {
+  font-size: 0.85rem; font-weight: 700; margin-bottom: 14px;
+  display: flex; align-items: center; gap: 8px;
+  color: var(--text-primary);
+}
+.sheet-section h2 .count {
+  font-size: 0.65rem; background: var(--bg-surface); padding: 2px 8px;
+  border-radius: 999px; color: var(--text-muted); font-weight: 400;
+}
+
+/* Fire card */
+.fire-card {
+  background: var(--bg-elevated); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 14px 16px; margin-bottom: 8px;
+  display: flex; align-items: center; gap: 14px;
+  transition: all var(--transition);
+}
+.fire-card:hover { border-color: var(--border-strong); background: var(--bg-surface); }
+.fire-card .sev-dot {
+  width: 28px; height: 28px; border-radius: 8px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.05em;
+}
+.fire-card .sev-dot.crit { background: var(--red); color: #fff; }
+.fire-card .sev-dot.high { background: var(--orange); color: #000; }
+.fire-card .sev-dot.mod { background: var(--yellow); color: #000; }
+.fire-card .sev-dot.low { background: var(--green); color: #fff; }
+
+.fire-card .fire-info { flex: 1; min-width: 0; }
+.fire-card .fire-title { font-size: 0.82rem; font-weight: 600; color: var(--text-primary); }
+.fire-card .fire-meta { font-size: 0.68rem; color: var(--text-muted); margin-top: 2px; }
+.fire-card .fire-dist { font-size: 0.72rem; color: var(--text-secondary); font-weight: 500; flex-shrink: 0; }
+
+/* Skeleton */
+.skeleton { background: var(--bg-surface); border-radius: var(--radius-sm); animation: skeleton-pulse 1.8s ease-in-out infinite; }
+@keyframes skeleton-pulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 0.7; } }
+.skeleton-card { height: 52px; margin-bottom: 8px; border-radius: var(--radius); }
+
+/* Empty state */
+.empty-state {
+  padding: 20px; text-align: center; color: var(--text-muted);
+  font-size: 0.78rem; background: var(--bg-elevated); border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+
+/* Station link */
+.station-link {
+  display: flex; align-items: center; gap: 10px; padding: 14px 16px;
+  background: var(--bg-elevated); border: 1px solid var(--border);
+  border-radius: var(--radius); text-decoration: none; color: var(--text-primary);
+  transition: all var(--transition);
+}
+.station-link:hover { border-color: var(--border-strong); background: var(--bg-surface); }
+.station-link .station-icon {
+  width: 36px; height: 36px; border-radius: 8px; background: var(--red-bg);
+  display: flex; align-items: center; justify-content: center; font-size: 1.1rem;
+}
+.station-link .station-label { font-size: 0.82rem; font-weight: 600; }
+.station-link .station-sub { font-size: 0.68rem; color: var(--text-muted); }
+
+/* Footer */
+.landing-footer {
+  background: var(--bg-base); border-top: 1px solid var(--border);
+  text-align: center; padding: 20px; font-size: 0.68rem; color: var(--text-muted);
+}
+.landing-footer a { color: var(--text-secondary); text-decoration: underline; }
+
+/* FAB */
+.fab {
+  position: fixed; bottom: 24px; right: 24px; z-index: 200;
+  width: 52px; height: 52px; border-radius: 50%; background: var(--red);
+  border: none; cursor: pointer; display: flex; align-items: center;
+  justify-content: center; box-shadow: 0 4px 20px rgba(220,0,0,0.35);
+  transition: all var(--transition); font-size: 1.2rem; color: #fff;
+}
+.fab:hover { transform: scale(1.05); background: #e01010; }
+@media (min-width: 769px) { .fab { display: none; } }
+
+/* ── 3. REPORT WIZARD ───────────────────────────────────────────── */
+.wizard-container {
+  max-width: 640px; margin: 60px auto 0; padding: 20px 20px 40px;
+}
+.wizard-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 24px;
+}
+.wizard-back {
+  background: none; border: 1px solid var(--border-strong); color: var(--text-secondary);
+  padding: 6px 12px; border-radius: var(--radius-sm); font-size: 0.72rem;
+  cursor: pointer; font-family: var(--font); transition: all var(--transition);
+}
+.wizard-back:hover { background: var(--bg-hover); color: var(--text-primary); }
+.wizard-progress {
+  display: flex; gap: 6px; align-items: center;
+}
+.progress-dot {
+  width: 28px; height: 4px; border-radius: 2px; background: var(--bg-surface);
+  transition: all var(--transition);
+}
+.progress-dot.done { background: var(--green); }
+.progress-dot.active { background: var(--red); }
+.progress-label {
+  font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase;
+  letter-spacing: 0.06em; margin-left: 10px;
+}
+
+/* Safety banner */
+.safety-banner {
+  background: rgba(255,140,0,0.08); border: 1px solid rgba(255,140,0,0.2);
+  border-radius: var(--radius); padding: 12px 16px; margin-bottom: 20px;
+  display: flex; align-items: flex-start; gap: 10px; font-size: 0.72rem;
+  color: var(--orange);
+}
+.safety-banner strong { color: var(--orange-light); }
+
+/* Wizard step */
+.wizard-step { display: none; }
+.wizard-step.active { display: block; }
+.wizard-step h3 {
+  font-size: 1rem; font-weight: 700; margin-bottom: 6px;
+}
+.wizard-step .step-desc { font-size: 0.76rem; color: var(--text-muted); margin-bottom: 20px; }
+
+/* Map placeholder in wizard */
+.wizard-map {
+  height: 240px; background: var(--bg-elevated); border-radius: var(--radius);
+  border: 1px solid var(--border); position: relative; margin-bottom: 16px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-muted); font-size: 0.72rem;
+}
+
+/* Inputs */
+.input-group { margin-bottom: 16px; }
+.input-group label {
+  display: block; font-size: 0.72rem; font-weight: 600; margin-bottom: 6px;
+  color: var(--text-secondary);
+}
+.input-group input, .input-group textarea, .input-group select {
+  width: 100%; padding: 10px 14px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong); background: var(--bg-elevated);
+  color: var(--text-primary); font-size: 0.82rem; font-family: var(--font);
+  transition: border-color var(--transition);
+}
+.input-group input:focus, .input-group textarea:focus {
+  outline: none; border-color: var(--red);
+}
+.input-group textarea { min-height: 100px; resize: vertical; }
+.input-group .hint { font-size: 0.65rem; color: var(--text-muted); margin-top: 4px; }
+
+/* Observable indicators */
+.observe-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 20px;
+}
+@media (max-width: 480px) { .observe-grid { grid-template-columns: 1fr; } }
+.observe-chip {
+  display: flex; align-items: center; gap: 10px; padding: 12px 14px;
+  border-radius: var(--radius-sm); border: 1px solid var(--border);
+  background: var(--bg-elevated); cursor: pointer; font-size: 0.78rem;
+  transition: all var(--transition); color: var(--text-secondary);
+  font-family: var(--font);
+}
+.observe-chip:hover { border-color: var(--border-strong); background: var(--bg-surface); }
+.observe-chip.selected { border-color: var(--red); background: var(--red-bg); color: var(--red-light); }
+.observe-chip input { display: none; }
+.observe-chip .chip-icon { font-size: 1rem; flex-shrink: 0; }
+
+/* Photo upload placeholder */
+.photo-zone {
+  border: 2px dashed var(--border-strong); border-radius: var(--radius);
+  padding: 40px 20px; text-align: center; color: var(--text-muted);
+  font-size: 0.78rem; cursor: pointer; transition: all var(--transition);
+  margin-bottom: 12px;
+}
+.photo-zone:hover { border-color: var(--red); background: var(--red-bg); }
+.photo-skip { text-align: center; }
+.photo-skip button {
+  background: none; border: none; color: var(--text-muted); font-size: 0.72rem;
+  cursor: pointer; font-family: var(--font); text-decoration: underline;
+}
+.photo-skip button:hover { color: var(--text-secondary); }
+
+/* Progressive disclosure */
+.expandable { margin-top: 16px; }
+.expandable summary {
+  font-size: 0.76rem; color: var(--text-secondary); cursor: pointer;
+  padding: 8px 0; list-style: none; font-weight: 600;
+}
+.expandable summary:hover { color: var(--text-primary); }
+.expandable summary::before { content: '+ '; color: var(--red); }
+.expandable[open] summary::before { content: '− '; }
+.expandable-content { padding: 12px 0 0; }
+
+/* Review step */
+.review-block {
+  background: var(--bg-elevated); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 16px; margin-bottom: 12px;
+}
+.review-block h4 { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); margin-bottom: 8px; }
+.review-block p { font-size: 0.82rem; }
+.review-block .review-map {
+  height: 120px; background: var(--bg-surface); border-radius: var(--radius-sm);
+  margin-top: 8px; display: flex; align-items: center; justify-content: center;
+  font-size: 0.68rem; color: var(--text-muted);
+}
+
+.btn-row { display: flex; gap: 10px; margin-top: 20px; }
+.btn-row.right { justify-content: flex-end; }
+.btn-lg { padding: 12px 28px; font-size: 0.84rem; }
+
+/* ── 4. SUCCESS RECEIPT ────────────────────────────────────────── */
+.receipt-container {
+  max-width: 440px; margin: 80px auto 0; padding: 0 20px 40px;
+}
+.receipt {
+  background: var(--bg-elevated); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); padding: 32px 24px; text-align: center;
+  box-shadow: var(--shadow);
+}
+.receipt-header {
+  border-bottom: 1px dashed var(--border-strong); padding-bottom: 20px;
+  margin-bottom: 20px;
+}
+.receipt-header .receipt-title {
+  font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em;
+  color: var(--text-muted); margin-bottom: 8px;
+}
+.receipt-header .receipt-agency {
+  font-size: 1rem; font-weight: 700; color: var(--text-primary);
+}
+.receipt-qr {
+  width: 140px; height: 140px; margin: 20px auto; border-radius: var(--radius);
+  padding: 12px; background: #fff; display: flex; align-items: center;
+  justify-content: center;
+}
+.receipt-qr-placeholder {
+  width: 100%; height: 100%;
+  background: repeating-linear-gradient(0deg, #000, #000 6px, #fff 6px, #fff 12px),
+              repeating-linear-gradient(90deg, #000, #000 6px, #fff 6px, #fff 12px);
+  opacity: 0.25;
+  border-radius: 4px;
+}
+.receipt-token {
+  font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.72rem;
+  color: var(--text-secondary); background: var(--bg-surface);
+  padding: 8px 14px; border-radius: var(--radius-sm); word-break: break-all;
+  margin-bottom: 6px; display: inline-block;
+}
+.receipt-ts { font-size: 0.65rem; color: var(--text-muted); margin-bottom: 20px; }
+.receipt-incentive {
+  border-top: 1px solid var(--border); padding-top: 20px; margin-top: 20px;
+}
+.receipt-incentive h4 { font-size: 0.8rem; margin-bottom: 6px; }
+.receipt-incentive p { font-size: 0.72rem; color: var(--text-muted); margin-bottom: 14px; }
+.receipt-incentive ul { text-align: left; font-size: 0.72rem; color: var(--text-secondary); list-style: none; margin-bottom: 16px; }
+.receipt-incentive ul li { padding: 4px 0; }
+.receipt-incentive ul li::before { content: '✓ '; color: var(--green); }
+
+/* ── 5. INFORMATION HUB ────────────────────────────────────────── */
+.info-container { max-width: 960px; margin: 60px auto 0; padding: 0 20px 40px; }
+.info-header-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; flex-wrap: wrap; gap: 12px; }
+.info-header-row h2 { font-size: 1.1rem; font-weight: 700; }
+.info-filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }
+.info-filters input, .info-filters select {
+  padding: 8px 12px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong); background: var(--bg-elevated);
+  color: var(--text-primary); font-size: 0.74rem; font-family: var(--font);
+}
+.info-filters input:focus, .info-filters select:focus { outline: none; border-color: var(--red); }
+.info-filters input { flex: 1; min-width: 180px; }
+.info-filters select { min-width: 120px; }
+.info-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; margin-bottom: 32px; }
+.info-table th { text-align: left; padding: 10px 14px; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); border-bottom: 1px solid var(--border); }
+.info-table td { padding: 12px 14px; border-bottom: 1px solid var(--border); color: var(--text-secondary); }
+.info-table td:first-child { color: var(--text-primary); font-weight: 600; }
+.info-table tr:hover td { background: var(--bg-hover); }
+.info-table .sev-badge {
+  display: inline-block; padding: 2px 8px; border-radius: 999px;
+  font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+}
+.info-table .sev-badge.crit { background: var(--red-bg); color: var(--red); }
+.info-table .sev-badge.high { background: rgba(255,140,0,0.12); color: var(--orange); }
+.info-table .sev-badge.mod { background: rgba(255,204,0,0.12); color: var(--yellow); }
+
+.info-guide { margin-bottom: 32px; }
+.info-guide h3 { font-size: 0.9rem; font-weight: 700; margin-bottom: 14px; }
+.guide-steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.guide-step {
+  background: var(--bg-elevated); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 18px 16px; text-align: center;
+}
+.guide-step .step-num {
+  width: 28px; height: 28px; border-radius: 50%; background: var(--red-bg);
+  color: var(--red); display: inline-flex; align-items: center; justify-content: center;
+  font-size: 0.72rem; font-weight: 700; margin-bottom: 8px;
+}
+.guide-step .step-title { font-size: 0.78rem; font-weight: 600; margin-bottom: 4px; }
+.guide-step .step-desc { font-size: 0.68rem; color: var(--text-muted); line-height: 1.4; }
+
+.info-cta {
+  background: linear-gradient(145deg, rgba(198,40,40,0.12), rgba(180,20,20,0.06));
+  border: 1px solid rgba(220,0,0,0.2); border-radius: var(--radius-lg);
+  padding: 24px; text-align: center;
+}
+.info-cta h4 { font-size: 0.88rem; font-weight: 700; margin-bottom: 6px; }
+.info-cta p { font-size: 0.74rem; color: var(--text-muted); margin-bottom: 14px; }
+
+/* ── Mobile tweaks ─────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .landing-header-right .btn-ghost:not(.show-mobile) { display: none; }
+  .landing-header-right .btn-outline { display: none; }
+
+  /* Responsive table → stacked cards */
+  .info-table, .info-table thead, .info-table tbody, .info-table th, .info-table td, .info-table tr { display: block; }
+  .info-table thead { display: none; }
+  .info-table tr {
+    background: var(--bg-elevated); border: 1px solid var(--border);
+    border-radius: var(--radius); margin-bottom: 10px; padding: 14px 16px;
+  }
+  .info-table td {
+    border: none; padding: 4px 0; font-size: 0.74rem;
+    display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  }
+  .info-table td::before {
+    content: attr(data-label); font-size: 0.62rem; text-transform: uppercase;
+    letter-spacing: 0.05em; color: var(--text-muted); font-weight: 600;
+    flex-shrink: 0;
+  }
+  .info-table td:first-child { font-size: 0.82rem; }
+  .info-table td:first-child::before { content: none; }
+  .info-table td:first-child { display: block; margin-bottom: 6px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+
+  /* Guide steps stack */
+  .guide-steps { grid-template-columns: 1fr 1fr; }
+}
+@media (min-width: 769px) {
+  .landing-header-right .btn-ghost.show-mobile { display: none; }
+}
+</style>
+</head>
+<body>
+
+<!-- ── Proto nav ──────────────────────────────────────────────── -->
+<nav class="proto-nav">
+  <span class="label">Prototype scenes</span>
+  <button onclick="showScene('intent')" class="active" id="nav-intent">Intent Modal</button>
+  <button onclick="showScene('landing')" id="nav-landing">Landing</button>
+  <button onclick="showScene('information')" id="nav-information">Information</button>
+  <button onclick="showScene('wizard')" id="nav-wizard">Report Wizard</button>
+  <button onclick="showScene('receipt')" id="nav-receipt">Receipt</button>
+  <span style="flex:1"></span>
+  <button onclick="toggleTheme()" id="nav-theme" style="background:var(--bg-surface);border:1px solid var(--border-strong);">🌙 Dark</button>
+</nav>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- SCENE 1: INTENT MODAL -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="scene active" id="scene-intent">
+  <div class="intent-overlay">
+    <div class="intent-bg"></div>
+    <div class="intent-content">
+      <div class="intent-logo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+          <circle cx="9" cy="7" r="4"/>
+          <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+          <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+        </svg>
+      </div>
+      <p class="intent-heading">Welcome to the BFP Incident Reporting Network</p>
+      <div class="intent-cards">
+        <a class="intent-card report" onclick="showScene('wizard')">
+          <span class="intent-card-icon">🔥</span>
+          <span class="intent-card-label">Report a Fire</span>
+        </a>
+        <a class="intent-card browse" onclick="showScene('landing')">
+          <span class="intent-card-icon">🗺️</span>
+          <span class="intent-card-label">Browse</span>
+        </a>
+      </div>
+      <p class="intent-subtitle"><strong>No account needed</strong> to report. Your report goes directly to the Bureau of Fire Protection.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- SCENE 2: LANDING PAGE -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="scene" id="scene-landing">
+  <!-- Header -->
+  <header class="landing-header">
+    <div class="landing-header-left">
+      <div class="landing-header-logo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round">
+          <path d="M12 2L2 22h20L12 2z"/>
+          <line x1="12" y1="10" x2="12" y2="16"/>
+          <circle cx="12" cy="19" r="1" fill="#fff" stroke="none"/>
+        </svg>
+      </div>
+      <span class="landing-header-title">WIMS-BFP</span>
+    </div>
+    <div class="landing-header-right">
+      <button class="btn btn-ghost show-mobile" onclick="showScene('intent')">Home</button>
+      <button class="btn btn-ghost">Register</button>
+      <button class="btn btn-outline">Sign In</button>
+      <button class="btn btn-primary" onclick="showScene('wizard')">Report a Fire</button>
+    </div>
+  </header>
+
+  <!-- Map -->
+  <div class="landing-map">
+    <div class="landing-map-placeholder">
+      <div class="map-pin red"></div>
+      <div class="map-pin orange"></div>
+      <div class="map-pin yellow"></div>
+      <div class="map-pin red2"></div>
+      <div class="map-pin orange2"></div>
+      <div class="heat-blob h1"></div>
+      <div class="heat-blob h2"></div>
+      <div class="heat-blob h3"></div>
+      <span class="landing-map-label">Interactive Map · Leaflet + Heatmap Layer</span>
+    </div>
+  </div>
+
+  <!-- Bottom sheet -->
+  <div class="landing-sheet">
+    <!-- Active fires -->
+    <div class="sheet-section">
+      <h2>🔥 Active fires near you <span class="count">3</span></h2>
+      <div class="fire-card">
+        <div class="sev-dot crit">C</div>
+        <div class="fire-info">
+          <div class="fire-title">Grass fire along Marcos Highway</div>
+          <div class="fire-meta">📍 Barangay Mayamot, Antipolo</div>
+        </div>
+        <div class="fire-dist">2.3 km</div>
+      </div>
+      <div class="fire-card">
+        <div class="sev-dot high">H</div>
+        <div class="fire-info">
+          <div class="fire-title">Structure fire — residential area</div>
+          <div class="fire-meta">📍 Barangay Dela Paz, Pasig</div>
+        </div>
+        <div class="fire-dist">4.8 km</div>
+      </div>
+      <div class="fire-card">
+        <div class="sev-dot mod">M</div>
+        <div class="fire-info">
+          <div class="fire-title">Smoke reported near commercial building</div>
+          <div class="fire-meta">📍 Barangay Ugong, Pasig</div>
+        </div>
+        <div class="fire-dist">6.1 km</div>
+      </div>
+      <p style="font-size:0.7rem;color:var(--text-muted);margin-top:4px">Showing verified BFP incidents from National Validator. Public reports are clustered as heatmap areas.</p>
+    </div>
+
+    <!-- Announcements -->
+    <div class="sheet-section">
+      <h2>📢 BFP Announcements</h2>
+      <!-- Skeleton loading state (toggle with class) -->
+      <div id="announcement-skeletons">
+        <div class="skeleton skeleton-card"></div>
+        <div class="skeleton skeleton-card"></div>
+      </div>
+      <!-- Empty state (hidden initially) -->
+      <div id="announcement-empty" class="empty-state" style="display:none">
+        No active announcements at this time.
+      </div>
+      <!-- Filled state (hidden initially) -->
+      <div id="announcement-filled" style="display:none">
+        <div style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px">
+          <div style="font-size:0.82rem;font-weight:600">Fire prevention campaign — March 2026</div>
+          <div style="font-size:0.7rem;color:var(--text-muted);margin-top:2px">BFP NCR conducting fire safety inspections in all barangays.</div>
+        </div>
+      </div>
+      <p style="font-size:0.65rem;color:var(--text-muted);margin-top:8px">
+        <button onclick="toggleAnnouncements()" style="background:none;border:none;color:var(--red);cursor:pointer;font-family:var(--font);font-size:0.65rem;text-decoration:underline">Toggle: skeletons → filled → empty</button>
+      </p>
+    </div>
+
+    <!-- Fire stations -->
+    <div class="sheet-section">
+      <h2>🚒 Fire stations</h2>
+      <a class="station-link">
+        <span class="station-icon">🚒</span>
+        <div>
+          <div class="station-label">Find a fire station near you</div>
+          <div class="station-sub">Locate BFP stations and response units</div>
+        </div>
+      </a>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <footer class="landing-footer">
+    <p><strong style="color:var(--text-secondary)">WIMS-BFP</strong> · Bureau of Fire Protection · Republic of the Philippines</p>
+    <p><a href="#">Privacy Policy</a> · <a href="#">Register as a reporter</a></p>
+  </footer>
+
+  <!-- FAB -->
+  <button class="fab" onclick="showScene('wizard')" title="Report a Fire">🔥</button>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- SCENE 3: REPORT WIZARD -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="scene" id="scene-wizard">
+  <div class="wizard-container">
+    <div class="wizard-header">
+      <button class="wizard-back" onclick="showScene('intent')">← Back</button>
+      <div class="wizard-progress">
+        <div class="progress-dot done" id="pd1"></div>
+        <div class="progress-dot active" id="pd2"></div>
+        <div class="progress-dot" id="pd3"></div>
+        <div class="progress-dot" id="pd4"></div>
+        <div class="progress-dot" id="pd5"></div>
+        <span class="progress-label" id="progress-label">Step 1 of 5</span>
+      </div>
+    </div>
+
+    <!-- Safety banner -->
+    <div class="safety-banner">
+      <span>⚠️</span>
+      <span><strong>If lives are in immediate danger, call <strong style="color:var(--orange-light)">911</strong> or your local BFP hotline while submitting this report.</strong> Do not wait — every second counts.</span>
+    </div>
+
+    <!-- STEP 1: Location -->
+    <div class="wizard-step active" id="ws1">
+      <h3>Where is the fire?</h3>
+      <p class="step-desc">Pin the location or use your current position. This helps responders find it quickly.</p>
+      <div class="wizard-map">📍 Map picker — tap to place pin or use GPS</div>
+      <div class="input-group">
+        <label>Nearby landmark (optional)</label>
+        <input type="text" placeholder="e.g. Near Jollibee on Rizal Ave, beside the blue water tank">
+        <span class="hint">Describe nearby buildings, signs, or landmarks to help locate the fire.</span>
+      </div>
+      <div class="btn-row right">
+        <button class="btn btn-primary btn-lg" onclick="nextStep(2)">Continue →</button>
+      </div>
+    </div>
+
+    <!-- STEP 2: Photo -->
+    <div class="wizard-step" id="ws2">
+      <h3>Add a photo</h3>
+      <p class="step-desc">A photo helps responders assess the situation. This is optional — you can skip it.</p>
+      <div class="photo-zone" onclick="alert('Photo upload would open camera/gallery')">
+        <div style="font-size:2rem;margin-bottom:8px">📷</div>
+        Tap to take a photo or choose from gallery
+      </div>
+      <div class="photo-skip">
+        <button onclick="nextStep(3)">Skip for now →</button>
+      </div>
+    </div>
+
+    <!-- STEP 3: Category + Observable indicators -->
+    <div class="wizard-step" id="ws3">
+      <h3>What do you see?</h3>
+      <p class="step-desc">Describe what you observe — this helps BFP assess the situation. Check all that apply.</p>
+      <div class="observe-grid">
+        <label class="observe-chip" onclick="toggleChip(this)">
+          <span class="chip-icon">🔥</span> Large flames
+          <input type="checkbox">
+        </label>
+        <label class="observe-chip" onclick="toggleChip(this)">
+          <span class="chip-icon">💨</span> Heavy smoke
+          <input type="checkbox">
+        </label>
+        <label class="observe-chip" onclick="toggleChip(this)">
+          <span class="chip-icon">💥</span> Explosions
+          <input type="checkbox">
+        </label>
+        <label class="observe-chip" onclick="toggleChip(this)">
+          <span class="chip-icon">🏃</span> Spreading fast
+          <input type="checkbox">
+        </label>
+        <label class="observe-chip" onclick="toggleChip(this)">
+          <span class="chip-icon">🏠</span> Structures threatened
+          <input type="checkbox">
+        </label>
+        <label class="observe-chip" onclick="toggleChip(this)">
+          <span class="chip-icon">🆘</span> People trapped
+          <input type="checkbox">
+        </label>
+        <label class="observe-chip" onclick="toggleChip(this)">
+          <span class="chip-icon">⚡</span> Electrical fire
+          <input type="checkbox">
+        </label>
+        <label class="observe-chip" onclick="toggleChip(this)">
+          <span class="chip-icon">☣️</span> Chemical / smell
+          <input type="checkbox">
+        </label>
+      </div>
+      <div class="btn-row right">
+        <button class="btn btn-primary btn-lg" onclick="nextStep(4)">Continue →</button>
+      </div>
+    </div>
+
+    <!-- STEP 4: Details (progressive disclosure) -->
+    <div class="wizard-step" id="ws4">
+      <h3>Describe what's happening</h3>
+      <p class="step-desc">A brief description helps responders understand the situation.</p>
+      <div class="input-group">
+        <label>Description</label>
+        <textarea placeholder="Describe the fire — what you see, how large it is, any immediate dangers..."></textarea>
+      </div>
+      <details class="expandable" id="more-details">
+        <summary>Add more detail</summary>
+        <div class="expandable-content">
+          <div class="input-group">
+            <label>Your name (optional)</label>
+            <input type="text" placeholder="We won't share this publicly">
+          </div>
+          <div class="input-group">
+            <label>Contact number (optional)</label>
+            <input type="tel" placeholder="In case responders need to reach you">
+          </div>
+          <div class="input-group">
+            <label>Additional notes</label>
+            <textarea placeholder="Any other information that might help..." style="min-height:60px"></textarea>
+          </div>
+        </div>
+      </details>
+      <div class="btn-row right">
+        <button class="btn btn-primary btn-lg" onclick="nextStep(5)">Review report →</button>
+      </div>
+    </div>
+
+    <!-- STEP 5: Review -->
+    <div class="wizard-step" id="ws5">
+      <h3>Review your report</h3>
+      <p class="step-desc">Please check your report before submitting. Your report will be sent to the BFP National Validator.</p>
+
+      <div class="review-block">
+        <h4>Report readiness</h4>
+        <div style="display:flex;flex-direction:column;gap:6px;font-size:0.78rem">
+          <div>✓ <span style="color:var(--green);font-weight:600">Location</span> — 14.5789° N, 121.0847° E</div>
+          <div style="color:var(--text-muted)">— <span style="color:var(--text-muted);font-weight:600">Photo</span> — skipped</div>
+          <div>✓ <span style="color:var(--green);font-weight:600">Observations</span> — Large flames · Heavy smoke · Spreading fast</div>
+          <div>✓ <span style="color:var(--green);font-weight:600">Description</span> — Grass fire spreading toward residential structures</div>
+        </div>
+      </div>
+      <div class="review-block">
+        <h4>📍 Location details</h4>
+        <p>14.5789° N, 121.0847° E — Near Jollibee on Rizal Ave</p>
+        <div class="review-map">Map confirmation view</div>
+      </div>
+      <div class="review-block">
+        <h4>🔥 Observations</h4>
+        <p>Large flames · Heavy smoke · Spreading fast</p>
+      </div>
+      <div class="review-block">
+        <h4>📝 Description</h4>
+        <p>Grass fire spreading toward residential structures. Smoke visible from the highway. Multiple flames visible.</p>
+      </div>
+
+      <!-- Duplicate detection -->
+      <div style="background:rgba(255,140,0,0.06);border:1px solid rgba(255,140,0,0.18);border-radius:var(--radius);padding:16px;margin-bottom:16px;font-size:0.74rem;color:var(--text-primary)">
+        <div style="font-weight:600;margin-bottom:8px">⚠️ 2 nearby reports already exist for this area.</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">
+          <button class="btn btn-primary" style="font-size:0.68rem;padding:6px 12px">✓ Confirm this incident</button>
+          <button class="btn btn-outline" style="font-size:0.68rem;padding:6px 12px">📷 Add another photo</button>
+          <button class="btn btn-ghost" style="font-size:0.68rem;padding:6px 12px">Continue as new report</button>
+        </div>
+      </div>
+
+      <div class="btn-row right">
+        <button class="btn btn-outline btn-lg" onclick="nextStep(1)">Edit</button>
+        <button class="btn btn-primary btn-lg" onclick="showScene('receipt')">Submit report</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- SCENE 5: INFORMATION HUB -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="scene" id="scene-information">
+  <!-- Header (same as landing) -->
+  <header class="landing-header">
+    <div class="landing-header-left">
+      <a href="#" onclick="showScene('landing')" style="display:flex;align-items:center;gap:10px;text-decoration:none;color:inherit">
+        <div class="landing-header-logo">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round">
+            <path d="M12 2L2 22h20L12 2z"/>
+            <line x1="12" y1="10" x2="12" y2="16"/>
+            <circle cx="12" cy="19" r="1" fill="#fff" stroke="none"/>
+          </svg>
+        </div>
+        <span class="landing-header-title">WIMS-BFP</span>
+      </a>
+    </div>
+    <div class="landing-header-right">
+      <button class="btn btn-ghost">Home</button>
+      <button class="btn btn-ghost" style="color:var(--red);border-bottom:2px solid var(--red);border-radius:0">Information</button>
+      <button class="btn btn-ghost">Register</button>
+      <button class="btn btn-outline">Sign In</button>
+      <button class="btn btn-primary" onclick="showScene('wizard')">Report a Fire</button>
+    </div>
+  </header>
+
+  <div class="info-container">
+    <div class="info-header-row">
+      <h2>📋 Incident Information Hub</h2>
+    </div>
+    <p style="font-size:0.78rem;color:var(--text-muted);margin-bottom:20px">All verified emergency incidents and BFP announcements. Public access — no account required.</p>
+
+    <!-- Filters -->
+    <div class="info-filters">
+      <input type="text" placeholder="Search by location or description...">
+      <select>
+        <option>All severities</option>
+        <option>Critical</option>
+        <option>High</option>
+        <option>Moderate</option>
+        <option>Low</option>
+      </select>
+      <select>
+        <option>All time</option>
+        <option>Today</option>
+        <option>This week</option>
+        <option>This month</option>
+      </select>
+    </div>
+
+    <!-- Emergency table -->
+    <table class="info-table">
+      <thead>
+        <tr>
+          <th>Incident</th>
+          <th>Location</th>
+          <th>Severity</th>
+          <th>Status</th>
+          <th>Reported</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Grass fire — Marcos Highway</td>
+          <td data-label="Location">Brgy. Mayamot, Antipolo</td>
+          <td data-label="Severity"><span class="sev-badge crit">Critical</span></td>
+          <td data-label="Status"><span style="color:var(--orange)">Ongoing</span></td>
+          <td data-label="Reported">14:22 PST</td>
+        </tr>
+        <tr>
+          <td>Structure fire — residential</td>
+          <td data-label="Location">Brgy. Dela Paz, Pasig</td>
+          <td data-label="Severity"><span class="sev-badge high">High</span></td>
+          <td data-label="Status"><span style="color:var(--orange)">Ongoing</span></td>
+          <td data-label="Reported">13:47 PST</td>
+        </tr>
+        <tr>
+          <td>Smoke reported — commercial</td>
+          <td data-label="Location">Brgy. Ugong, Pasig</td>
+          <td data-label="Severity"><span class="sev-badge mod">Moderate</span></td>
+          <td data-label="Status"><span style="color:var(--yellow)">Monitoring</span></td>
+          <td data-label="Reported">12:10 PST</td>
+        </tr>
+        <tr>
+          <td>Electrical fire — substation</td>
+          <td data-label="Location">Brgy. Santolan, Pasig</td>
+          <td data-label="Severity"><span class="sev-badge high">High</span></td>
+          <td data-label="Status"><span style="color:var(--green)">Contained</span></td>
+          <td data-label="Reported">10:03 PST</td>
+        </tr>
+        <tr>
+          <td>Forest fire — watershed area</td>
+          <td data-label="Location">Brgy. San Rafael, Rodriguez</td>
+          <td data-label="Severity"><span class="sev-badge crit">Critical</span></td>
+          <td data-label="Status"><span style="color:var(--orange)">Ongoing</span></td>
+          <td data-label="Reported">08:55 PST</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <!-- Announcements archive -->
+    <div class="sheet-section">
+      <h2>📢 BFP Announcements</h2>
+      <div style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;margin-bottom:8px">
+        <div style="font-size:0.82rem;font-weight:600">Fire prevention campaign — March 2026</div>
+        <div style="font-size:0.7rem;color:var(--text-muted);margin-top:2px">BFP NCR conducting fire safety inspections in all barangays. Residents are advised to cooperate with inspectors.</div>
+        <div style="font-size:0.62rem;color:var(--text-muted);margin-top:4px">Posted 2 days ago</div>
+      </div>
+      <div style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;margin-bottom:8px">
+        <div style="font-size:0.82rem;font-weight:600">Volunteer fire brigade recruitment</div>
+        <div style="font-size:0.7rem;color:var(--text-muted);margin-top:2px">BFP Region IV-A is recruiting volunteer fire brigades. Training starts April 2026. Register at your nearest fire station.</div>
+        <div style="font-size:0.62rem;color:var(--text-muted);margin-top:4px">Posted 5 days ago</div>
+      </div>
+    </div>
+
+    <!-- How to Report guide -->
+    <div class="info-guide">
+      <h3>📖 How to Report a Fire</h3>
+      <div class="guide-steps">
+        <div class="guide-step">
+          <div class="step-num">1</div>
+          <div class="step-title">Ensure your safety</div>
+          <div class="step-desc">Move to a safe distance before reporting. If in danger, call 911 first.</div>
+        </div>
+        <div class="guide-step">
+          <div class="step-num">2</div>
+          <div class="step-title">Pin the location</div>
+          <div class="step-desc">Use the map or GPS. Add nearby landmarks to help responders find it faster.</div>
+        </div>
+        <div class="guide-step">
+          <div class="step-num">3</div>
+          <div class="step-title">Describe what you see</div>
+          <div class="step-desc">Tell us what you observe — flames, smoke, structures at risk. No assessment needed.</div>
+        </div>
+        <div class="guide-step">
+          <div class="step-num">4</div>
+          <div class="step-title">Take a photo</div>
+          <div class="step-desc">A photo helps responders assess the situation. Optional but highly recommended.</div>
+        </div>
+        <div class="guide-step">
+          <div class="step-num">5</div>
+          <div class="step-title">Submit & save your receipt</div>
+          <div class="step-desc">You'll get a QR-coded receipt. Screenshot it to track your report later.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Registration CTA -->
+    <div class="info-cta">
+      <h4>Want to track all your reports?</h4>
+      <p>Register as a civilian reporter to track every report you submit, get status updates, and contribute verified reports to your community.</p>
+      <button class="btn btn-primary btn-lg">Register as a Reporter</button>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <footer class="landing-footer">
+    <p><strong style="color:var(--text-secondary)">WIMS-BFP</strong> · Bureau of Fire Protection · Republic of the Philippines</p>
+    <p><a href="#">Privacy Policy</a> · <a href="#">Register as a reporter</a></p>
+  </footer>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- SCENE 4: SUCCESS RECEIPT -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="scene" id="scene-receipt">
+  <div class="receipt-container">
+    <div class="receipt">
+      <div class="receipt-header">
+        <div class="receipt-title">OFFICIAL INCIDENT RECEIPT</div>
+        <div class="receipt-agency">Bureau of Fire Protection</div>
+        <div style="font-size:0.65rem;color:var(--text-muted);margin-top:4px">Republic of the Philippines</div>
+      </div>
+      <div style="background:var(--bg-surface);border-radius:var(--radius-sm);padding:12px 16px;margin-bottom:16px;text-align:left;font-size:0.74rem">
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+          <span style="color:var(--text-muted)">Status</span>
+          <span style="color:var(--green);font-weight:600">Received</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+          <span style="color:var(--text-muted)">Tracking Code</span>
+          <span style="font-family:'SF Mono','Fira Code',monospace;font-weight:600">BFP-7X3Q-P91</span>
+        </div>
+        <div style="display:flex;justify-content:space-between">
+          <span style="color:var(--text-muted)">Est. verification</span>
+          <span style="color:var(--text-secondary)">2–5 minutes</span>
+        </div>
+      </div>
+
+      <div class="receipt-qr">
+        <div class="receipt-qr-placeholder"></div>
+      </div>
+      <div style="font-size:0.6rem;color:var(--text-muted);margin-bottom:8px">Scan to track your report</div>
+
+      <div class="receipt-token">BFP-7X3Q-P91</div>
+      <div class="receipt-ts">Submitted 15 July 2026 · 14:32 PST</div>
+
+      <div style="font-size:0.7rem;color:var(--text-secondary);margin-bottom:6px">📍 Barangay Mayamot, Antipolo</div>
+      <div style="font-size:0.7rem;color:var(--text-secondary)">🔥 Large flames · Heavy smoke · Spreading fast</div>
+
+      <!-- Registration incentive -->
+      <div class="receipt-incentive">
+        <h4>Want to track all your reports?</h4>
+        <p>Registering as a civilian reporter gives you:</p>
+        <ul>
+          <li>Track every report you submit in one dashboard</li>
+          <li>Get updates when BFP acts on your reports</li>
+          <li>Your verified reports contribute to community safety</li>
+        </ul>
+        <button class="btn btn-primary" style="width:100%">Register to unlock full tracking</button>
+        <p style="font-size:0.6rem;color:var(--text-muted);margin-top:8px">Your token will continue to work even without registering.</p>
+      </div>
+    </div>
+    <div style="text-align:center;margin-top:20px">
+      <button class="btn btn-outline" onclick="showScene('landing')">Return to map</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Scene switching ──────────────────────────────────────────────
+function showScene(name) {
+  document.querySelectorAll('.scene').forEach(s => s.classList.remove('active'));
+  document.getElementById('scene-' + name).classList.add('active');
+  document.querySelectorAll('.proto-nav button').forEach(b => b.classList.remove('active'));
+  var btn = document.getElementById('nav-' + name);
+  if (btn) btn.classList.add('active');
+}
+
+// ── Wizard step navigation ───────────────────────────────────────
+var currentStep = 1;
+function nextStep(n) {
+  document.getElementById('ws' + currentStep).classList.remove('active');
+  currentStep = n;
+  document.getElementById('ws' + currentStep).classList.add('active');
+  updateProgress();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function updateProgress() {
+  for (var i = 1; i <= 5; i++) {
+    var dot = document.getElementById('pd' + i);
+    dot.classList.remove('done', 'active');
+    if (i < currentStep) dot.classList.add('done');
+    else if (i === currentStep) dot.classList.add('active');
+  }
+  document.getElementById('progress-label').textContent = 'Step ' + currentStep + ' of 5';
+}
+
+// ── Observable chip toggle ────────────────────────────────────────
+function toggleChip(el) {
+  el.classList.toggle('selected');
+  var cb = el.querySelector('input[type=checkbox]');
+  cb.checked = !cb.checked;
+}
+
+// ── Announcement state toggle (demo) ──────────────────────────────
+var annState = 0;
+function toggleAnnouncements() {
+  annState = (annState + 1) % 3;
+  document.getElementById('announcement-skeletons').style.display = annState === 0 ? 'block' : 'none';
+  document.getElementById('announcement-empty').style.display = annState === 1 ? 'block' : 'none';
+  document.getElementById('announcement-filled').style.display = annState === 2 ? 'block' : 'none';
+}
+
+// ── Theme toggle ──────────────────────────────────────────────────
+function toggleTheme() {
+  var html = document.documentElement;
+  var btn = document.getElementById('nav-theme');
+  if (html.getAttribute('data-theme') === 'dark') {
+    html.setAttribute('data-theme', 'light');
+    btn.textContent = '☀️ Light';
+  } else {
+    html.setAttribute('data-theme', 'dark');
+    btn.textContent = '🌙 Dark';
+  }
+}
+
+// ── Init ─────────────────────────────────────────────────────────
+updateProgress();
+</script>
+</body>
+</html>
