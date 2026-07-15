@@ -21,10 +21,11 @@ import httpx
 
 logger = logging.getLogger("wims.routing")
 
-OSRM_BASE_URL = os.environ.get(
-    "OSRM_BASE_URL",
-    "https://router.project-osrm.org",
-)
+# No default: an unset/empty OSRM_BASE_URL disables OSRM lookups entirely and
+# routing falls back to the PostGIS straight-line estimate. This avoids a
+# silent dependency on the public router.project-osrm.org instance (#552).
+# Set OSRM_BASE_URL to a self-hosted OSRM instance to enable road routing.
+OSRM_BASE_URL = os.environ.get("OSRM_BASE_URL", "").strip()
 
 # Average urban speed for PostGIS fallback: 40 km/h = 11.11 m/s
 FALLBACK_SPEED_MPS = 11.11
@@ -69,7 +70,15 @@ async def compute_routing(
 async def _try_osrm(
     src_lon: float, src_lat: float, dst_lon: float, dst_lat: float
 ) -> tuple[float, float] | None:
-    """Call OSRM driving route API. Returns (distance_m, duration_s) or None."""
+    """Call OSRM driving route API. Returns (distance_m, duration_s) or None.
+
+    No coordinates or request URLs are ever logged here — only the exception
+    type and the configured OSRM host, to avoid leaking incident locations.
+    """
+    if not OSRM_BASE_URL:
+        logger.info("OSRM_BASE_URL not configured; skipping road routing, using fallback estimate")
+        return None
+
     url = (
         f"{OSRM_BASE_URL}/route/v1/driving/"
         f"{src_lon},{src_lat};{dst_lon},{dst_lat}"
@@ -85,7 +94,11 @@ async def _try_osrm(
             route = data["routes"][0]
             return (float(route["distance"]), float(route["duration"]))
     except Exception as exc:
-        logger.warning("OSRM lookup failed: %s", exc)
+        logger.warning(
+            "OSRM lookup failed (host=%s, error_type=%s)",
+            OSRM_BASE_URL,
+            type(exc).__name__,
+        )
         return None
 
 
