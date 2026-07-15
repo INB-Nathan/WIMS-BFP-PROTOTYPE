@@ -1225,7 +1225,40 @@ body {
 
 
 
+/* ── Route feedback map (Leaflet) ───────────────────────────────── */
+.receipt-map-wrap {
+  margin-bottom: 16px;
+  border-radius: var(--radius);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  position: relative;
+}
+.receipt-map-wrap .leaflet-container {
+  height: 220px;
+  width: 100%;
+  background: var(--bg-deep);
+}
+.receipt-map-overlay {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 1000;
+  background: var(--bg-elevated);
+  border-radius: var(--radius-sm);
+  padding: 4px 10px;
+  font-size: 0.6rem;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  pointer-events: none;
+}
+.route-marker {
+  background: none !important;
+  border: none !important;
+}
 </style>
+<!-- Leaflet (CDN) for routing-feedback map -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 </head>
 <body>
 
@@ -2383,6 +2416,11 @@ body {
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <div class="scene has-mesh" id="scene-receipt">
   <div class="receipt-container">
+    <!-- Routing feedback map -->
+    <div class="receipt-map-wrap" id="routing-map-container">
+      <div id="routing-map"></div>
+      <div class="receipt-map-overlay">📍 Routing to nearest station</div>
+    </div>
     <div class="receipt">
       <div class="receipt-header">
         <div class="receipt-title">OFFICIAL INCIDENT RECEIPT</div>
@@ -2460,8 +2498,149 @@ function showScene(name) {
   document.querySelectorAll('.ah-nav-item').forEach(function(item) {
     item.classList.toggle('active', item.getAttribute('data-scene') === name);
   });
+
+  // Init routing feedback map when receipt scene is shown
+  if (name === 'receipt') {
+    initRoutingMap();
+  }
 }
 
+// ── Routing feedback map (receipt scene) ─────────────────────────
+var ROUTING_MAP_INITIALIZED = false;
+
+// Synthetic report location (Barangay Mayamot, Antipolo)
+var REPORT_LOC = [14.5840, 121.1760];
+
+// 12 NCR fire stations matching the stations scene
+var FIRE_STATIONS = [
+  { name: 'BFP NCR — Pasig Central Fire Station', coords: [14.5630, 121.0810], addr: 'Caruncho Ave, Brgy. San Nicolas, Pasig' },
+  { name: 'BFP NCR — Antipolo Fire Station', coords: [14.5860, 121.1770], addr: 'M.L. Quezon St, Brgy. San Roque, Antipolo' },
+  { name: 'BFP NCR — Marikina Central Fire Station', coords: [14.6330, 121.0980], addr: 'Shoe Ave, Brgy. Sta. Elena, Marikina' },
+  { name: 'BFP NCR — Cainta Fire Station', coords: [14.5800, 121.1130], addr: 'A. Bonifacio Ave, Brgy. Sto. Domingo, Cainta' },
+  { name: 'BFP NCR — Taytay Fire Station', coords: [14.5700, 121.1350], addr: 'Rizal Ave, Brgy. San Juan, Taytay' },
+  { name: 'BFP NCR — Mandaluyong Fire Station', coords: [14.5780, 121.0390] },
+  { name: 'BFP NCR — San Juan Fire Station', coords: [14.6010, 121.0300] },
+  { name: 'BFP NCR — Quezon City Central', coords: [14.6520, 121.0460] },
+  { name: 'BFP NCR — Makati Central Fire Station', coords: [14.5540, 121.0240] },
+  { name: 'BFP NCR — Taguig Central Fire Station', coords: [14.5200, 121.0740] },
+  { name: 'BFP NCR — Pateros Fire Station', coords: [14.5450, 121.0670] },
+  { name: 'BFP NCR — Pasay Central Fire Station', coords: [14.5360, 121.0020] }
+];
+
+function haversineKm(a, b) {
+  var R = 6371;
+  var dLat = (b[0] - a[0]) * Math.PI / 180;
+  var dLng = (b[1] - a[1]) * Math.PI / 180;
+  var lat1 = a[0] * Math.PI / 180;
+  var lat2 = b[0] * Math.PI / 180;
+  var s = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.sin(dLng/2) * Math.sin(dLng/2) * Math.cos(lat1) * Math.cos(lat2);
+  return R * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s));
+}
+
+function initRoutingMap() {
+  if (ROUTING_MAP_INITIALIZED) return;
+  ROUTING_MAP_INITIALIZED = true;
+
+  var map = L.map('routing-map', {
+    center: REPORT_LOC,
+    zoom: 12,
+    zoomControl: false,
+    attributionControl: false
+  });
+
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    maxZoom: 19
+  }).addTo(map);
+
+  // Report pin marker
+  var reportIcon = L.divIcon({
+    className: 'route-marker report-pin',
+    html: '<div style="background:#dc2626;width:16px;height:16px;border-radius:50%;border:3px solid #fff;box-shadow:0 0 12px rgba(220,38,38,0.6);"></div>',
+    iconSize: [16, 16],
+    iconAnchor: [8, 8]
+  });
+  var reportMarker = L.marker(REPORT_LOC, { icon: reportIcon }).addTo(map);
+  reportMarker.bindPopup('<strong>📍 Your report</strong><br><small>Barangay Mayamot, Antipolo</small>');
+
+  // Station markers
+  var stationIcons = [];
+  FIRE_STATIONS.forEach(function(s) {
+    var icon = L.divIcon({
+      className: 'route-marker station-pin',
+      html: '<div style="background:#3b82f6;width:12px;height:12px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 8px rgba(59,130,246,0.4);"></div>',
+      iconSize: [12, 12],
+      iconAnchor: [6, 6]
+    });
+    var m = L.marker(s.coords, { icon: icon }).addTo(map);
+    m.bindPopup('<strong>' + s.name + '</strong><br>' + (s.addr || ''));
+    stationIcons.push(m);
+  });
+
+  // Find nearest station by haversine
+  var nearest = null;
+  var minDist = Infinity;
+  FIRE_STATIONS.forEach(function(s) {
+    var d = haversineKm(REPORT_LOC, s.coords);
+    if (d < minDist) { minDist = d; nearest = s; }
+  });
+
+  if (!nearest) return;
+
+  // Route polyline: report → midpoint → nearest station
+  var mid = [(REPORT_LOC[0] + nearest.coords[0]) / 2, (REPORT_LOC[1] + nearest.coords[1]) / 2];
+  var routePoints = [REPORT_LOC, mid, nearest.coords];
+
+  var line = L.polyline(routePoints, {
+    color: '#3b82f6',
+    weight: 3,
+    opacity: 0.8,
+    dashArray: '8, 12'
+  }).addTo(map);
+
+  // Animate dash offset for "flowing" route effect
+  var offset = 0;
+  function animateRoute() {
+    offset = (offset + 0.5) % 20;
+    line.setStyle({ dashOffset: -offset });
+    requestAnimationFrame(animateRoute);
+  }
+  animateRoute();
+
+  // Fly to midpoint to show both markers
+  setTimeout(function() {
+    map.flyTo(mid, 13, { duration: 1.5 });
+  }, 300);
+
+  // Pulse the nearest station marker after fly completes
+  setTimeout(function() {
+    var nearestIdx = FIRE_STATIONS.indexOf(nearest);
+    if (nearestIdx >= 0 && stationIcons[nearestIdx]) {
+      var el = stationIcons[nearestIdx].getElement();
+      if (el) {
+        el.style.transition = 'box-shadow 0.5s ease';
+        el.style.boxShadow = '0 0 0 0 rgba(59,130,246,0.7)';
+        function pulse() {
+          el.style.boxShadow = '0 0 0 12px rgba(59,130,246,0)';
+        }
+        setTimeout(pulse, 100);
+        setTimeout(function() { el.style.boxShadow = '0 0 0 0 rgba(59,130,246,0.7)'; }, 600);
+        setTimeout(pulse, 800);
+      }
+      stationIcons[nearestIdx].openPopup();
+    }
+  }, 2000);
+
+  // Distance info label
+  var info = document.createElement('div');
+  info.style.cssText = 'position:absolute;bottom:8px;left:8px;z-index:1000;background:var(--bg-elevated);border-radius:var(--radius-sm);padding:4px 10px;font-size:0.6rem;color:var(--text-secondary);border:1px solid var(--border);pointer-events:none';
+  info.textContent = '🚒 Nearest: ' + nearest.name + ' · ' + minDist.toFixed(1) + ' km';
+  document.getElementById('routing-map-container').appendChild(info);
+
+  // Invalidate after layout settles
+  setTimeout(function() { map.invalidateSize(); }, 200);
+}
+
+// ── Auth toggle ────────────────────────────────────────────────────
 function toggleAuth() {
   isLoggedIn = !isLoggedIn;
   var header = document.getElementById('app-header');
