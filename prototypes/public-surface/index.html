@@ -163,7 +163,9 @@ body {
 .modal-actions { display: flex; gap: 10px; margin-top: 20px; }
 
 /* ── Register incentive page ───────────────────────────────────── */
-.register-container { max-width: 560px; margin: 80px auto 0; padding: 0 20px 40px; }
+.register-container { max-width: 960px; margin: 80px auto 0; padding: 0 20px 40px; }
+.register-split { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; align-items: start; }
+@media (max-width: 768px) { .register-split { grid-template-columns: 1fr; } }
 .register-hero { text-align: center; margin-bottom: 28px; }
 .register-hero h2 { font-size: 1.2rem; font-weight: 700; margin-bottom: 6px; }
 .register-hero p { font-size: 0.78rem; color: var(--text-muted); }
@@ -1603,6 +1605,9 @@ body {
       <p>Track every report, get verified, and help protect your community.</p>
     </div>
 
+    <div class="register-split">
+    <!-- Benefits column -->
+    <div>
     <div class="register-benefits">
       <div class="register-benefit">
         <div class="benefit-icon">📋</div>
@@ -1633,7 +1638,10 @@ body {
         </div>
       </div>
     </div>
+    </div>
 
+    <!-- Form column -->
+    <div>
     <div class="register-form">
       <h4>Create your account</h4>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
@@ -1676,6 +1684,8 @@ body {
       </label>
       <button class="btn btn-primary btn-lg" style="width:100%" onclick="handleRegister()">Create account</button>
       <p style="font-size:0.66rem;color:var(--text-muted);text-align:center;margin-top:12px">Already have an account? <a href="#" style="color:var(--red)">Sign in</a></p>
+    </div>
+    </div>
     </div>
   </div>
 
