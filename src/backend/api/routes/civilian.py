@@ -986,6 +986,27 @@ async def append_civilian_report(
         text("UPDATE wims.citizen_reports SET link_count = link_count + 1 WHERE report_id = :rid"),
         {"rid": report_id},
     )
+
+    # ── Device quarantine flag (issue #572) — same treatment as
+    # submit_civilian_report: never blocked, but a device past the Tier-3
+    # quarantine threshold is routed to mandatory validator review instead
+    # of the normal triage path.
+    device_quarantined = getattr(request.state, "device_quarantined", False)
+    if device_quarantined:
+        db.execute(
+            text("UPDATE wims.citizen_reports SET requires_review = true WHERE report_id = :rid"),
+            {"rid": append_report_id},
+        )
+        log_system_audit(
+            db=db,
+            user_id=None,
+            action_type="PUBLIC_QUARANTINED_SUBMISSION",
+            table_affected="wims.citizen_reports",
+            record_id=append_report_id,
+            request=request,
+            sensitive=True,
+        )
+
     db.commit()
     if not result:
         raise HTTPException(status_code=500, detail="Failed to append report")
@@ -1235,7 +1256,7 @@ async def upload_report_photo(
                 detail="client_photo_id must be a valid UUID",
             )
 
-    return upload_and_attach_photo(
+    response = upload_and_attach_photo(
         db=db,
         report_id=report_id,
         file=file,
@@ -1251,6 +1272,28 @@ async def upload_report_photo(
         exif_datetime_original=parsed_exif_dt,
         client_photo_id=parsed_client_photo_id,
     )
+
+    # ── Device quarantine flag (issue #572) — same treatment as
+    # submit_civilian_report/append_civilian_report: never blocked, but a
+    # device past the Tier-3 quarantine threshold routes the parent report
+    # to mandatory validator review instead of the normal triage path.
+    if getattr(request.state, "device_quarantined", False):
+        db.execute(
+            text("UPDATE wims.citizen_reports SET requires_review = true WHERE report_id = :rid"),
+            {"rid": report_id},
+        )
+        log_system_audit(
+            db=db,
+            user_id=None,
+            action_type="PUBLIC_QUARANTINED_SUBMISSION",
+            table_affected="wims.citizen_reports",
+            record_id=report_id,
+            request=request,
+            sensitive=True,
+        )
+        db.commit()
+
+    return response
 
 
 @router.post(

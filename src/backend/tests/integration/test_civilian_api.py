@@ -86,6 +86,7 @@ def _payload(**overrides):
         "gps_warning_confirmed": False,
         "witness_name": "Juan Dela Cruz",
         "witness_phone": "09170000000",
+        "turnstile_token": "test-token",
     }
     payload.update(overrides)
     return payload
