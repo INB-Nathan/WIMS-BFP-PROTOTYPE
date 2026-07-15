@@ -190,6 +190,21 @@ body {
 }
 .register-form .input-group input:focus { outline: none; border-color: var(--red); }
 
+/* Password strength & match */
+.pw-strength { display: flex; gap: 4px; margin-top: 6px; }
+.pw-strength .bar {
+  flex: 1; height: 3px; border-radius: 2px; background: var(--bg-surface); transition: background var(--transition);
+}
+.pw-strength .bar.weak { background: var(--red); }
+.pw-strength .bar.medium { background: var(--orange); }
+.pw-strength .bar.strong { background: var(--green); }
+.pw-hint { font-size: 0.62rem; color: var(--text-muted); margin-top: 3px; }
+.pw-hint.error { color: var(--red); }
+.pw-hint.ok { color: var(--green); }
+.check-row { display: flex; align-items: center; gap: 8px; margin: 14px 0; font-size: 0.7rem; color: var(--text-secondary); }
+.check-row input[type=checkbox] { accent-color: var(--red); width: 16px; height: 16px; }
+.check-row a { color: var(--red); text-decoration: underline; }
+
 /* ── Prototype nav ─────────────────────────────────────────────── */
 .proto-nav {
   position: fixed; top: 0; left: 0; right: 0; z-index: 1000;
@@ -1621,19 +1636,45 @@ body {
 
     <div class="register-form">
       <h4>Create your account</h4>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="input-group">
+          <label>First name</label>
+          <input type="text" placeholder="Juan">
+        </div>
+        <div class="input-group">
+          <label>Last name</label>
+          <input type="text" placeholder="Dela Cruz">
+        </div>
+      </div>
       <div class="input-group">
-        <label>Full name</label>
-        <input type="text" placeholder="Your full legal name">
+        <label>Phone number</label>
+        <input type="tel" placeholder="+63 912 345 6789">
       </div>
       <div class="input-group">
         <label>Email address</label>
-        <input type="email" placeholder="you@example.com">
+        <input type="email" placeholder="juan.delacruz@email.com">
       </div>
       <div class="input-group">
         <label>Password</label>
-        <input type="password" placeholder="At least 8 characters">
+        <input type="password" id="reg-password" placeholder="At least 8 characters" oninput="checkPassword()">
+        <div class="pw-strength" id="pw-bars">
+          <div class="bar" id="pw-b1"></div>
+          <div class="bar" id="pw-b2"></div>
+          <div class="bar" id="pw-b3"></div>
+          <div class="bar" id="pw-b4"></div>
+        </div>
+        <div class="pw-hint" id="pw-hint">Use 8+ characters with a mix of letters, numbers, and symbols.</div>
       </div>
-      <button class="btn btn-primary btn-lg" style="width:100%">Create account</button>
+      <div class="input-group">
+        <label>Confirm password</label>
+        <input type="password" id="reg-confirm" placeholder="Re-enter your password" oninput="checkMatch()">
+        <div class="pw-hint" id="match-hint" style="display:none"></div>
+      </div>
+      <label class="check-row">
+        <input type="checkbox" id="reg-privacy">
+        I have read and agree to the <a href="#">Privacy Policy</a> and <a href="#">Terms of Service</a>.
+      </label>
+      <button class="btn btn-primary btn-lg" style="width:100%" onclick="handleRegister()">Create account</button>
       <p style="font-size:0.66rem;color:var(--text-muted);text-align:center;margin-top:12px">Already have an account? <a href="#" style="color:var(--red)">Sign in</a></p>
     </div>
   </div>
@@ -1771,6 +1812,54 @@ function toggleTheme() {
     html.setAttribute('data-theme', 'dark');
     btn.textContent = '🌙 Dark';
   }
+}
+
+// ── Password strength + match checking ───────────────────────────
+function checkPassword() {
+  var pw = document.getElementById('reg-password').value;
+  var bars = [document.getElementById('pw-b1'), document.getElementById('pw-b2'), document.getElementById('pw-b3'), document.getElementById('pw-b4')];
+  var hint = document.getElementById('pw-hint');
+  var score = 0;
+  if (pw.length >= 8) score++;
+  if (pw.length >= 12) score++;
+  if (/[A-Z]/.test(pw) && /[a-z]/.test(pw)) score++;
+  if (/[0-9]/.test(pw)) score++;
+  if (/[^A-Za-z0-9]/.test(pw)) score++;
+
+  bars.forEach(function(b, i) {
+    b.className = 'bar';
+    if (score >= 1 && i === 0) b.className = score >= 3 ? 'bar strong' : 'bar weak';
+    if (score >= 2 && i === 1) b.className = score >= 4 ? 'bar strong' : 'bar medium';
+    if (score >= 3 && i === 2) b.className = 'bar strong';
+    if (score >= 4 && i === 3) b.className = 'bar strong';
+  });
+
+  hint.className = 'pw-hint';
+  if (pw.length === 0) { hint.textContent = 'Use 8+ characters with a mix of letters, numbers, and symbols.'; }
+  else if (score <= 2) { hint.textContent = 'Weak password. Add more characters, numbers, or symbols.'; hint.classList.add('error'); }
+  else if (score === 3) { hint.textContent = 'Moderate password. Add a symbol or make it longer.'; hint.classList.add('error'); }
+  else { hint.textContent = 'Strong password.'; hint.classList.add('ok'); }
+  checkMatch();
+}
+
+function checkMatch() {
+  var pw = document.getElementById('reg-password').value;
+  var cf = document.getElementById('reg-confirm').value;
+  var hint = document.getElementById('match-hint');
+  if (cf.length === 0) { hint.style.display = 'none'; return; }
+  hint.style.display = 'block';
+  if (pw === cf) { hint.textContent = '✓ Passwords match.'; hint.className = 'pw-hint ok'; }
+  else { hint.textContent = '✗ Passwords do not match.'; hint.className = 'pw-hint error'; }
+}
+
+function handleRegister() {
+  var privacy = document.getElementById('reg-privacy');
+  var pw = document.getElementById('reg-password').value;
+  var cf = document.getElementById('reg-confirm').value;
+  if (!privacy.checked) { alert('Please agree to the Privacy Policy and Terms of Service.'); return; }
+  if (pw !== cf) { alert('Passwords do not match.'); return; }
+  if (pw.length < 8) { alert('Password must be at least 8 characters.'); return; }
+  alert('Account created successfully! (prototype)');
 }
 
 // ── Init ─────────────────────────────────────────────────────────
