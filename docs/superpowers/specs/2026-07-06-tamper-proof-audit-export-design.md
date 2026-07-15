@@ -41,6 +41,8 @@ Every secure export produces a ZIP containing three files. The ZIP itself is val
 
 ### 3.2 Data Flow (superseded sketch)
 
+> **Note:** This sketch is historical. The authoritative implementation contract is §3.2.1 (Approved implementation corrections). References to WeasyPrint, `audit_export_registry`, numeric `export_id`, and `bao:v1/...` below are superseded.
+
 ```
 SYSTEM_ADMIN requests export with filter params
     │
@@ -137,7 +139,7 @@ The implementation follows these corrections to the original sketch above:
 The ZIP returned by the secure export endpoint must be validated during extraction:
 
 - **Reject path traversal**: No filename containing `../` or absolute paths
-- **Reject decompression bombs**: Reject if compression ratio exceeds 100:1 or uncompressed size exceeds 500MB
+- **Reject decompression bombs**: Reject if compression ratio exceeds 100:1 or uncompressed size exceeds 64MB per member and 128MB total uncompressed
 - **Reject duplicate filenames**: Exactly 3 files expected — `export.csv`, `export.pdf`, `export.audit.sig`. Any extra, missing, or duplicate files cause verification failure
 - **Reject symlinks**: No symbolic links inside the ZIP
 
