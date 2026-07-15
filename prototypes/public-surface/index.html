@@ -872,22 +872,28 @@ body {
 .impact-strip .impact-icon { font-size: 1.1rem; flex-shrink: 0; }
 .impact-strip strong { color: var(--text-primary); }
 
-/* Activity feed */
+/* Activity feed (timeline grouped by report) */
 .activity-feed { display: flex; flex-direction: column; }
-.activity-item {
+.activity-group {
   background: var(--bg-elevated); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: 12px 16px; margin-bottom: 8px;
-  display: flex; align-items: flex-start; gap: 12px;
+  border-radius: var(--radius); padding: 14px 16px; margin-bottom: 10px;
 }
-.activity-dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 5px; flex-shrink: 0; }
-.activity-dot.verified { background: var(--green); }
-.activity-dot.review { background: var(--orange); }
-.activity-dot.pending { background: var(--yellow); }
-.activity-dot.dispatched { background: var(--red); }
-.activity-body { flex: 1; min-width: 0; }
-.activity-text { font-size: 0.74rem; color: var(--text-secondary); line-height: 1.4; }
-.activity-text strong { color: var(--text-primary); }
-.activity-time { font-size: 0.62rem; color: var(--text-muted); margin-top: 3px; }
+.activity-group-head { display: flex; align-items: center; gap: 12px; }
+.activity-group-title { font-size: 0.8rem; font-weight: 600; }
+.activity-group-sub { font-size: 0.64rem; color: var(--text-muted); margin-top: 1px; }
+.activity-timeline { border-left: 2px solid var(--border); padding-left: 14px; margin-top: 10px; }
+.activity-timeline .tl-item { margin-bottom: 10px; position: relative; }
+.activity-timeline .tl-item:last-child { margin-bottom: 0; }
+.activity-timeline .tl-item::before {
+  content: ''; position: absolute; left: -20px; top: 6px;
+  width: 8px; height: 8px; border-radius: 50%; background: var(--bg-surface); border: 2px solid var(--border-strong);
+}
+.activity-timeline .tl-item.verified::before { background: var(--green); border-color: var(--green); }
+.activity-timeline .tl-item.review::before { background: var(--orange); border-color: var(--orange); }
+.activity-timeline .tl-item.pending::before { background: var(--yellow); border-color: var(--yellow); }
+.activity-timeline .tl-item.dispatched::before { background: var(--red); border-color: var(--red); }
+.activity-timeline .tl-time { font-size: 0.6rem; color: var(--text-muted); }
+.activity-timeline .tl-text { font-size: 0.74rem; color: var(--text-secondary); }
 
 /* Trust badge */
 .trust-badge {
@@ -1674,36 +1680,45 @@ body {
       <span>Your <strong>23 reports</strong> helped flag <strong>4 active incidents</strong> and keep Pasig safer.</span>
     </div>
 
-    <!-- Activity feed -->
+    <!-- Activity feed (grouped by report) -->
     <div class="contrib-section">
       <h3>Activity</h3>
       <div class="activity-feed">
-        <div class="activity-item">
-          <div class="activity-dot dispatched"></div>
-          <div class="activity-body">
-            <div class="activity-text">BFP dispatched a unit to your report — <strong>Grass fire, Marcos Highway</strong></div>
-            <div class="activity-time">14:35 PST · Today</div>
+        <div class="activity-group">
+          <div class="activity-group-head">
+            <div class="rep-status dispatched"></div>
+            <div>
+              <div class="activity-group-title">Grass fire — Marcos Highway</div>
+              <div class="activity-group-sub">📍 Brgy. Mayamot, Antipolo · 2 updates</div>
+            </div>
+          </div>
+          <div class="activity-timeline">
+            <div class="tl-item dispatched"><div class="tl-time">14:35 PST · Today</div><div class="tl-text">BFP dispatched a unit to your report.</div></div>
+            <div class="tl-item pending"><div class="tl-time">14:10 PST · Today</div><div class="tl-text">Your report was received.</div></div>
           </div>
         </div>
-        <div class="activity-item">
-          <div class="activity-dot pending"></div>
-          <div class="activity-body">
-            <div class="activity-text">Your report was <strong>received</strong> — Grass fire, Marcos Highway</div>
-            <div class="activity-time">14:10 PST · Today</div>
+        <div class="activity-group">
+          <div class="activity-group-head">
+            <div class="rep-status verified"></div>
+            <div>
+              <div class="activity-group-title">Smoke from commercial building</div>
+              <div class="activity-group-sub">📍 Brgy. Ugong, Pasig · 1 update</div>
+            </div>
+          </div>
+          <div class="activity-timeline">
+            <div class="tl-item verified"><div class="tl-time">13:50 PST · Today</div><div class="tl-text">Your report was verified.</div></div>
           </div>
         </div>
-        <div class="activity-item">
-          <div class="activity-dot verified"></div>
-          <div class="activity-body">
-            <div class="activity-text">Your report was <strong>verified</strong> — Smoke from commercial building</div>
-            <div class="activity-time">13:50 PST · Today</div>
+        <div class="activity-group">
+          <div class="activity-group-head">
+            <div class="rep-status review"></div>
+            <div>
+              <div class="activity-group-title">Electrical fire near substation</div>
+              <div class="activity-group-sub">📍 Brgy. Santolan, Pasig · 1 update</div>
+            </div>
           </div>
-        </div>
-        <div class="activity-item">
-          <div class="activity-dot review"></div>
-          <div class="activity-body">
-            <div class="activity-text">Your report moved to <strong>In Review</strong> — Electrical fire near substation</div>
-            <div class="activity-time">13:10 PST · Today</div>
+          <div class="activity-timeline">
+            <div class="tl-item review"><div class="tl-time">13:10 PST · Today</div><div class="tl-text">Your report moved to In Review.</div></div>
           </div>
         </div>
       </div>
