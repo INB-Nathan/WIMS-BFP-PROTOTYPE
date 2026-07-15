@@ -458,6 +458,17 @@ body {
   border-radius: 999px; color: var(--text-muted); font-weight: 400;
 }
 
+/* Announcement optional media (pubmat) */
+.ann-media {
+  height: 150px; border-radius: var(--radius-sm); margin-bottom: 12px;
+  background: linear-gradient(135deg, var(--bg-surface), var(--bg-base));
+  border: 1px solid var(--border); display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 6px;
+  color: var(--text-muted); font-size: 0.68rem; overflow: hidden;
+}
+.ann-media .ph-icon { font-size: 1.6rem; opacity: 0.7; }
+.ann-media .ph-label { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.08em; }
+
 /* Fire card */
 .fire-card {
   background: var(--bg-elevated); border: 1px solid var(--border);
@@ -1373,11 +1384,19 @@ body {
     <div class="sheet-section">
       <h2>📢 BFP Announcements</h2>
       <div style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;margin-bottom:8px">
+        <div class="ann-media">
+          <span class="ph-icon">🖼️</span>
+          <span class="ph-label">Pubmat · Fire Prevention Campaign</span>
+        </div>
         <div style="font-size:0.82rem;font-weight:600">Fire prevention campaign — March 2026</div>
         <div style="font-size:0.7rem;color:var(--text-muted);margin-top:2px">BFP NCR conducting fire safety inspections in all barangays. Residents are advised to cooperate with inspectors.</div>
         <div style="font-size:0.62rem;color:var(--text-muted);margin-top:4px">Posted 2 days ago</div>
       </div>
       <div style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;margin-bottom:8px">
+        <div class="ann-media">
+          <span class="ph-icon">🖼️</span>
+          <span class="ph-label">Pubmat · Volunteer Recruitment</span>
+        </div>
         <div style="font-size:0.82rem;font-weight:600">Volunteer fire brigade recruitment</div>
         <div style="font-size:0.7rem;color:var(--text-muted);margin-top:2px">BFP Region IV-A is recruiting volunteer fire brigades. Training starts April 2026.</div>
         <div style="font-size:0.62rem;color:var(--text-muted);margin-top:4px">Posted 5 days ago</div>
