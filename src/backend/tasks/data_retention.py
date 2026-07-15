@@ -31,6 +31,7 @@ _DEFAULT_DAYS: dict[str, int] = {
     "retention.consent_log_days": 1095,
     "retention.kms_key_rotation_runs_days": 1095,
     "retention.ip_blocklist_days": 365,
+    "retention.device_blocklist_days": 365,
 }
 
 
@@ -310,6 +311,24 @@ def _prune_ip_blocklist(db) -> None:
     _log_prune(db, "wims.ip_blocklist", result.rowcount or 0, "hard_delete", days, config_key)
 
 
+def _prune_device_blocklist(db) -> None:
+    """Hard-delete expired or old device_blocklist entries."""
+    config_key = "retention.device_blocklist_days"
+    days = _get_retention_days(db, config_key)
+
+    result = db.execute(
+        text("""
+            DELETE FROM wims.device_blocklist
+            WHERE expires_at < now()
+               OR blocked_at < now() - (:days || ' days')::INTERVAL
+        """),
+        {"days": str(days)},
+    )
+    _log_prune(
+        db, "wims.device_blocklist", result.rowcount or 0, "hard_delete", days, config_key
+    )
+
+
 def _log_noop_tables(db) -> None:
     """Log no-op for append-only tables that can never be pruned.
 
@@ -346,6 +365,7 @@ def run_data_retention() -> int:
         _prune_consent_log(db)
         _prune_kms_key_rotation_runs(db)
         _prune_ip_blocklist(db)
+        _prune_device_blocklist(db)
         _log_noop_tables(db)
         db.commit()
         logger.info("Data retention pruning completed successfully")

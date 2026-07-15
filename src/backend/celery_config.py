@@ -24,6 +24,7 @@ celery_app = Celery(
         "tasks.drafts",
         "tasks.exports",
         "tasks.ip_blocklist",
+        "tasks.device_blocklist",
         "tasks.monitoring",
         "tasks.notifications",
         "tasks.report_photos",
@@ -42,6 +43,7 @@ celery_app.conf.imports = (
     "tasks.drafts",
     "tasks.exports",
     "tasks.ip_blocklist",
+    "tasks.device_blocklist",
     "tasks.kms_rotation",
     "tasks.monitoring",
     "tasks.notifications",
@@ -66,6 +68,7 @@ celery_app.conf.update(
         "tasks.drafts",
         "tasks.exports",
         "tasks.ip_blocklist",
+        "tasks.device_blocklist",
         "tasks.kms_rotation",
         "tasks.monitoring",
         "tasks.notifications",
@@ -151,6 +154,11 @@ celery_app.conf.update(
         # Task 7: Periodic Redis blocklist resync (every 5 min)
         "resync-ip-blocklist": {
             "task": "tasks.ip_blocklist.resync_ip_blocklist",
+            "schedule": 300.0,
+        },
+        # Wayfinder #569: Periodic Redis device blocklist resync (every 5 min)
+        "resync-device-blocklist": {
+            "task": "tasks.device_blocklist.resync_device_blocklist",
             "schedule": 300.0,
         },
         # Slice F: Archive expired published Community Safety Hub content

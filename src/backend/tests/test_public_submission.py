@@ -776,6 +776,7 @@ class TestCivilianDeviceIdScope:
                     "category": "STRUCTURAL",
                     "reporting_context": "WITNESS",
                     "safety_status": "I_AM_SAFE",
+                    "turnstile_token": "test-token",
                 },
             )
             assert resp.status_code == 404, resp.text

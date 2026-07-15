@@ -70,6 +70,7 @@ from auth import resolve_wims_role_from_token as _resolve_role_from_token, JIT_P
 from utils.csrf import csrf_middleware
 from services.ip_blocklist import _get_request_client_ip, resync_blocklist_to_redis
 from utils.audit import trusted_client_ip, log_system_audit
+from middleware.device_token import device_token_middleware, device_block_middleware
 
 # Module-level logger — must be defined before use in schema patches and rate limiter
 logger = logging.getLogger("wims.rate_limit")
@@ -1176,6 +1177,21 @@ async def prometheus_metrics_middleware(request: Request, call_next):
     ).observe(duration)
 
     return response
+
+
+# ---------------------------------------------------------------------------
+# Device token + device block middleware (Wayfinder — issue #567)
+# ---------------------------------------------------------------------------
+# Registered here (after blocked_ip_middleware/prometheus, before
+# correlation_id_middleware) so that, by Starlette's LIFO middleware ordering,
+# execution order is: correlation_id -> device_token -> device_block ->
+# blocked_ip -> rate_limit -> csrf. device_block is registered first (of this
+# pair) so it ends up nested just inside device_token, matching the spec order
+# (device_token_middleware injects request.state.device_token_hash that
+# device_block_middleware reads).
+# ---------------------------------------------------------------------------
+app.middleware("http")(device_block_middleware)
+app.middleware("http")(device_token_middleware)
 
 
 # ---------------------------------------------------------------------------

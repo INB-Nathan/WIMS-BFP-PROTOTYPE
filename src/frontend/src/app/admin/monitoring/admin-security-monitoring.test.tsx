@@ -45,6 +45,7 @@ const mockFetchAuditLogsOfflineAware = vi.fn();
 const mockUpdateAdminSecurityLog = vi.fn();
 const mockCreateIncidentFromAlert = vi.fn();
 const mockBlockSourceIp = vi.fn();
+const mockBlockSecurityLog = vi.fn();
 const mockDeleteSecurityLog = vi.fn();
 const mockBulkActionSecurityLogs = vi.fn();
 const mockBlockByFilter = vi.fn();
@@ -67,6 +68,7 @@ vi.mock('@/lib/api/offlineAdmin', () => ({
 
 vi.mock('@/lib/api/securityActions', () => ({
   blockSourceIp: (...args: unknown[]) => mockBlockSourceIp(...args),
+  blockSecurityLog: (...args: unknown[]) => mockBlockSecurityLog(...args),
   deleteSecurityLog: (...args: unknown[]) => mockDeleteSecurityLog(...args),
   bulkActionSecurityLogs: (...args: unknown[]) => mockBulkActionSecurityLogs(...args),
   blockByFilter: (...args: unknown[]) => mockBlockByFilter(...args),
@@ -978,6 +980,126 @@ describe('M8: Security Monitoring page — per-row actions + filters (T11)', () 
       const lastCall = calls[calls.length - 1][0];
       expect(lastCall?.source_ip).toBe('10.0.0.1');
     });
+  });
+});
+
+// ── Wayfinder #571: modified blocking flow (device vs IP choice) ────────────
+
+describe('M8: Security Monitoring page — device-vs-IP blocking flow (#571)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    mockAdminUser();
+    mockFetchAuditLogs.mockResolvedValue({ items: [], total: 0 });
+    mockFetchSecurityLogsSummary.mockResolvedValue(DEFAULT_SUMMARY);
+    mockFetchAdminSecurityLogs.mockResolvedValue({
+      items: [
+        {
+          log_id: 1,
+          timestamp: '2026-07-15T10:30:00Z',
+          source_ip: '192.168.1.100',
+          severity_level: 'HIGH',
+          suricata_sid: 2001,
+          admin_action_taken: null,
+          xai_confidence: 0.88,
+          device_token_hash: 'abcdef0123456789hash',
+        },
+      ],
+      total: 1,
+    });
+    mockFetchAuditLogsOfflineAware.mockImplementation(async (params?: unknown) => ({
+      response: await mockFetchAuditLogs(params),
+      fromCache: false,
+    }));
+    mockFetchSecurityLogsSummaryOfflineAware.mockImplementation(async () => ({
+      response: await mockFetchSecurityLogsSummary(),
+      fromCache: false,
+    }));
+    mockFetchAdminSecurityLogsOfflineAware.mockImplementation(async (params?: unknown) => ({
+      response: await mockFetchAdminSecurityLogs(params),
+      fromCache: false,
+    }));
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+  });
+
+  it('shows "Block Device / IP" label when the row has a device_token_hash', async () => {
+    vi.useRealTimers();
+    render(<SecurityMonitoringPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('192.168.1.100')).toBeInTheDocument();
+    });
+    expect(screen.getByText('Block Device / IP')).toBeInTheDocument();
+    expect(screen.queryByText('Block Source IP')).not.toBeInTheDocument();
+  });
+
+  it('blocks the device when the admin confirms the device choice', async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.useRealTimers();
+    vi.spyOn(window, 'confirm').mockReturnValue(true); // first prompt: "OK = Block this device"
+    mockBlockSecurityLog.mockResolvedValue({
+      device_token_hash: 'abcdef0123456789hash',
+      is_permanent: false,
+      already_active: false,
+    });
+
+    render(<SecurityMonitoringPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('192.168.1.100')).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByText('Block Device / IP'));
+
+    expect(mockBlockSecurityLog).toHaveBeenCalledWith(1, { type: 'device', ttl_hours: 24 });
+    expect(mockBlockSourceIp).not.toHaveBeenCalled();
+
+    await waitFor(() => {
+      expect(screen.getByText(/Blocked device abcdef012345/i)).toBeInTheDocument();
+    });
+  });
+
+  it('falls back to blocking the IP when the admin declines the device choice', async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.useRealTimers();
+    // First confirm (device choice) -> false; second confirm (IP fallback) -> true
+    const confirmSpy = vi.spyOn(window, 'confirm');
+    confirmSpy.mockReturnValueOnce(false).mockReturnValueOnce(true);
+    mockBlockSourceIp.mockResolvedValue({ ip: '192.168.1.100', is_permanent: false, already_active: false });
+
+    render(<SecurityMonitoringPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('192.168.1.100')).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByText('Block Device / IP'));
+
+    expect(confirmSpy).toHaveBeenCalledTimes(2);
+    expect(mockBlockSecurityLog).not.toHaveBeenCalled();
+    expect(mockBlockSourceIp).toHaveBeenCalledWith(1, { ttl_hours: 24 });
+  });
+
+  it('does nothing when the admin declines both prompts', async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.useRealTimers();
+    const confirmSpy = vi.spyOn(window, 'confirm');
+    confirmSpy.mockReturnValueOnce(false).mockReturnValueOnce(false);
+
+    render(<SecurityMonitoringPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('192.168.1.100')).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByText('Block Device / IP'));
+
+    expect(mockBlockSecurityLog).not.toHaveBeenCalled();
+    expect(mockBlockSourceIp).not.toHaveBeenCalled();
   });
 });
 
