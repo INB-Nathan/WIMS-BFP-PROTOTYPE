@@ -155,6 +155,21 @@ while [ $BUILD_ATTEMPT -lt $MAX_RETRIES ]; do
 done
 
 # ---------------------------------------------------------------------------
+# Nginx bind mount staleness check (gotcha #20)
+# After git reset --hard, bind-mounted files may have new inodes but Docker
+# still serves the old inode. Compare container vs host line count; if they
+# differ, recreate nginx to re-establish the mount.
+# ---------------------------------------------------------------------------
+HOST_NGINX_LINES=$(wc -l < /opt/wims-bfp/src/nginx/nginx.conf 2>/dev/null || echo 0)
+CONTAINER_NGINX_LINES=$(docker exec wims-nginx-gateway wc -l < /etc/nginx/nginx.conf 2>/dev/null || echo 0)
+if [ "$HOST_NGINX_LINES" -ne "$CONTAINER_NGINX_LINES" ] 2>/dev/null; then
+  echo "Nginx config mismatch detected (host: $HOST_NGINX_LINES lines, container: $CONTAINER_NGINX_LINES lines) — recreating nginx to re-establish bind mount..."
+  compose down nginx-gateway
+  compose up -d --no-build nginx-gateway
+  echo "Nginx recreated after bind mount staleness fix"
+fi
+
+# ---------------------------------------------------------------------------
 # Wait for postgres
 # ---------------------------------------------------------------------------
 echo "Waiting for postgres..."
