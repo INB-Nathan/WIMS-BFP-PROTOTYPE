@@ -376,17 +376,16 @@ body {
 /* Header + footer float transparently over the map */
 #scene-landing .landing-header {
   position: absolute; top: 44px; left: 0; right: 0; z-index: 100;
-  background: linear-gradient(to bottom, rgba(0,0,0,0.55), transparent);
-  border-bottom: none;
+  background: rgba(12,14,19,0.82); backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border);
 }
-#scene-landing .landing-header .landing-header-title,
-#scene-landing .landing-header .btn-ghost { text-shadow: 0 1px 3px rgba(0,0,0,0.6); }
 #scene-landing .landing-footer {
   position: absolute; bottom: 0; left: 0; right: 360px; z-index: 100;
-  background: linear-gradient(to top, rgba(0,0,0,0.55), transparent);
-  border-top: none; text-align: center;
+  background: rgba(12,14,19,0.82); backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-top: 1px solid var(--border); text-align: center;
 }
-#scene-landing .landing-footer a { text-shadow: 0 1px 3px rgba(0,0,0,0.6); }
 .landing-sidebar {
   position: absolute; top: 96px; right: 0; bottom: 0;
   width: 360px; background: var(--bg-base);
