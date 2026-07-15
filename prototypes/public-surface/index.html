@@ -91,7 +91,7 @@
 [data-theme="light"] .safety-banner { background: rgba(230,80,0,0.05); border-color: rgba(230,80,0,0.15); }
 [data-theme="light"] .btn-outline:hover { border-color: rgba(0,0,0,0.2); }
 [data-theme="light"] .btn-primary:hover { box-shadow: 0 0 16px rgba(220,0,0,0.15); }
-[data-theme="light"] .receipt-qr { background: var(--bg-surface); border: 1px solid var(--border-strong); }
+[data-theme="light"] .receipt-qr { background: #fff; border: 1px solid var(--border-strong); }
 [data-theme="light"] .receipt-qr-placeholder {
   background: repeating-linear-gradient(0deg, #999, #999 6px, var(--bg-surface) 6px, var(--bg-surface) 12px),
               repeating-linear-gradient(90deg, #999, #999 6px, var(--bg-surface) 6px, var(--bg-surface) 12px);
@@ -634,17 +634,17 @@ body {
 .btn-lg { padding: 12px 28px; font-size: 0.84rem; }
 
 /* ── 4. SUCCESS RECEIPT ────────────────────────────────────────── */
-.receipt-container {
-  max-width: 440px; margin: 80px auto 0; padding: 0 20px 40px;
-}
+.receipt-container { max-width: 640px; margin: 80px auto 0; padding: 0 20px 40px; }
 .receipt {
   background: var(--bg-elevated); border: 1px solid var(--border);
-  border-radius: var(--radius-lg); padding: 32px 24px; text-align: center;
-  box-shadow: var(--shadow);
+  border-radius: var(--radius-lg); padding: 32px 28px; box-shadow: var(--shadow);
 }
+.receipt-split { display: grid; grid-template-columns: 1fr auto; gap: 28px; align-items: start; }
+@media (max-width: 480px) { .receipt-split { grid-template-columns: 1fr; } }
+.receipt-info { min-width: 0; }
 .receipt-header {
   border-bottom: 1px dashed var(--border-strong); padding-bottom: 20px;
-  margin-bottom: 20px;
+  margin-bottom: 20px; text-align: center;
 }
 .receipt-header .receipt-title {
   font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em;
@@ -653,8 +653,9 @@ body {
 .receipt-header .receipt-agency {
   font-size: 1rem; font-weight: 700; color: var(--text-primary);
 }
+.receipt-qr-col { text-align: center; flex-shrink: 0; }
 .receipt-qr {
-  width: 140px; height: 140px; margin: 20px auto; border-radius: var(--radius);
+  width: 140px; height: 140px; margin: 0 auto 12px; border-radius: var(--radius);
   padding: 12px; background: #fff; display: flex; align-items: center;
   justify-content: center;
 }
@@ -669,7 +670,7 @@ body {
   font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.72rem;
   color: var(--text-secondary); background: var(--bg-surface);
   padding: 8px 14px; border-radius: var(--radius-sm); word-break: break-all;
-  margin-bottom: 6px; display: inline-block;
+  display: inline-block;
 }
 .receipt-ts { font-size: 0.65rem; color: var(--text-muted); margin-bottom: 20px; }
 .receipt-incentive {
@@ -1721,16 +1722,20 @@ body {
         </div>
       </div>
 
-      <div class="receipt-qr">
-        <div class="receipt-qr-placeholder"></div>
+      <div class="receipt-split">
+        <div class="receipt-info">
+          <div style="font-size:0.7rem;color:var(--text-secondary);margin-bottom:6px">📍 Barangay Mayamot, Antipolo</div>
+          <div style="font-size:0.7rem;color:var(--text-secondary);margin-bottom:16px">🔥 Large flames · Heavy smoke · Spreading fast</div>
+          <div class="receipt-token">BFP-7X3Q-P91</div>
+          <div class="receipt-ts">Submitted 15 July 2026 · 14:32 PST</div>
+        </div>
+        <div class="receipt-qr-col">
+          <div class="receipt-qr">
+            <div class="receipt-qr-placeholder"></div>
+          </div>
+          <div style="font-size:0.6rem;color:var(--text-muted)">Scan to track</div>
+        </div>
       </div>
-      <div style="font-size:0.6rem;color:var(--text-muted);margin-bottom:8px">Scan to track your report</div>
-
-      <div class="receipt-token">BFP-7X3Q-P91</div>
-      <div class="receipt-ts">Submitted 15 July 2026 · 14:32 PST</div>
-
-      <div style="font-size:0.7rem;color:var(--text-secondary);margin-bottom:6px">📍 Barangay Mayamot, Antipolo</div>
-      <div style="font-size:0.7rem;color:var(--text-secondary)">🔥 Large flames · Heavy smoke · Spreading fast</div>
 
       <!-- Registration incentive -->
       <div class="receipt-incentive">
