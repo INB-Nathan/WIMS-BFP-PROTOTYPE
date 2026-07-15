@@ -349,9 +349,61 @@ body {
 .heat-blob.h2 { width: 90px; height: 90px; background: var(--orange); left: 50%; top: 44%; }
 .heat-blob.h3 { width: 70px; height: 70px; background: var(--yellow); left: 60%; top: 50%; }
 
-/* Bottom sheet */
-.landing-sheet {
-  max-width: 960px; margin: 0 auto; padding: 24px 20px 40px;
+/* ── Landing map with sidebar ──────────────────────────────────── */
+.landing-layout {
+  display: flex; height: calc(100vh - 52px - 44px); /* subtract header + proto nav */
+  overflow: hidden;
+}
+.landing-map {
+  flex: 1; min-width: 0; position: relative;
+  background: var(--bg-elevated);
+}
+.landing-sidebar {
+  width: 340px; flex-shrink: 0; background: var(--bg-base);
+  border-left: 1px solid var(--border); overflow-y: auto;
+  display: flex; flex-direction: column;
+}
+.landing-sidebar-header {
+  padding: 16px 20px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.landing-sidebar-header h3 { font-size: 0.82rem; font-weight: 700; }
+.landing-sidebar-list { flex: 1; overflow-y: auto; padding: 8px 12px; }
+.sidebar-fire-card {
+  background: var(--bg-elevated); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 12px 14px; margin-bottom: 8px;
+  cursor: pointer; transition: all var(--transition);
+  display: flex; align-items: center; gap: 12px;
+}
+.sidebar-fire-card:hover { border-color: var(--border-strong); background: var(--bg-surface); }
+.sidebar-fire-card .sf-sev {
+  width: 28px; height: 28px; border-radius: 8px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.05em;
+}
+.sidebar-fire-card .sf-sev.crit { background: var(--red); color: #fff; }
+.sidebar-fire-card .sf-sev.high { background: var(--orange); color: #000; }
+.sidebar-fire-card .sf-sev.mod { background: var(--yellow); color: #000; }
+.sidebar-fire-card .sf-info { flex: 1; min-width: 0; }
+.sidebar-fire-card .sf-title { font-size: 0.76rem; font-weight: 600; }
+.sidebar-fire-card .sf-loc { font-size: 0.64rem; color: var(--text-muted); }
+.sidebar-fire-card .sf-dist { font-size: 0.66rem; color: var(--text-secondary); flex-shrink: 0; }
+.landing-sidebar-footer {
+  padding: 12px 20px; border-top: 1px solid var(--border);
+}
+.landing-sidebar-footer a {
+  font-size: 0.72rem; color: var(--text-secondary); text-decoration: none;
+  display: flex; align-items: center; gap: 8px; padding: 8px 0;
+}
+.landing-sidebar-footer a:hover { color: var(--text-primary); }
+
+/* Mobile: sidebar toggle button */
+.landing-sidebar-toggle {
+  display: none; position: fixed; bottom: 80px; right: 24px; z-index: 200;
+  width: 44px; height: 44px; border-radius: 50%;
+  background: var(--bg-base); border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow); cursor: pointer; font-size: 1rem;
+  align-items: center; justify-content: center; color: var(--text-primary);
 }
 .sheet-section { margin-bottom: 28px; }
 .sheet-section h2 {
@@ -780,6 +832,15 @@ body {
   }
   @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
   .modal-handle { display: block; width: 36px; height: 4px; border-radius: 2px; background: var(--border-strong); margin: 0 auto 16px; }
+
+  /* Landing: sidebar → overlay on mobile */
+  .landing-sidebar {
+    position: fixed; inset: 52px 0 0 0; z-index: 300; width: 100%;
+    transform: translateX(100%); transition: transform 0.25s ease;
+    border-left: none;
+  }
+  .landing-sidebar.open { transform: translateX(0); }
+  .landing-sidebar-toggle { display: flex; }
 }
 @media (min-width: 769px) {
   .landing-header-right .btn-ghost.show-mobile { display: none; }
@@ -858,98 +919,73 @@ body {
     </div>
   </header>
 
-  <!-- Map -->
-  <div class="landing-map">
-    <div class="landing-map-placeholder">
-      <div class="map-pin red"></div>
-      <div class="map-pin orange"></div>
-      <div class="map-pin yellow"></div>
-      <div class="map-pin red2"></div>
-      <div class="map-pin orange2"></div>
-      <div class="heat-blob h1"></div>
-      <div class="heat-blob h2"></div>
-      <div class="heat-blob h3"></div>
-      <span class="landing-map-label">Interactive Map · Leaflet + Heatmap Layer</span>
-    </div>
-  </div>
-
-  <!-- Bottom sheet -->
-  <div class="landing-sheet">
-    <!-- Active fires -->
-    <div class="sheet-section">
-      <h2>🔥 Active fires near you <span class="count">3</span></h2>
-      <div class="fire-card" onclick="openModal()" style="cursor:pointer">
-        <div class="sev-dot crit">C</div>
-        <div class="fire-info">
-          <div class="fire-title">Grass fire along Marcos Highway</div>
-          <div class="fire-meta">📍 Barangay Mayamot, Antipolo</div>
-        </div>
-        <div class="fire-dist">2.3 km</div>
+  <!-- Map + Sidebar layout -->
+  <div class="landing-layout">
+    <!-- Map -->
+    <div class="landing-map">
+      <div class="landing-map-placeholder">
+        <div class="map-pin red"></div>
+        <div class="map-pin orange"></div>
+        <div class="map-pin yellow"></div>
+        <div class="map-pin red2"></div>
+        <div class="map-pin orange2"></div>
+        <div class="heat-blob h1"></div>
+        <div class="heat-blob h2"></div>
+        <div class="heat-blob h3"></div>
+        <span class="landing-map-label">Interactive Map · Leaflet + Heatmap Layer</span>
       </div>
-      <div class="fire-card">
-        <div class="sev-dot high">H</div>
-        <div class="fire-info">
-          <div class="fire-title">Structure fire — residential area</div>
-          <div class="fire-meta">📍 Barangay Dela Paz, Pasig</div>
-        </div>
-        <div class="fire-dist">4.8 km</div>
-      </div>
-      <div class="fire-card">
-        <div class="sev-dot mod">M</div>
-        <div class="fire-info">
-          <div class="fire-title">Smoke reported near commercial building</div>
-          <div class="fire-meta">📍 Barangay Ugong, Pasig</div>
-        </div>
-        <div class="fire-dist">6.1 km</div>
-      </div>
-      <p style="font-size:0.7rem;color:var(--text-muted);margin-top:4px">Showing verified BFP incidents from National Validator. Public reports are clustered as heatmap areas.</p>
     </div>
 
-    <!-- Announcements -->
-    <div class="sheet-section">
-      <h2>📢 BFP Announcements</h2>
-      <!-- Skeleton loading state (toggle with class) -->
-      <div id="announcement-skeletons">
-        <div class="skeleton skeleton-card"></div>
-        <div class="skeleton skeleton-card"></div>
+    <!-- Sidebar: fire list -->
+    <div class="landing-sidebar" id="landing-sidebar">
+      <div class="landing-sidebar-header">
+        <h3>🔥 Active fires near you <span style="font-size:0.65rem;color:var(--text-muted);font-weight:400">3</span></h3>
+        <button onclick="toggleSidebar()" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:1.1rem;font-family:var(--font)">✕</button>
       </div>
-      <!-- Empty state (hidden initially) -->
-      <div id="announcement-empty" class="empty-state" style="display:none">
-        No active announcements at this time.
-      </div>
-      <!-- Filled state (hidden initially) -->
-      <div id="announcement-filled" style="display:none">
-        <div style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px">
-          <div style="font-size:0.82rem;font-weight:600">Fire prevention campaign — March 2026</div>
-          <div style="font-size:0.7rem;color:var(--text-muted);margin-top:2px">BFP NCR conducting fire safety inspections in all barangays.</div>
+      <div class="landing-sidebar-list">
+        <div class="sidebar-fire-card" onclick="openModal()">
+          <div class="sf-sev crit">C</div>
+          <div class="sf-info">
+            <div class="sf-title">Grass fire — Marcos Highway</div>
+            <div class="sf-loc">📍 Brgy. Mayamot, Antipolo</div>
+          </div>
+          <div class="sf-dist">2.3 km</div>
         </div>
-      </div>
-      <p style="font-size:0.65rem;color:var(--text-muted);margin-top:8px">
-        <button onclick="toggleAnnouncements()" style="background:none;border:none;color:var(--red);cursor:pointer;font-family:var(--font);font-size:0.65rem;text-decoration:underline">Toggle: skeletons → filled → empty</button>
-      </p>
-    </div>
-
-    <!-- Fire stations -->
-    <div class="sheet-section">
-      <h2>🚒 Fire stations</h2>
-      <a class="station-link">
-        <span class="station-icon">🚒</span>
-        <div>
-          <div class="station-label">Find a fire station near you</div>
-          <div class="station-sub">Locate BFP stations and response units</div>
+        <div class="sidebar-fire-card" onclick="openModal()">
+          <div class="sf-sev high">H</div>
+          <div class="sf-info">
+            <div class="sf-title">Structure fire — residential</div>
+            <div class="sf-loc">📍 Brgy. Dela Paz, Pasig</div>
+          </div>
+          <div class="sf-dist">4.8 km</div>
         </div>
-      </a>
+        <div class="sidebar-fire-card" onclick="openModal()">
+          <div class="sf-sev mod">M</div>
+          <div class="sf-info">
+            <div class="sf-title">Smoke reported — commercial</div>
+            <div class="sf-loc">📍 Brgy. Ugong, Pasig</div>
+          </div>
+          <div class="sf-dist">6.1 km</div>
+        </div>
+        <p style="font-size:0.64rem;color:var(--text-muted);margin-top:8px;text-align:center">Showing verified BFP incidents</p>
+      </div>
+      <div class="landing-sidebar-footer">
+        <a href="#" onclick="showScene('information')">📋 View all incidents →</a>
+        <a href="#" onclick="showScene('stations')">🚒 Find a fire station →</a>
+      </div>
     </div>
   </div>
 
   <!-- Footer -->
   <footer class="landing-footer">
     <p><strong style="color:var(--text-secondary)">WIMS-BFP</strong> · Bureau of Fire Protection · Republic of the Philippines</p>
-    <p><a href="#">Privacy Policy</a> · <a href="#">Register as a reporter</a></p>
+    <p><a href="#">Privacy Policy</a> · <a href="#" onclick="showScene('register')">Register as a reporter</a></p>
   </footer>
 
   <!-- FAB -->
   <button class="fab" onclick="showScene('wizard')" title="Report a Fire">🔥</button>
+  <!-- Mobile sidebar toggle -->
+  <button class="landing-sidebar-toggle" id="sidebar-toggle-btn" onclick="toggleSidebar()">📋</button>
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
@@ -1694,6 +1730,12 @@ function toggleAnnouncements() {
   document.getElementById('announcement-skeletons').style.display = annState === 0 ? 'block' : 'none';
   document.getElementById('announcement-empty').style.display = annState === 1 ? 'block' : 'none';
   document.getElementById('announcement-filled').style.display = annState === 2 ? 'block' : 'none';
+}
+
+// ── Landing sidebar toggle (mobile) ──────────────────────────────
+function toggleSidebar() {
+  var el = document.getElementById('landing-sidebar');
+  if (el) el.classList.toggle('open');
 }
 
 // ── Incident detail modal ────────────────────────────────────────
