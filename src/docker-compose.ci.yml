@@ -15,3 +15,16 @@ services:
   nginx-gateway:
     volumes:
       - ./nginx/nginx.ci.conf:/etc/nginx/nginx.conf:ro
+
+  # Shared GitHub-hosted runners bring up the entire stack (postgres, keycloak,
+  # ollama model pull, backend, celery, frontend build) at once and can see
+  # postgres pass its healthcheck and then get killed under memory/CPU
+  # contention shortly after. This only widens the retry tolerance for CI —
+  # user/db/password are untouched, matching docker-compose.yml exactly.
+  postgres:
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d wims"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
