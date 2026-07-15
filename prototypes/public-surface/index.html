@@ -862,6 +862,30 @@ body {
   justify-content: center; color: var(--text-muted); font-size: 0.72rem;
 }
 
+/* Impact strip */
+.impact-strip {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--red-bg); border: 1px solid var(--red);
+  border-radius: var(--radius); padding: 12px 16px; margin-bottom: 24px;
+  font-size: 0.76rem; color: var(--text-secondary);
+}
+.impact-strip .impact-icon { font-size: 1.1rem; flex-shrink: 0; }
+.impact-strip strong { color: var(--text-primary); }
+
+/* Activity feed */
+.activity-feed { display: flex; flex-direction: column; }
+.activity-item { display: flex; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--border); }
+.activity-item:last-child { border-bottom: none; }
+.activity-dot { width: 9px; height: 9px; border-radius: 50%; margin-top: 5px; flex-shrink: 0; }
+.activity-dot.verified { background: var(--green); }
+.activity-dot.review { background: var(--orange); }
+.activity-dot.pending { background: var(--yellow); }
+.activity-dot.dispatched { background: var(--red); }
+.activity-body { flex: 1; min-width: 0; }
+.activity-text { font-size: 0.74rem; color: var(--text-secondary); line-height: 1.4; }
+.activity-text strong { color: var(--text-primary); }
+.activity-time { font-size: 0.62rem; color: var(--text-muted); margin-top: 3px; }
+
 /* Trust badge */
 .trust-badge {
   display: inline-flex; align-items: center; gap: 4px; font-size: 0.62rem;
@@ -1636,6 +1660,47 @@ body {
             <span><i style="background:var(--orange)"></i>3 In review</span>
             <span><i style="background:var(--yellow)"></i>2 Pending</span>
             <span><i style="background:var(--red)"></i>1 Rejected</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Impact strip -->
+    <div class="impact-strip">
+      <span class="impact-icon">🔥</span>
+      <span>Your <strong>23 reports</strong> helped flag <strong>4 active incidents</strong> and keep Pasig safer.</span>
+    </div>
+
+    <!-- Activity feed -->
+    <div class="contrib-section">
+      <h3>Activity</h3>
+      <div class="activity-feed">
+        <div class="activity-item">
+          <div class="activity-dot dispatched"></div>
+          <div class="activity-body">
+            <div class="activity-text">BFP dispatched a unit to your report — <strong>Grass fire, Marcos Highway</strong></div>
+            <div class="activity-time">14:35 PST · Today</div>
+          </div>
+        </div>
+        <div class="activity-item">
+          <div class="activity-dot pending"></div>
+          <div class="activity-body">
+            <div class="activity-text">Your report was <strong>received</strong> — Grass fire, Marcos Highway</div>
+            <div class="activity-time">14:10 PST · Today</div>
+          </div>
+        </div>
+        <div class="activity-item">
+          <div class="activity-dot verified"></div>
+          <div class="activity-body">
+            <div class="activity-text">Your report was <strong>verified</strong> — Smoke from commercial building</div>
+            <div class="activity-time">13:50 PST · Today</div>
+          </div>
+        </div>
+        <div class="activity-item">
+          <div class="activity-dot review"></div>
+          <div class="activity-body">
+            <div class="activity-text">Your report moved to <strong>In Review</strong> — Electrical fire near substation</div>
+            <div class="activity-time">13:10 PST · Today</div>
           </div>
         </div>
       </div>
