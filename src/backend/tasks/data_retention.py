@@ -324,9 +324,7 @@ def _prune_device_blocklist(db) -> None:
         """),
         {"days": str(days)},
     )
-    _log_prune(
-        db, "wims.device_blocklist", result.rowcount or 0, "hard_delete", days, config_key
-    )
+    _log_prune(db, "wims.device_blocklist", result.rowcount or 0, "hard_delete", days, config_key)
 
 
 def _log_noop_tables(db) -> None:

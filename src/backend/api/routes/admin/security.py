@@ -466,9 +466,7 @@ async def bulk_action(
                 results.append({"log_id": lid, "error": "No source_ip found"})
         elif body.action == "block_device":
             row = db.execute(
-                text(
-                    "SELECT device_token_hash FROM wims.security_threat_logs WHERE log_id = :lid"
-                ),
+                text("SELECT device_token_hash FROM wims.security_threat_logs WHERE log_id = :lid"),
                 {"lid": lid},
             ).fetchone()
             if row and row[0]:

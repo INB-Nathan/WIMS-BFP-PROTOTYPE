@@ -70,7 +70,9 @@ def _get_repeat_offender_threshold(db: Session) -> int:
         return 3
 
 
-async def _redis_set_block(device_token_hash: str, ttl_seconds: int | None, is_permanent: bool) -> None:
+async def _redis_set_block(
+    device_token_hash: str, ttl_seconds: int | None, is_permanent: bool
+) -> None:
     """SET device:block:{hash} in Redis with optional TTL. Best-effort."""
     r = await _get_redis()
     if r is None:
@@ -280,9 +282,7 @@ async def list_blocked_devices(db: Session) -> list[dict[str, Any]]:
     for r in rows:
         count = (
             db.execute(
-                text(
-                    "SELECT COUNT(*) FROM wims.device_blocklist WHERE device_token_hash = :hash"
-                ),
+                text("SELECT COUNT(*) FROM wims.device_blocklist WHERE device_token_hash = :hash"),
                 {"hash": r[0]},
             ).scalar()
             or 0

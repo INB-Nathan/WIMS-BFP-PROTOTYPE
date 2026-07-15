@@ -211,9 +211,7 @@ async def _write_telemetry(request: Request, token_hash: str | None) -> None:
         if r is None:
             return
         wims_user = getattr(request.state, "wims_user", None)
-        authenticated_user_id = (
-            wims_user.get("user_id") if isinstance(wims_user, dict) else None
-        )
+        authenticated_user_id = wims_user.get("user_id") if isinstance(wims_user, dict) else None
         client_ip = trusted_client_ip(request)
         payload = json.dumps(
             {

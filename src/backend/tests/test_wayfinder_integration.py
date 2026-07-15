@@ -203,8 +203,7 @@ class TestBulkBlockFlow:
         )
         assert preview_resp.status_code == 200
         groups = {
-            g["device_token_hash"]: g["log_ids"]
-            for g in preview_resp.json()["device_groups"]
+            g["device_token_hash"]: g["log_ids"] for g in preview_resp.json()["device_groups"]
         }
         assert groups == {"hash_a": [1, 2], "hash_b": [3]}
 
