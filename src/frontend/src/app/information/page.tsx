@@ -2,6 +2,19 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
+import {
+  IconClipboardList,
+  IconTag,
+  IconStar,
+  IconCamera,
+  IconLock,
+  IconRefresh,
+  IconAlertTriangle,
+  IconSpeakerphone,
+  IconBook,
+  IconSun,
+  IconMailbox,
+} from '@tabler/icons-react';
 import { useAuth } from '@/context/AuthContext';
 import { ApiRequestError } from '@/lib/api/errors';
 import {
@@ -36,32 +49,32 @@ const URGENCY_CLASS: Record<string, string> = {
 
 const GUIDE_CARDS = [
   {
-    icon: '📋',
+    Icon: IconClipboardList,
     title: 'How to submit a report',
     desc: 'Open the report form, select a category, describe what you see, and share your location. Photos improve response accuracy. Reports are reviewed by validators within hours.',
   },
   {
-    icon: '🏷️',
+    Icon: IconTag,
     title: 'Report categories',
     desc: 'Fire (wildfire, structural, grass), Flood (urban, river, coastal), Earthquake, Medical, Infrastructure, Weather, Hazmat. Choose the closest match — validators will reclassify if needed.',
   },
   {
-    icon: '⭐',
+    Icon: IconStar,
     title: 'Understanding your trust score',
     desc: 'Trust scores range from 0–100. Higher scores come from complete reports, consistent submissions, and reports that are actioned by validators. Your score affects how quickly your reports are reviewed.',
   },
   {
-    icon: '📸',
+    Icon: IconCamera,
     title: 'Taking effective photos',
     desc: 'Capture wide shots for context, close-ups for detail. Include landmarks when possible. Avoid including identifiable people without consent. Photos are encrypted in transit and storage.',
   },
   {
-    icon: '🔒',
+    Icon: IconLock,
     title: 'Privacy & safety',
     desc: 'Your personal information is never shared publicly. Report locations are generalized for public display. Do not put yourself at risk to submit a report — your safety comes first.',
   },
   {
-    icon: '🔄',
+    Icon: IconRefresh,
     title: 'What happens after you report',
     desc: 'Your report enters the triage queue. Validators review, verify, and assign a status. You will see updates on your contributor dashboard. Actioned reports feed into BFP operations.',
   },
@@ -187,7 +200,8 @@ export default function InformationPage() {
             tab === 'emergencies' ? 'bg-[#C62828] text-white' : 'text-gray-500'
           }`}
         >
-          ⚠ Emergencies
+          <IconAlertTriangle size={18} aria-hidden />
+          Emergencies
         </button>
         <button
           type="button"
@@ -196,7 +210,8 @@ export default function InformationPage() {
             tab === 'announcements' ? 'bg-[#C62828] text-white' : 'text-gray-500'
           }`}
         >
-          📢 Announcements
+          <IconSpeakerphone size={18} aria-hidden />
+          Announcements
         </button>
         <button
           type="button"
@@ -205,7 +220,8 @@ export default function InformationPage() {
             tab === 'guide' ? 'bg-[#C62828] text-white' : 'text-gray-500'
           }`}
         >
-          📖 Reporting Guide
+          <IconBook size={18} aria-hidden />
+          Reporting Guide
         </button>
       </div>
 
@@ -228,7 +244,9 @@ export default function InformationPage() {
           )}
           {!emergenciesBusy && !emergenciesError && emergencies?.length === 0 && (
             <div className="rounded border bg-white p-10 text-center shadow-sm">
-              <p className="text-2xl">🌤️</p>
+              <div className="flex justify-center text-gray-400">
+                <IconSun size={48} aria-hidden />
+              </div>
               <h3 className="mt-3 text-base font-semibold">No active emergencies</h3>
               <p className="mt-2 text-sm text-gray-600">
                 There are no published emergency updates right now.
@@ -292,7 +310,9 @@ export default function InformationPage() {
           )}
           {!announcementsBusy && !announcementsError && announcements?.length === 0 && (
             <div className="rounded border bg-white p-10 text-center shadow-sm">
-              <p className="text-2xl">📭</p>
+              <div className="flex justify-center text-gray-400">
+                <IconMailbox size={48} aria-hidden />
+              </div>
               <h3 className="mt-3 text-base font-semibold">No announcements</h3>
               <p className="mt-2 text-sm text-gray-600">
                 There are no published announcements right now.
@@ -349,8 +369,8 @@ export default function InformationPage() {
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {GUIDE_CARDS.map((card) => (
               <div key={card.title} className="rounded border bg-white p-5 shadow-sm">
-                <div className="mb-3 text-2xl" aria-hidden>
-                  {card.icon}
+                <div className="mb-3 flex items-center justify-center text-blue-600">
+                  <card.Icon size={32} aria-hidden />
                 </div>
                 <h3 className="text-sm font-semibold text-gray-900">{card.title}</h3>
                 <p className="mt-1 text-sm leading-relaxed text-gray-600">{card.desc}</p>
