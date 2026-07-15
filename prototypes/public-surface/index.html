@@ -895,6 +895,62 @@ body {
 .activity-timeline .tl-time { font-size: 0.6rem; color: var(--text-muted); }
 .activity-timeline .tl-text { font-size: 0.74rem; color: var(--text-secondary); }
 
+/* Profile / settings */
+.profile-head {
+  display: flex; align-items: center; gap: 16px;
+  background: var(--bg-elevated); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 20px; margin-bottom: 24px;
+}
+.profile-avatar {
+  width: 64px; height: 64px; border-radius: 50%; flex-shrink: 0;
+  background: var(--bg-surface); display: flex; align-items: center; justify-content: center;
+  font-size: 1.3rem; font-weight: 700; color: var(--text-secondary);
+}
+.profile-name { font-size: 1rem; font-weight: 700; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.profile-role { font-size: 0.74rem; color: var(--text-muted); margin-top: 2px; }
+.profile-card {
+  background: var(--bg-elevated); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 16px;
+}
+.profile-card .input-group { margin-bottom: 14px; }
+.profile-card .input-group:last-of-type { margin-bottom: 0; }
+.profile-card .input-group label {
+  display: block; font-size: 0.7rem; font-weight: 600; margin-bottom: 4px; color: var(--text-secondary);
+}
+.profile-card .input-group input {
+  width: 100%; padding: 9px 12px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong); background: var(--bg-surface);
+  color: var(--text-primary); font-family: var(--font); font-size: 0.78rem;
+}
+.profile-card .input-group input:focus { outline: none; border-color: var(--red); }
+.toggle-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 12px 0; border-bottom: 1px solid var(--border);
+}
+.toggle-row:last-child { border-bottom: none; }
+.toggle-row .t-label { font-size: 0.78rem; color: var(--text-secondary); }
+.toggle-row .t-desc { font-size: 0.64rem; color: var(--text-muted); margin-top: 2px; }
+.toggle { position: relative; width: 40px; height: 22px; flex-shrink: 0; }
+.toggle input { opacity: 0; width: 0; height: 0; }
+.toggle .slider {
+  position: absolute; inset: 0; cursor: pointer; border-radius: 999px;
+  background: var(--bg-surface); border: 1px solid var(--border-strong); transition: var(--transition);
+}
+.toggle .slider::before {
+  content: ''; position: absolute; width: 16px; height: 16px; left: 2px; top: 2px;
+  background: var(--text-muted); border-radius: 50%; transition: var(--transition);
+}
+.toggle input:checked + .slider { background: var(--red); border-color: var(--red); }
+.toggle input:checked + .slider::before { transform: translateX(18px); background: #fff; }
+.btn-danger-outline {
+  background: transparent; color: var(--red); border: 1px solid var(--red);
+}
+.btn-danger-outline:hover { background: rgba(220,0,0,0.1); }
+@media (max-width: 560px) {
+  .profile-head { flex-wrap: wrap; }
+  .profile-head .btn { margin-left: 0 !important; width: 100%; }
+}
+
 /* Trust badge */
 .trust-badge {
   display: inline-flex; align-items: center; gap: 4px; font-size: 0.62rem;
@@ -1038,6 +1094,8 @@ body {
   <button onclick="showScene('wizard')" id="nav-wizard">Report Wizard</button>
   <button onclick="showScene('stations')" id="nav-stations">Fire Stations</button>
   <button onclick="showScene('contributor')" id="nav-contributor">Contributor</button>
+  <button onclick="showScene('profile')" id="nav-profile">Profile</button>
+  <button onclick="showScene('tracking')" id="nav-tracking">Tracking</button>
   <button onclick="showScene('register')" id="nav-register">Register</button>
   <button onclick="showScene('receipt')" id="nav-receipt">Receipt</button>
   <span style="flex:1"></span>
@@ -1631,13 +1689,14 @@ body {
     </div>
     <div class="landing-header-left" style="gap:4px">
       <button class="btn btn-ghost" onclick="showScene('landing')" style="font-size:0.72rem">Home</button>
-      <button class="btn btn-ghost" style="font-size:0.72rem;color:var(--red);border-bottom:2px solid var(--red);border-radius:0;font-weight:600">Dashboard</button>
+      <button class="btn btn-ghost" style="font-size:0.72rem;color:var(--red);border-bottom:2px solid var(--red);border-radius:0;font-weight:600" onclick="showScene('contributor')">Dashboard</button>
       <button class="btn btn-ghost" onclick="showScene('incidents')" style="font-size:0.72rem">Incidents</button>
       <button class="btn btn-ghost" onclick="showScene('information')" style="font-size:0.72rem">Information</button>
+      <button class="btn btn-ghost" onclick="showScene('profile')" style="font-size:0.72rem">Profile</button>
     </div>
     <div class="landing-header-right">
       <button class="btn btn-primary" onclick="showScene('wizard')" style="font-size:0.72rem">Report a Fire</button>
-      <div style="width:32px;height:32px;border-radius:50%;background:var(--bg-surface);display:flex;align-items:center;justify-content:center;font-size:0.7rem;font-weight:700;color:var(--text-secondary);cursor:pointer" title="Maria Santos">MS</div>
+      <div style="width:32px;height:32px;border-radius:50%;background:var(--bg-surface);display:flex;align-items:center;justify-content:center;font-size:0.7rem;font-weight:700;color:var(--text-secondary);cursor:pointer" title="Maria Santos — Profile" onclick="showScene('profile')">MS</div>
     </div>
   </header>
 
@@ -1854,6 +1913,106 @@ body {
       </div>
     </div>
   </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- SCENE: PROFILE / SETTINGS -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="scene" id="scene-profile">
+  <header class="landing-header">
+    <div class="landing-header-left">
+      <a href="#" onclick="showScene('landing')" style="display:flex;align-items:center;gap:10px;text-decoration:none;color:inherit">
+        <div class="landing-header-logo">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round">
+            <path d="M12 2L2 22h20L12 2z"/><line x1="12" y1="10" x2="12" y2="16"/><circle cx="12" cy="19" r="1" fill="#fff" stroke="none"/>
+          </svg>
+        </div>
+        <span class="landing-header-title">WIMS-BFP</span>
+      </a>
+    </div>
+    <div class="landing-header-left" style="gap:4px">
+      <button class="btn btn-ghost" onclick="showScene('landing')" style="font-size:0.72rem">Home</button>
+      <button class="btn btn-ghost" onclick="showScene('contributor')" style="font-size:0.72rem">Dashboard</button>
+      <button class="btn btn-ghost" onclick="showScene('incidents')" style="font-size:0.72rem">Incidents</button>
+      <button class="btn btn-ghost" onclick="showScene('information')" style="font-size:0.72rem">Information</button>
+      <button class="btn btn-ghost" style="font-size:0.72rem;color:var(--red);border-bottom:2px solid var(--red);border-radius:0;font-weight:600">Profile</button>
+    </div>
+    <div class="landing-header-right">
+      <button class="btn btn-primary" onclick="showScene('wizard')" style="font-size:0.72rem">Report a Fire</button>
+      <div style="width:32px;height:32px;border-radius:50%;background:var(--bg-surface);display:flex;align-items:center;justify-content:center;font-size:0.7rem;font-weight:700;color:var(--text-secondary);cursor:pointer" title="Maria Santos — Profile" onclick="showScene('profile')">MS</div>
+    </div>
+  </header>
+
+  <div class="contrib-container">
+    <!-- Profile header -->
+    <div class="profile-head">
+      <div class="profile-avatar">MS</div>
+      <div>
+        <div class="profile-name">Maria Santos <span class="trust-badge">✓ Verified Reporter</span></div>
+        <div class="profile-role">Civilian Reporter · Pasig City</div>
+      </div>
+      <button class="btn btn-outline" style="margin-left:auto;font-size:0.72rem">Edit</button>
+    </div>
+
+    <!-- Account details -->
+    <div class="contrib-section">
+      <h3>Account details</h3>
+      <div class="profile-card">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div class="input-group"><label>First name</label><input type="text" value="Maria"></div>
+          <div class="input-group"><label>Last name</label><input type="text" value="Santos"></div>
+        </div>
+        <div class="input-group"><label>Phone number</label><input type="tel" value="+63 912 345 6789"></div>
+        <div class="input-group"><label>Email address</label><input type="email" value="maria.santos@email.com"></div>
+        <button class="btn btn-primary" style="margin-top:6px">Save changes</button>
+      </div>
+    </div>
+
+    <!-- Notification preferences -->
+    <div class="contrib-section">
+      <h3>Notification preferences</h3>
+      <div class="profile-card">
+        <div class="toggle-row">
+          <div><div class="t-label">Report status updates</div><div class="t-desc">When BFP verifies, dispatches, or updates your reports</div></div>
+          <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+        </div>
+        <div class="toggle-row">
+          <div><div class="t-label">Nearby incident alerts</div><div class="t-desc">Fires reported close to your saved locations</div></div>
+          <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+        </div>
+        <div class="toggle-row">
+          <div><div class="t-label">BFP announcements</div><div class="t-desc">Campaigns, recruitment, and public safety notices</div></div>
+          <label class="toggle"><input type="checkbox"><span class="slider"></span></label>
+        </div>
+        <div class="toggle-row">
+          <div><div class="t-label">Weekly email digest</div><div class="t-desc">A summary of your reports and local fire activity</div></div>
+          <label class="toggle"><input type="checkbox"><span class="slider"></span></label>
+        </div>
+      </div>
+    </div>
+
+    <!-- Privacy & security -->
+    <div class="contrib-section">
+      <h3>Privacy &amp; security</h3>
+      <div class="profile-card">
+        <div class="toggle-row">
+          <div><div class="t-label">Show my name on my reports</div><div class="t-desc">Helps responders and neighbors recognize your contributions</div></div>
+          <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+        </div>
+        <div class="toggle-row">
+          <div><div class="t-label">Two-factor authentication</div><div class="t-desc">Add a second step when signing in</div></div>
+          <label class="toggle"><input type="checkbox"><span class="slider"></span></label>
+        </div>
+        <button class="btn btn-danger-outline" style="width:100%;margin-top:8px">Delete account</button>
+      </div>
+    </div>
+
+    <button class="btn btn-outline btn-lg" style="width:100%;margin-bottom:24px" onclick="showScene('landing')">Sign out</button>
+  </div>
+
+  <footer class="landing-footer">
+    <p><strong style="color:var(--text-secondary)">WIMS-BFP</strong> · Bureau of Fire Protection · Republic of the Philippines</p>
+  </footer>
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
