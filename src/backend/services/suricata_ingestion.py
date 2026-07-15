@@ -24,6 +24,72 @@ logger = logging.getLogger(__name__)
 _AI_QUEUE_KEY = "ai:queue"
 _AI_QUEUE_MAXLEN = 1000
 
+_DEVICE_CORRELATION_EMPTY = {
+    "device_token_hash": None,
+    "device_correlation_source": None,
+    "device_correlation_confidence": None,
+    "device_observed_at": None,
+}
+
+
+def _correlate_device_token(source_ip: str) -> dict:
+    """Best-effort correlation of a threat log's source IP to a device token
+    hash, via the Redis telemetry hash written by device_token_middleware
+    (issue #567): ``device:telemetry:{ip}`` -> {hash: payload_json, ...}.
+
+    - No entries (no telemetry, or Redis down) -> all columns None.
+    - Exactly one distinct hash -> high confidence.
+    - 2+ distinct hashes for the same IP (e.g. CGNAT) -> device_token_hash is
+      left None (cannot disambiguate) but the ambiguity itself is recorded.
+
+    Never raises — correlation failures must not block threat log ingestion.
+    """
+    if not source_ip:
+        return dict(_DEVICE_CORRELATION_EMPTY)
+
+    try:
+        r = _redis_lib.Redis.from_url(
+            os.environ.get("REDIS_URL", "redis://redis:6379/0"), decode_responses=True
+        )
+        entries = r.hgetall(f"device:telemetry:{source_ip}")
+        r.close()
+    except Exception as exc:
+        logger.warning("Device telemetry Redis read failed for source_ip=%s: %s", source_ip, exc)
+        return dict(_DEVICE_CORRELATION_EMPTY)
+
+    if not entries:
+        return dict(_DEVICE_CORRELATION_EMPTY)
+
+    parsed: dict[str, dict] = {}
+    for hash_, payload_json in entries.items():
+        try:
+            parsed[hash_] = json.loads(payload_json)
+        except (TypeError, ValueError):
+            continue
+
+    if not parsed:
+        return dict(_DEVICE_CORRELATION_EMPTY)
+
+    observed_at = max(
+        (p.get("timestamp") for p in parsed.values() if p.get("timestamp")), default=None
+    )
+
+    if len(parsed) == 1:
+        (only_hash,) = parsed.keys()
+        return {
+            "device_token_hash": only_hash,
+            "device_correlation_source": "redis_telemetry",
+            "device_correlation_confidence": "high",
+            "device_observed_at": observed_at,
+        }
+
+    return {
+        "device_token_hash": None,
+        "device_correlation_source": "redis_telemetry",
+        "device_correlation_confidence": "ambiguous",
+        "device_observed_at": observed_at,
+    }
+
 
 def _push_ai_queue(log_id: int, severity_level: str) -> None:
     """Push a HIGH/CRITICAL log_id to the ai:queue Redis stream for async XAI analysis.
@@ -189,13 +255,17 @@ def _insert_row(db: Session, row: dict) -> int | None:
         text("""
             INSERT INTO wims.security_threat_logs
                 (source_ip, destination_ip, suricata_sid, severity_level, raw_payload,
-                 classification, suricata_signature, suricata_category)
+                 classification, suricata_signature, suricata_category,
+                 device_token_hash, device_correlation_source,
+                 device_correlation_confidence, device_observed_at)
             VALUES
                 (:source_ip, :destination_ip, :suricata_sid, :severity_level, :raw_payload,
-                 :classification, :suricata_signature, :suricata_category)
+                 :classification, :suricata_signature, :suricata_category,
+                 :device_token_hash, :device_correlation_source,
+                 :device_correlation_confidence, :device_observed_at)
             RETURNING log_id
         """),
-        row,
+        {**_DEVICE_CORRELATION_EMPTY, **row},
     )
     return result.scalar() or None
 
@@ -315,6 +385,7 @@ def ingest_eve_file(path: str, *, db_session: Session | None = None) -> int:
                 if ev is None:
                     continue
                 row = eve_to_threat_log_row(ev, raw_payload=line, high_threshold=high_threshold)
+                row.update(_correlate_device_token(row.get("source_ip", "")))
                 event_timestamp = _parse_eve_timestamp(ev.get("timestamp"))
                 record_security_threat_rollups(db, row, event_timestamp=event_timestamp)
                 if not should_store_raw_security_alert(db, row):

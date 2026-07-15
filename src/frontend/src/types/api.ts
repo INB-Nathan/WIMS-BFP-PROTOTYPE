@@ -198,6 +198,34 @@ export interface BulkResult {
   results: Array<{ log_id: number; status?: string; error?: string; [k: string]: unknown }>;
 }
 
+// ── Device Blocklist (Wayfinder — admin threat-response, issue #571) ───────
+
+export interface BlockedDevice {
+  device_token_hash: string;
+  blocked_at: string | null;
+  expires_at: string | null;
+  is_permanent: boolean;
+  block_count: number;
+  blocked_by: string | null;
+  block_reason: string | null;
+  user_agent: string | null;
+  authenticated_user_id: string | null;
+}
+
+export interface DeviceBlockResult {
+  device_token_hash: string;
+  is_permanent: boolean;
+  expires_at: string | null;
+  block_count: number;
+  repeat_offender: boolean;
+  already_active: boolean;
+}
+
+export interface BulkBlockPreviewResult {
+  device_groups: Array<{ device_token_hash: string; log_ids: number[] }>;
+  ip_only_log_ids: number[];
+}
+
 export interface SecurityLogFilter {
   severity?: string;
   source_ip?: string;

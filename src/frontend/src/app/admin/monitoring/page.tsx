@@ -15,7 +15,7 @@ import {
   fetchSecurityLogsSummaryOfflineAware,
   fetchAuditLogsOfflineAware,
 } from '@/lib/api/offlineAdmin';
-import { blockSourceIp, deleteSecurityLog, bulkActionSecurityLogs, blockByFilter } from '@/lib/api/securityActions';
+import { blockSourceIp, blockSecurityLog, deleteSecurityLog, bulkActionSecurityLogs, blockByFilter } from '@/lib/api/securityActions';
 import { StaleCacheBanner } from '@/components/ui/StaleCacheBanner';
 import { AutoRefreshToast } from '@/components/ui/AutoRefreshToast';
 import type { SecurityLogFilter } from '@/types/api';
@@ -47,6 +47,7 @@ interface ThreatLogItem {
   suricata_sid: number;
   admin_action_taken: string | null;
   xai_confidence: number | null;
+  device_token_hash?: string | null;
 }
 
 const HITL_ACTION_LABELS: Record<string, string> = {
@@ -325,9 +326,10 @@ export default function SecurityMonitoringPage() {
     }
   };
 
-  // T11: Block Source IP handler
-  const handleBlockSourceIp = useCallback(async (log: ThreatLogItem) => {
-    if (!window.confirm(`Block source IP ${log.source_ip} for 24 hours? A repeat offender will be blocked permanently.`)) return;
+  // Blocks the row's source IP without its own confirm dialog — callers
+  // (handleBlockSourceIp, and the device-vs-IP choice in handleBlockLog)
+  // own the confirmation prompt so a device-hash row is never double-confirmed.
+  const blockIpNow = useCallback(async (log: ThreatLogItem) => {
     try {
       await blockSourceIp(log.log_id, { ttl_hours: 24 });
       setToast({ type: 'success', text: `Blocked IP ${log.source_ip}` });
@@ -339,6 +341,43 @@ export default function SecurityMonitoringPage() {
       console.error('blockSourceIp error', err);
     }
   }, [loadThreats]);
+
+  // T11: Block Source IP handler (rows without a device_token_hash use this directly).
+  const handleBlockSourceIp = useCallback(async (log: ThreatLogItem) => {
+    if (!window.confirm(`Block source IP ${log.source_ip} for 24 hours? A repeat offender will be blocked permanently.`)) return;
+    await blockIpNow(log);
+  }, [blockIpNow]);
+
+  // Wayfinder #571: modified blocking flow — a row with a device_token_hash
+  // offers a device-vs-IP choice; never silently falls back to IP blocking
+  // when a hash is present (design spec §8.2).
+  const handleBlockLog = useCallback(async (log: ThreatLogItem) => {
+    if (!log.device_token_hash) {
+      await handleBlockSourceIp(log);
+      return;
+    }
+    const truncated = `${log.device_token_hash.slice(0, 12)}…`;
+    const blockDevice = window.confirm(
+      `This alert is linked to device ${truncated}.\n\nOK = Block this device\nCancel = choose to block the IP instead`
+    );
+    if (blockDevice) {
+      try {
+        await blockSecurityLog(log.log_id, { type: 'device', ttl_hours: 24 });
+        setToast({ type: 'success', text: `Blocked device ${truncated}` });
+        loadThreats();
+      } catch (err: unknown) {
+        const apiErr = err as { detail?: unknown; message?: string };
+        const detail = typeof apiErr.detail === 'string' ? apiErr.detail : undefined;
+        setToast({ type: 'error', text: detail || apiErr.message || 'Failed to block device' });
+        console.error('blockSecurityLog(device) error', err);
+      }
+      return;
+    }
+    if (!window.confirm(`Block source IP ${log.source_ip} for 24 hours instead? A repeat offender will be blocked permanently.`)) {
+      return;
+    }
+    await blockIpNow(log);
+  }, [handleBlockSourceIp, blockIpNow, loadThreats]);
 
   // T11: Create Incident handler
   const handleCreateIncident = useCallback(async (log: ThreatLogItem) => {
@@ -907,14 +946,20 @@ export default function SecurityMonitoringPage() {
                           Request More Info
                         </button>
 
-                        {/* Block Source IP — primary action, maroon */}
+                        {/* Block Source IP / Device — primary action, maroon.
+                            Offers a device-vs-IP choice when the row carries
+                            a device_token_hash (Wayfinder #571). */}
                         <button
-                          onClick={() => handleBlockSourceIp(log)}
+                          onClick={() => handleBlockLog(log)}
                           className="px-2 py-1 text-[11px] font-semibold rounded transition-colors"
                           style={{ backgroundColor: 'var(--bfp-maroon)', color: '#ffffff' }}
-                          title="Block this source IP"
+                          title={
+                            log.device_token_hash
+                              ? 'Block this device or its source IP'
+                              : 'Block this source IP'
+                          }
                         >
-                          Block Source IP
+                          {log.device_token_hash ? 'Block Device / IP' : 'Block Source IP'}
                         </button>
 
                         {/* Create Incident — secondary */}

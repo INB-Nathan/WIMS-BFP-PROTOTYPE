@@ -14,14 +14,18 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { BlockedIpsPanel } from './BlockedIpsPanel';
-import type { BlockedIp } from '@/types/api';
+import type { BlockedIp, BlockedDevice } from '@/types/api';
 
 const mockListBlockedIps = vi.fn();
 const mockUnblockIp = vi.fn();
+const mockListBlockedDevices = vi.fn();
+const mockUnblockDevice = vi.fn();
 
 vi.mock('@/lib/api/securityActions', () => ({
   listBlockedIps: () => mockListBlockedIps(),
   unblockIp: (ip: string) => mockUnblockIp(ip),
+  listBlockedDevices: () => mockListBlockedDevices(),
+  unblockDevice: (hash: string) => mockUnblockDevice(hash),
 }));
 
 const MOCK_BLOCKS: BlockedIp[] = [
@@ -333,5 +337,150 @@ describe('BlockedIpsPanel', () => {
       (row) => row.getAttribute('data-repeat-offender') !== 'true'
     );
     expect(normalRows.length).toBe(1);
+  });
+});
+
+// =============================================================================
+// Blocked Devices tab (Wayfinder — issue #571)
+// =============================================================================
+
+const MOCK_DEVICE_BLOCKS: BlockedDevice[] = [
+  {
+    device_token_hash: 'abcdef0123456789',
+    blocked_at: '2026-07-15T10:00:00Z',
+    expires_at: '2026-07-16T10:00:00Z',
+    is_permanent: false,
+    block_count: 1,
+    blocked_by: 'admin-uuid',
+    block_reason: 'manual row block',
+    user_agent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) TestBrowser/1.0',
+    authenticated_user_id: null,
+  },
+  {
+    device_token_hash: 'fedcba9876543210',
+    blocked_at: '2026-07-10T08:00:00Z',
+    expires_at: null,
+    is_permanent: true,
+    block_count: 3,
+    blocked_by: 'admin-uuid',
+    block_reason: 'repeat offender — 3 episodes',
+    user_agent: 'curl/8.0',
+    authenticated_user_id: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+  },
+];
+
+describe('BlockedIpsPanel — tabs', () => {
+  it('defaults to the Blocked IPs tab', async () => {
+    mockListBlockedIps.mockResolvedValue([]);
+    render(<BlockedIpsPanel />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/No IPs currently blocked/i)).toBeInTheDocument();
+    });
+    expect(mockListBlockedDevices).not.toHaveBeenCalled();
+  });
+
+  it('switches to the Blocked Devices tab and loads devices', async () => {
+    mockListBlockedIps.mockResolvedValue([]);
+    mockListBlockedDevices.mockResolvedValue(MOCK_DEVICE_BLOCKS);
+
+    render(<BlockedIpsPanel />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/No IPs currently blocked/i)).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('tab-blocked-devices'));
+
+    await waitFor(() => {
+      expect(screen.getByTitle('abcdef0123456789')).toBeInTheDocument();
+    });
+    expect(screen.getByTitle('fedcba9876543210')).toBeInTheDocument();
+  });
+
+  it('shows truncated user agent and Confirmed Attacker badge for repeat-offender devices', async () => {
+    mockListBlockedIps.mockResolvedValue([]);
+    mockListBlockedDevices.mockResolvedValue(MOCK_DEVICE_BLOCKS);
+
+    render(<BlockedIpsPanel />);
+    fireEvent.click(screen.getByTestId('tab-blocked-devices'));
+
+    await waitFor(() => {
+      const badges = screen.getAllByText('Confirmed Attacker');
+      expect(badges.length).toBe(1);
+    });
+    expect(screen.getByText('curl/8.0')).toBeInTheDocument();
+  });
+
+  it('shows empty state when no devices are blocked', async () => {
+    mockListBlockedIps.mockResolvedValue([]);
+    mockListBlockedDevices.mockResolvedValue([]);
+
+    render(<BlockedIpsPanel />);
+    fireEvent.click(screen.getByTestId('tab-blocked-devices'));
+
+    await waitFor(() => {
+      expect(screen.getByText(/No devices blocked/i)).toBeInTheDocument();
+    });
+  });
+
+  it('unblocks a device on confirm and refetches', async () => {
+    mockListBlockedIps.mockResolvedValue([]);
+    mockListBlockedDevices.mockResolvedValue(MOCK_DEVICE_BLOCKS);
+    mockUnblockDevice.mockResolvedValue({ status: 'ok', device_token_hash: 'abcdef0123456789' });
+
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const onUnblockedSpy = vi.fn();
+
+    render(<BlockedIpsPanel onUnblocked={onUnblockedSpy} />);
+    fireEvent.click(screen.getByTestId('tab-blocked-devices'));
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('button', { name: /Unblock/i }).length).toBe(2);
+    });
+
+    mockListBlockedDevices.mockResolvedValue([MOCK_DEVICE_BLOCKS[1]]);
+    fireEvent.click(screen.getAllByRole('button', { name: /Unblock/i })[0]);
+
+    await waitFor(() => {
+      expect(mockUnblockDevice).toHaveBeenCalledWith('abcdef0123456789');
+      expect(onUnblockedSpy).toHaveBeenCalled();
+    });
+
+    confirmSpy.mockRestore();
+  });
+
+  it('does NOT unblock a device when confirm is cancelled', async () => {
+    mockListBlockedIps.mockResolvedValue([]);
+    mockListBlockedDevices.mockResolvedValue(MOCK_DEVICE_BLOCKS);
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+
+    render(<BlockedIpsPanel />);
+    fireEvent.click(screen.getByTestId('tab-blocked-devices'));
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('button', { name: /Unblock/i }).length).toBe(2);
+    });
+
+    fireEvent.click(screen.getAllByRole('button', { name: /Unblock/i })[0]);
+    expect(mockUnblockDevice).not.toHaveBeenCalled();
+
+    confirmSpy.mockRestore();
+  });
+
+  it('switching back to Blocked IPs tab preserves IP tab content', async () => {
+    mockListBlockedIps.mockResolvedValue([]);
+    mockListBlockedDevices.mockResolvedValue([]);
+
+    render(<BlockedIpsPanel />);
+    fireEvent.click(screen.getByTestId('tab-blocked-devices'));
+    await waitFor(() => {
+      expect(screen.getByText(/No devices blocked/i)).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('tab-blocked-ips'));
+    await waitFor(() => {
+      expect(screen.getByText(/No IPs currently blocked/i)).toBeInTheDocument();
+    });
   });
 });

@@ -24,6 +24,7 @@ from services.event_bus import publish_security_event_sync
 from services.suricata_ingestion import _create_security_incident
 from utils.audit import log_system_audit
 from services.ip_blocklist import block_ip, block_ips_by_filter, _get_request_client_ip
+from services.device_blocklist import block_device
 
 logger = logging.getLogger("wims.admin")
 router = APIRouter()
@@ -74,6 +75,15 @@ class BulkActionBody(BaseModel):
     log_ids: list[int]
     action: str
     ttl_hours: int | str | None = 24
+
+
+class BlockLogBody(BaseModel):
+    type: str  # "device" | "ip"
+    ttl_hours: int | str | None = 24
+
+
+class BulkBlockPreviewBody(BaseModel):
+    log_ids: list[int]
 
 
 @router.get("/security-logs")
@@ -162,7 +172,8 @@ def get_security_logs(
                    severity_level, raw_payload, xai_narrative, xai_confidence,
                    xai_confidence_breakdown,
                    admin_action_taken, resolved_at, reviewed_by, hitl_decision,
-                   classification, suricata_signature, suricata_category
+                   classification, suricata_signature, suricata_category,
+                   device_token_hash
             FROM wims.security_threat_logs
             {where_sql}
             ORDER BY {order_by}
@@ -199,6 +210,10 @@ def get_security_logs(
                 "classification": r[14],
                 "suricata_signature": r[15],
                 "suricata_category": r[16],
+                # len() guard keeps this endpoint backward-compatible with
+                # existing test fixtures built as 17-element tuples (pre
+                # issue #568 device_token_hash column).
+                "device_token_hash": r[17] if len(r) > 17 else None,
             }
             for r in rows
         ],
@@ -449,6 +464,33 @@ async def bulk_action(
                     results.append({"log_id": lid, "error": str(e)})
             else:
                 results.append({"log_id": lid, "error": "No source_ip found"})
+        elif body.action == "block_device":
+            row = db.execute(
+                text("SELECT device_token_hash FROM wims.security_threat_logs WHERE log_id = :lid"),
+                {"lid": lid},
+            ).fetchone()
+            if row and row[0]:
+                ttl = (
+                    None
+                    if body.ttl_hours == "permanent"
+                    else (int(body.ttl_hours) if body.ttl_hours else 24)
+                )
+                requester_device_hash = getattr(request.state, "device_token_hash", None)
+                try:
+                    r = await block_device(
+                        db,
+                        row[0],
+                        _admin["user_id"],
+                        f"bulk block (log {lid})",
+                        lid,
+                        ttl,
+                        requester_device_hash,
+                    )
+                    results.append({"log_id": lid, **r})
+                except ValueError as e:
+                    results.append({"log_id": lid, "error": str(e)})
+            else:
+                results.append({"log_id": lid, "error": "No device_token_hash found"})
         elif body.action == "dismiss":
             dismiss_security_log(db, lid, _admin["user_id"])
             results.append({"log_id": lid, "status": "dismissed"})
@@ -778,6 +820,129 @@ async def block_source_ip(
     )
     db.commit()
     return result
+
+
+@router.post("/security-logs/{log_id}/block")
+async def block_security_log(
+    log_id: int,
+    body: BlockLogBody,
+    request: Request,
+    _admin: Annotated[dict, Depends(get_system_admin)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
+):
+    """Block the device or source IP behind a security log row (Wayfinder #569).
+
+    ``type: "device"`` requires the row to carry a device_token_hash — the
+    frontend only offers this choice when one is present (issue #571); a
+    missing hash here means the caller ignored that and gets a 400, not a
+    silent fallback to IP blocking (design spec §8.2).
+    ``type: "ip"`` blocks source_ip, same as the legacy block-source-ip route.
+    """
+    if body.type not in ("device", "ip"):
+        raise HTTPException(status_code=400, detail="type must be 'device' or 'ip'")
+
+    row = db.execute(
+        text(
+            "SELECT source_ip, device_token_hash FROM wims.security_threat_logs "
+            "WHERE log_id = :log_id"
+        ),
+        {"log_id": log_id},
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Security log not found")
+    source_ip, device_token_hash = row[0], row[1]
+
+    ttl = None if body.ttl_hours == "permanent" else (int(body.ttl_hours) if body.ttl_hours else 24)
+
+    if body.type == "device":
+        if not device_token_hash:
+            raise HTTPException(status_code=400, detail="Alert has no device_token_hash")
+        requester_device_hash = getattr(request.state, "device_token_hash", None)
+        try:
+            result = await block_device(
+                db,
+                device_token_hash,
+                _admin["user_id"],
+                f"manual row block (log {log_id})",
+                log_id,
+                ttl,
+                requester_device_hash,
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        db.execute(
+            text(
+                "UPDATE wims.security_threat_logs "
+                "SET admin_action_taken = 'Blocked Device' WHERE log_id = :log_id"
+            ),
+            {"log_id": log_id},
+        )
+        db.commit()
+        return result
+
+    # type == "ip"
+    if not source_ip:
+        raise HTTPException(status_code=400, detail="Alert has no source_ip")
+    requester_ip = _get_request_client_ip(request)
+    try:
+        result = await block_ip(
+            db,
+            source_ip,
+            _admin["user_id"],
+            f"manual row block (log {log_id})",
+            log_id,
+            ttl,
+            requester_ip,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    db.execute(
+        text(
+            "UPDATE wims.security_threat_logs "
+            "SET admin_action_taken = 'Blocked IP' WHERE log_id = :log_id"
+        ),
+        {"log_id": log_id},
+    )
+    db.commit()
+    return result
+
+
+@router.post("/security-logs/bulk-block-preview")
+def bulk_block_preview(
+    body: BulkBlockPreviewBody,
+    _admin: Annotated[dict, Depends(get_system_admin)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
+):
+    """Preview how a bulk block would group selected security logs by device
+    hash before the admin confirms (design spec §8.2). Read-only — never
+    blocks anything. Rows without a device_token_hash fall back to IP-only
+    grouping; mixed hashes are never silently collapsed into an IP block.
+    """
+    if not body.log_ids:
+        raise HTTPException(status_code=400, detail="log_ids must not be empty")
+
+    rows = db.execute(
+        text(
+            "SELECT log_id, source_ip, device_token_hash FROM wims.security_threat_logs "
+            "WHERE log_id = ANY(:log_ids)"
+        ),
+        {"log_ids": body.log_ids},
+    ).fetchall()
+
+    device_groups: dict[str, list[int]] = {}
+    ip_only: list[int] = []
+    for lid, source_ip, device_hash in rows:
+        if device_hash:
+            device_groups.setdefault(device_hash, []).append(lid)
+        elif source_ip:
+            ip_only.append(lid)
+
+    return {
+        "device_groups": [
+            {"device_token_hash": h, "log_ids": ids} for h, ids in device_groups.items()
+        ],
+        "ip_only_log_ids": ip_only,
+    }
 
 
 @router.post("/security-logs/{log_id}/create-incident")

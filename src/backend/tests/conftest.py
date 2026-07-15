@@ -23,7 +23,10 @@ os.environ.setdefault("TURNSTILE_SECRET_KEY", "1x0000000000000000000000000000000
 # Autouse patch: stub verify_turnstile for any test that hits the civilian route
 # layer (TestClient).  Individual CAPTCHA unit tests in test_captcha.py test the
 # real verification via respx and are not affected by this mock.
-_patcher = patch("api.routes.civilian.verify_turnstile", return_value=True)
+# Patched at utils.device_abuse (issue #572) — civilian.py routes now call
+# check_device_abuse(), which calls captcha_required(), which calls
+# verify_turnstile() via that module's own imported reference.
+_patcher = patch("utils.device_abuse.verify_turnstile", return_value=True)
 _patcher.start()
 
 # =============================================================================

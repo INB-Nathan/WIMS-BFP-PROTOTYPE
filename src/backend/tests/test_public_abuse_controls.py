@@ -39,7 +39,7 @@ def _mock_turnstile():
     verification logic; these integration tests should not make
     outbound HTTP calls to Cloudflare.
     """
-    with patch("api.routes.civilian.verify_turnstile", return_value=True):
+    with patch("utils.device_abuse.verify_turnstile", return_value=True):
         yield
 
 
@@ -406,6 +406,7 @@ class TestNeutral404:
                     "longitude": 120.9842,
                     "category": "STRUCTURAL",
                     "reporting_context": "WITNESS",
+                    "turnstile_token": "test-token",
                 },
             )
             assert resp.status_code == 404, resp.text
@@ -595,6 +596,7 @@ class TestExistingRateLimits:
                     "latitude": 14.5995,
                     "longitude": 120.9842,
                     "category": "STRUCTURAL",
+                    "turnstile_token": "test-token",
                 },
                 headers={"x-real-ip": "198.51.100.1"},
             )
@@ -667,7 +669,12 @@ class TestExistingRateLimits:
 class TestCivilianReportRateLimit:
     """POST /api/civilian/reports — DB-based 3/hr limit now returns Retry-After."""
 
-    _PAYLOAD = {"latitude": 14.5995, "longitude": 120.9842, "category": "STRUCTURAL"}
+    _PAYLOAD = {
+        "latitude": 14.5995,
+        "longitude": 120.9842,
+        "category": "STRUCTURAL",
+        "turnstile_token": "test-token",
+    }
     _IP = "198.51.100.77"
     _OLDEST = datetime(2026, 6, 22, 9, 30, 0, tzinfo=timezone.utc)
 

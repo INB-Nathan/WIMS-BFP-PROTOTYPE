@@ -12,6 +12,7 @@ from . import (
     civilians,
     community,
     config,
+    device_blocklist,
     ip_blocklist,
     monitoring,
     privacy,
@@ -38,6 +39,9 @@ router.include_router(breach.router)
 router.include_router(privacy.router)
 router.include_router(anomalies.router)
 router.include_router(ip_blocklist.router, prefix="/ip-blocklist", tags=["admin-ip-blocklist"])
+router.include_router(
+    device_blocklist.router, prefix="/device-blocklist", tags=["admin-device-blocklist"]
+)
 router.include_router(sync.router)
 router.include_router(community.admin_router)
 router.include_router(information.router)

@@ -25,7 +25,7 @@ from tasks.routing import compute_routing_task
 from utils.audit import hash_client_ip, log_system_audit, trusted_client_ip
 from utils.crypto import SecurityProviderError
 from utils.public_abuse import rate_limit_public
-from services.captcha import verify_turnstile
+from utils.device_abuse import check_device_abuse
 from utils.rate_limit import (
     CIVILIAN_FOLLOWUP_PER_IP_HOURLY_CAP,
     CIVILIAN_FOLLOWUP_PER_REPORT_HOURLY_CAP,
@@ -436,9 +436,11 @@ async def submit_civilian_report(
     ip_hash = hash_client_ip(trusted_client_ip(request))
     _require_previous_report(db, body.previous_report_id)
 
-    # ── CAPTCHA guard for anonymous submitters ────────────────────────────
+    # ── Device abuse escalation (CAPTCHA + rate limit + quarantine) for
+    # anonymous submitters — issue #572. Authenticated CIVILIAN_REPORTER
+    # users skip this entirely, same as the CAPTCHA-only guard it replaces.
     if user is None:
-        await verify_turnstile(body.turnstile_token, trusted_client_ip(request))
+        await check_device_abuse(request, body.turnstile_token)
 
     # ── Determine rate-limit cap and contributor identity ─────────────────
     is_registered_reporter = user is not None and user.get("role") == "CIVILIAN_REPORTER"
@@ -666,6 +668,16 @@ async def submit_civilian_report(
 
         report_id = int(row[0])
 
+    # ── Device quarantine flag (issue #572) — the submission is never
+    # blocked, but a device past the Tier-3 quarantine threshold is routed
+    # to mandatory validator review instead of the normal triage path.
+    device_quarantined = getattr(request.state, "device_quarantined", False)
+    if device_quarantined:
+        db.execute(
+            text("UPDATE wims.citizen_reports SET requires_review = true WHERE report_id = :rid"),
+            {"rid": report_id},
+        )
+
     # ── Encrypt witness PII into blob, NULL out plaintext columns ──────────
     _encrypt_witness_pii(
         db,
@@ -693,6 +705,17 @@ async def submit_civilian_report(
             ip_hash=ip_hash,
             sensitive=True,
         )
+        if device_quarantined:
+            log_system_audit(
+                db=db,
+                user_id=None,
+                action_type="PUBLIC_QUARANTINED_SUBMISSION",
+                table_affected="wims.citizen_reports",
+                record_id=report_id,
+                request=request,
+                ip_hash=ip_hash,
+                sensitive=True,
+            )
         db.commit()
     except Exception as exc:
         db.rollback()
@@ -869,9 +892,9 @@ async def append_civilian_report(
     user: Annotated[dict | None, Depends(optional_auth)] = None,
 ) -> CivilianReportResponse:
     """Append a child report to an active parent report."""
-    # ── CAPTCHA guard for anonymous submitters ────────────────────────────
+    # ── Device abuse escalation for anonymous submitters (issue #572) ─────
     if user is None:
-        await verify_turnstile(body.turnstile_token, trusted_client_ip(request))
+        await check_device_abuse(request, body.turnstile_token)
 
     _require_device_ownership(db, report_id, body.device_id)
     parent = db.execute(
@@ -963,6 +986,27 @@ async def append_civilian_report(
         text("UPDATE wims.citizen_reports SET link_count = link_count + 1 WHERE report_id = :rid"),
         {"rid": report_id},
     )
+
+    # ── Device quarantine flag (issue #572) — same treatment as
+    # submit_civilian_report: never blocked, but a device past the Tier-3
+    # quarantine threshold is routed to mandatory validator review instead
+    # of the normal triage path.
+    device_quarantined = getattr(request.state, "device_quarantined", False)
+    if device_quarantined:
+        db.execute(
+            text("UPDATE wims.citizen_reports SET requires_review = true WHERE report_id = :rid"),
+            {"rid": append_report_id},
+        )
+        log_system_audit(
+            db=db,
+            user_id=None,
+            action_type="PUBLIC_QUARANTINED_SUBMISSION",
+            table_affected="wims.citizen_reports",
+            record_id=append_report_id,
+            request=request,
+            sensitive=True,
+        )
+
     db.commit()
     if not result:
         raise HTTPException(status_code=500, detail="Failed to append report")
@@ -1181,9 +1225,9 @@ async def upload_report_photo(
     No SQL, crypto, EXIF, filesystem, or business logic here —
     all delegated to ``services.report_photos.upload_and_attach_photo``.
     """
-    # ── CAPTCHA guard for anonymous submitters ────────────────────────────
+    # ── Device abuse escalation for anonymous submitters (issue #572) ─────
     if user is None:
-        await verify_turnstile(turnstile_token, trusted_client_ip(request))
+        await check_device_abuse(request, turnstile_token)
 
     # Validate EXIF fields if present
     if exif_gps_lat is not None and not (-90 <= exif_gps_lat <= 90):
@@ -1212,7 +1256,7 @@ async def upload_report_photo(
                 detail="client_photo_id must be a valid UUID",
             )
 
-    return upload_and_attach_photo(
+    response = upload_and_attach_photo(
         db=db,
         report_id=report_id,
         file=file,
@@ -1228,6 +1272,28 @@ async def upload_report_photo(
         exif_datetime_original=parsed_exif_dt,
         client_photo_id=parsed_client_photo_id,
     )
+
+    # ── Device quarantine flag (issue #572) — same treatment as
+    # submit_civilian_report/append_civilian_report: never blocked, but a
+    # device past the Tier-3 quarantine threshold routes the parent report
+    # to mandatory validator review instead of the normal triage path.
+    if getattr(request.state, "device_quarantined", False):
+        db.execute(
+            text("UPDATE wims.citizen_reports SET requires_review = true WHERE report_id = :rid"),
+            {"rid": report_id},
+        )
+        log_system_audit(
+            db=db,
+            user_id=None,
+            action_type="PUBLIC_QUARANTINED_SUBMISSION",
+            table_affected="wims.citizen_reports",
+            record_id=report_id,
+            request=request,
+            sensitive=True,
+        )
+        db.commit()
+
+    return response
 
 
 @router.post(

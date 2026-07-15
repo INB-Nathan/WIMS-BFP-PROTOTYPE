@@ -9,6 +9,10 @@ import {
   bulkActionSecurityLogs,
   listBlockedIps,
   unblockIp,
+  listBlockedDevices,
+  unblockDevice,
+  blockSecurityLog,
+  bulkBlockPreview,
 } from '../api/securityActions';
 
 const mockedApiFetch = apiFetch as ReturnType<typeof vi.fn>;
@@ -86,6 +90,57 @@ describe('securityActions', () => {
     expect(mockedApiFetch).toHaveBeenCalledWith(
       '/admin/ip-blocklist/1.2.3.4',
       expect.objectContaining({ method: 'DELETE' })
+    );
+  });
+
+  // ── Device blocklist (Wayfinder — issue #571) ────────────────────────────
+
+  it('listBlockedDevices GETs', async () => {
+    mockedApiFetch.mockResolvedValue([{ device_token_hash: 'abc123', block_count: 1 }]);
+    const r = await listBlockedDevices();
+    expect(mockedApiFetch).toHaveBeenCalledWith('/admin/device-blocklist');
+    expect(r).toHaveLength(1);
+  });
+
+  it('unblockDevice DELETEs with URL-encoded hash', async () => {
+    mockedApiFetch.mockResolvedValue({ status: 'ok', device_token_hash: 'abc123' });
+    await unblockDevice('abc123');
+    expect(mockedApiFetch).toHaveBeenCalledWith(
+      '/admin/device-blocklist/abc123',
+      expect.objectContaining({ method: 'DELETE' })
+    );
+  });
+
+  it('blockSecurityLog POSTs type=device', async () => {
+    mockedApiFetch.mockResolvedValue({ device_token_hash: 'abc123', is_permanent: false });
+    await blockSecurityLog(1, { type: 'device' });
+    expect(mockedApiFetch).toHaveBeenCalledWith(
+      '/admin/security-logs/1/block',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ type: 'device', ttl_hours: 24 }),
+      })
+    );
+  });
+
+  it('blockSecurityLog POSTs type=ip', async () => {
+    mockedApiFetch.mockResolvedValue({ ip: '1.2.3.4', is_permanent: false });
+    await blockSecurityLog(1, { type: 'ip', ttl_hours: 'permanent' });
+    expect(mockedApiFetch).toHaveBeenCalledWith(
+      '/admin/security-logs/1/block',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ type: 'ip', ttl_hours: 'permanent' }),
+      })
+    );
+  });
+
+  it('bulkBlockPreview POSTs log_ids', async () => {
+    mockedApiFetch.mockResolvedValue({ device_groups: [], ip_only_log_ids: [1, 2] });
+    await bulkBlockPreview([1, 2]);
+    expect(mockedApiFetch).toHaveBeenCalledWith(
+      '/admin/security-logs/bulk-block-preview',
+      expect.objectContaining({ method: 'POST', body: JSON.stringify({ log_ids: [1, 2] }) })
     );
   });
 });
