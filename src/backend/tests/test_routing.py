@@ -165,3 +165,86 @@ class TestOsrmLoggingDoesNotLeakCoordinates:
         log_text = " ".join(record.getMessage() for record in caplog.records)
         assert "14.6" not in log_text
         assert "121.0" not in log_text
+
+
+class TestRoutingGeometry:
+    def test_osrm_returns_geometry_when_available(self, monkeypatch):
+        routing = _reload(monkeypatch, "http://self-hosted-osrm:5000")
+
+        mock_resp = AsyncMock(spec=httpx.Response)
+        mock_resp.status_code = 200
+        mock_resp.raise_for_status = lambda: None
+        mock_resp.json = lambda: {
+            "routes": [
+                {
+                    "distance": 1200.0,
+                    "duration": 180.0,
+                    "geometry": {
+                        "type": "LineString",
+                        "coordinates": [[121.0, 14.6], [121.005, 14.605], [121.01, 14.61]],
+                    },
+                }
+            ]
+        }
+
+        async def mock_get(url, *args, **kwargs):
+            return mock_resp
+
+        with patch.object(routing.httpx, "AsyncClient") as mock_client_cls:
+            mock_instance = AsyncMock()
+            mock_instance.get = mock_get
+            mock_instance.__aenter__.return_value = mock_instance
+            mock_client_cls.return_value = mock_instance
+
+            result = asyncio.run(
+                routing.compute_routing(
+                    report_lat=14.6,
+                    report_lon=121.0,
+                    station_lat=14.61,
+                    station_lon=121.01,
+                )
+            )
+
+        assert result.data_source == "osrm"
+        assert result.geometry is not None
+        assert result.geometry["type"] == "LineString"
+        assert len(result.geometry["coordinates"]) == 3
+
+    def test_fallback_returns_null_geometry(self, monkeypatch):
+        routing = _reload(monkeypatch, None)
+
+        result = asyncio.run(
+            routing.compute_routing(
+                report_lat=14.6,
+                report_lon=121.0,
+                station_lat=14.61,
+                station_lon=121.01,
+            )
+        )
+
+        assert result.data_source == "postgis_straight_line"
+        assert result.geometry is None
+
+    def test_osrm_failure_returns_null_geometry(self, monkeypatch):
+        routing = _reload(monkeypatch, "http://self-hosted-osrm:5000")
+
+        async def mock_get(*args, **kwargs):
+            raise httpx.ConnectError("Connection refused")
+
+        with patch.object(routing.httpx, "AsyncClient") as mock_client_cls:
+            mock_instance = AsyncMock()
+            mock_instance.get = mock_get
+            mock_instance.__aenter__.return_value = mock_instance
+            mock_client_cls.return_value = mock_instance
+
+            result = asyncio.run(
+                routing.compute_routing(
+                    report_lat=14.6,
+                    report_lon=121.0,
+                    station_lat=14.61,
+                    station_lon=121.01,
+                )
+            )
+
+        assert result.data_source == "postgis_straight_line"
+        assert result.geometry is None

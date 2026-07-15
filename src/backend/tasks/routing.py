@@ -9,6 +9,7 @@ when OSRM fails.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 
 from sqlalchemy import text
@@ -73,12 +74,13 @@ def compute_routing_task(report_id: int) -> dict:
         best_duration = None
         best_source = None
         best_path = None
+        best_geometry = None
         candidates_evaluated = 0
 
         # Use asyncio.run to call the async routing service
         async def _evaluate_all():
-            nonlocal best_distance, best_duration, best_source, best_path, candidates_evaluated
-            best = None  # (duration_s, distance_m, source, path)
+            nonlocal best_distance, best_duration, best_source, best_path, best_geometry, candidates_evaluated
+            best = None  # (duration_s, distance_m, source, path, geometry)
 
             for station in stations:
                 candidates_evaluated += 1
@@ -94,10 +96,11 @@ def compute_routing_task(report_id: int) -> dict:
                         result.distance_m,
                         result.data_source,
                         result.execution_path,
+                        result.geometry,
                     )
 
             if best:
-                best_duration, best_distance, best_source, best_path = best
+                best_duration, best_distance, best_source, best_path, best_geometry = best
 
         asyncio.run(_evaluate_all())
 
@@ -105,35 +108,55 @@ def compute_routing_task(report_id: int) -> dict:
             logger.warning("compute_routing_task: all routing failed for report_id=%s", report_id)
             return {"report_id": report_id, "status": "all_routing_failed"}
 
-        # Store results
-        db.execute(
-            text("""
+        # Store results — convert GeoJSON geometry to PostGIS geometry if present
+        params = {
+            "rid": report_id,
+            "distance": best_distance,
+            "duration": best_duration,
+            "source": best_source,
+            "path": best_path,
+            "candidates": candidates_evaluated,
+        }
+
+        if best_geometry is not None:
+            # Convert GeoJSON dict to JSON string for ST_GeomFromGeoJSON
+            geojson_str = json.dumps(best_geometry)
+            params["geometry_json"] = geojson_str
+            sql = """
                 UPDATE wims.citizen_reports SET
                     routing_distance_m = :distance,
                     routing_duration_s = :duration,
                     routing_data_source = :source,
                     routing_execution_path = :path,
                     routing_candidate_count = :candidates,
+                    routing_geometry = ST_GeomFromGeoJSON(:geometry_json),
                     routing_updated_at = now()
                 WHERE report_id = :rid
-            """),
-            {
-                "rid": report_id,
-                "distance": best_distance,
-                "duration": best_duration,
-                "source": best_source,
-                "path": best_path,
-                "candidates": candidates_evaluated,
-            },
-        )
+            """
+        else:
+            # No geometry available (fallback or OSRM failure)
+            sql = """
+                UPDATE wims.citizen_reports SET
+                    routing_distance_m = :distance,
+                    routing_duration_s = :duration,
+                    routing_data_source = :source,
+                    routing_execution_path = :path,
+                    routing_candidate_count = :candidates,
+                    routing_geometry = NULL,
+                    routing_updated_at = now()
+                WHERE report_id = :rid
+            """
+
+        db.execute(text(sql), params)
         db.commit()
 
         logger.info(
-            "Routing computed for report_id=%s: %.0fm, %.0fs, source=%s",
+            "Routing computed for report_id=%s: %.0fm, %.0fs, source=%s, geometry=%s",
             report_id,
             best_distance,
             best_duration,
             best_source,
+            "present" if best_geometry else "none",
         )
         return {
             "report_id": report_id,
@@ -141,6 +164,7 @@ def compute_routing_task(report_id: int) -> dict:
             "distance_m": best_distance,
             "duration_s": best_duration,
             "source": best_source,
+            "has_geometry": best_geometry is not None,
         }
 
     except Exception as exc:

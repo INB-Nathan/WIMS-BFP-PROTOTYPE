@@ -328,6 +328,7 @@ def _response_from_row(row) -> CivilianReportResponse:
         routing_duration_s=getattr(row, "routing_duration_s", None),
         routing_data_source=getattr(row, "routing_data_source", None),
         photo_count=getattr(row, "photo_count", 0) or 0,
+        routing_geometry=getattr(row, "routing_geometry", None),
         submitter_type=submitter_type,
         link_count=row.link_count or 0,
         created_at=row.created_at,
@@ -393,6 +394,7 @@ def _fetch_report_response(
                    cr.routing_distance_m,
                    cr.routing_duration_s,
                    cr.routing_data_source,
+                   ST_AsGeoJSON(cr.routing_geometry)::jsonb AS routing_geometry,
                    (SELECT COUNT(*) FROM wims.report_photos rp WHERE rp.report_id = cr.report_id) AS photo_count
             FROM wims.citizen_reports cr
             LEFT JOIN wims.ref_fire_stations fs ON fs.station_id = cr.nearest_station_id
@@ -799,6 +801,7 @@ def get_civilian_report_by_tracking_token(
                    cr.routing_distance_m,
                    cr.routing_duration_s,
                    cr.routing_data_source,
+                   ST_AsGeoJSON(cr.routing_geometry)::jsonb AS routing_geometry,
                    fs.station_name AS nearest_station_name,
                    fs.phone AS nearest_station_phone,
                    (SELECT COUNT(*) FROM wims.report_photos rp WHERE rp.report_id = cr.report_id) AS photo_count
@@ -830,6 +833,7 @@ def get_civilian_report_by_tracking_token(
         routing_distance_m=getattr(row, "routing_distance_m", None),
         routing_duration_s=getattr(row, "routing_duration_s", None),
         routing_data_source=getattr(row, "routing_data_source", None),
+        routing_geometry=getattr(row, "routing_geometry", None),
         photo_count=getattr(row, "photo_count", 0) or 0,
         created_at=row.created_at,
     )
