@@ -33,6 +33,9 @@ from utils.metrics import (
     SYSTEM_CPU_PERCENT,
     SYSTEM_MEMORY_PERCENT,
     SYSTEM_DISK_PERCENT,
+    COMMUNITY_CONTENT_EXPIRY_ARCHIVED_TOTAL,
+    COMMUNITY_CONTENT_EXPIRY_SKIPPED_TOTAL,
+    COMMUNITY_CONTENT_EXPIRY_LAST_SUCCESS_TIMESTAMP_SECONDS,
 )
 
 
@@ -1231,6 +1234,29 @@ async def metrics_endpoint():
     SYSTEM_CPU_PERCENT.set(psutil.cpu_percent(interval=None))
     SYSTEM_MEMORY_PERCENT.set(psutil.virtual_memory().percent)
     SYSTEM_DISK_PERCENT.labels(mountpoint="/").set(psutil.disk_usage("/").percent)
+
+    # Mirror cumulative community-content expiry metrics from Redis. The celery
+    # worker writes these counters (separate registry, no pushgateway); the API
+    # process reads them at scrape time. Fail-open: an unavailable Redis keeps
+    # /metrics healthy and leaves the gauges at their last value.
+    redis = await _get_redis()
+    if redis is not None:
+        try:
+            archived = await redis.get("metrics:community_content_expiry:archived_total")
+            skipped = await redis.get("metrics:community_content_expiry:skipped_total")
+            last_ts = await redis.get("metrics:community_content_expiry:last_success_ts")
+            COMMUNITY_CONTENT_EXPIRY_ARCHIVED_TOTAL.set(
+                float(archived) if archived is not None else 0.0
+            )
+            COMMUNITY_CONTENT_EXPIRY_SKIPPED_TOTAL.set(
+                float(skipped) if skipped is not None else 0.0
+            )
+            COMMUNITY_CONTENT_EXPIRY_LAST_SUCCESS_TIMESTAMP_SECONDS.set(
+                float(last_ts) if last_ts is not None else 0.0
+            )
+        except Exception:
+            logger.debug("Community content expiry metrics mirror skipped (Redis unavailable)")
+
     return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 

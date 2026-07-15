@@ -57,3 +57,26 @@ SYSTEM_DISK_PERCENT = Gauge(
     "System disk usage percentage",
     ["mountpoint"],
 )
+
+# ---------------------------------------------------------------------------
+# Community Content expiry sweep (Slice F) — mirrored from Redis.
+# ---------------------------------------------------------------------------
+# The celery worker and the API process have separate Prometheus registries and
+# no pushgateway, so the worker persists these cumulative values in Redis and
+# the GET /metrics endpoint mirrors them into Gauges at scrape time. They are
+# declared as Gauges (not Counters) because the API process SETS them from the
+# Redis-cached cumulative totals rather than incrementing its own registry.
+COMMUNITY_CONTENT_EXPIRY_ARCHIVED_TOTAL = Gauge(
+    "community_content_expiry_archived_total",
+    "Cumulative community_content items archived by the expiry sweep (mirrored from Redis).",
+)
+
+COMMUNITY_CONTENT_EXPIRY_SKIPPED_TOTAL = Gauge(
+    "community_content_expiry_skipped_total",
+    "Cumulative no-op expiry sweep runs that archived 0 rows (mirrored from Redis).",
+)
+
+COMMUNITY_CONTENT_EXPIRY_LAST_SUCCESS_TIMESTAMP_SECONDS = Gauge(
+    "community_content_expiry_last_success_timestamp_seconds",
+    "Unix epoch seconds of the last successful expiry sweep (mirrored from Redis).",
+)

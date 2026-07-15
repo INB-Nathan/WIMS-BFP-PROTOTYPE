@@ -318,6 +318,15 @@ services:
     image: ${BACKEND_IMAGE:-wims-backend:local}
     build: ./backend
     container_name: wims-celery-worker
+    # CELERY BEAT SINGLETON HAZARD: the embedded `--beat` makes this container the
+    # Celery scheduler. Because there is exactly ONE `celery-worker` service/container,
+    # this beat is a de-facto SINGLETON today. Do NOT set `deploy.replicas > 1` or run
+    # multiple `celery-worker` instances without first (a) moving `--beat` to a dedicated
+    # single-instance beat service, or (b) adding leader election. Otherwise multiple beat
+    # schedulers launch and duplicate periodic tasks (e.g. double-archive in
+    # tasks.expire_content). The task idempotency (tasks.expire_content only transitions
+    # already-expired PUBLISHED rows) is a safety net, NOT a license to run duplicate
+    # schedulers.
     command: celery -A main.celery_app worker --beat --loglevel=info
     # Pen-test follow-up 2026-06-29 (deploy fix): see keycloak comment above
     # for rationale. Same set of hostnames as the backend.

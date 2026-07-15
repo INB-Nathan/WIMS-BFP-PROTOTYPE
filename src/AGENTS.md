@@ -98,6 +98,18 @@ Rules:
 - **Celery/runtime services:** maintain the service/util boundary for external
   APIs and keep worker/backend schema, env, storage, and network contracts aligned.
 
+### Celery beat singleton
+
+The `celery-worker` service runs `celery ... worker --beat`
+(see `docker-compose.yml`). The embedded `--beat` makes that single container the
+Celery scheduler, so the beat is a de-facto SINGLETON. Do not set
+`deploy.replicas > 1` or run multiple `celery-worker` instances without first
+moving `--beat` to a dedicated single-instance beat service or adding leader
+election; otherwise duplicate beat schedulers launch and double-fire periodic
+tasks (e.g. `tasks.expire_content`). The idempotency of `tasks.expire_content`
+(only transitions already-expired PUBLISHED rows) is a safety net, not a license
+to run duplicate schedulers.
+
 ## Validation
 
 Choose the checks matching the files changed, then follow the root preflight rule
