@@ -874,9 +874,12 @@ body {
 
 /* Activity feed */
 .activity-feed { display: flex; flex-direction: column; }
-.activity-item { display: flex; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--border); }
-.activity-item:last-child { border-bottom: none; }
-.activity-dot { width: 9px; height: 9px; border-radius: 50%; margin-top: 5px; flex-shrink: 0; }
+.activity-item {
+  background: var(--bg-elevated); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 12px 16px; margin-bottom: 8px;
+  display: flex; align-items: flex-start; gap: 12px;
+}
+.activity-dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 5px; flex-shrink: 0; }
 .activity-dot.verified { background: var(--green); }
 .activity-dot.review { background: var(--orange); }
 .activity-dot.pending { background: var(--yellow); }
