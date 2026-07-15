@@ -367,7 +367,7 @@ body {
 .heat-blob.h3 { width: 70px; height: 70px; background: var(--yellow); left: 60%; top: 50%; }
 
 /* ── Landing: full-screen map + docked sidebar ─────────────────── */
-#scene-landing { position: relative; height: 100vh; overflow: hidden; }
+#scene-landing { position: relative; height: 100vh; overflow: hidden; --landing-footer-h: 52px; }
 .landing-layout { position: absolute; inset: 0; }
 .landing-map {
   position: absolute; inset: 0; height: 100%; width: 100%;
@@ -381,13 +381,14 @@ body {
   border-bottom: 1px solid var(--border);
 }
 #scene-landing .landing-footer {
-  position: absolute; bottom: 0; left: 0; right: 360px; z-index: 100;
+  position: absolute; bottom: 0; left: 0; right: 0; z-index: 100;
+  height: var(--landing-footer-h); display: flex; align-items: center; justify-content: center;
   background: rgba(12,14,19,0.82); backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   border-top: 1px solid var(--border); text-align: center;
 }
 .landing-sidebar {
-  position: absolute; top: 96px; right: 0; bottom: 0;
+  position: absolute; top: 96px; right: 0; bottom: var(--landing-footer-h);
   width: 360px; background: var(--bg-base);
   border-left: 1px solid var(--border); border-radius: 0;
   box-shadow: -4px 0 24px rgba(0,0,0,0.25); overflow-y: auto; z-index: 90;
@@ -404,7 +405,6 @@ body {
   cursor: pointer; font-family: var(--font);
 }
 .sidebar-mode-toggle:hover { color: var(--text-primary); border-color: rgba(255,255,255,0.3); }
-#scene-landing.float-mode .landing-footer { right: 0; }
 .landing-sidebar-header {
   padding: 16px 20px; border-bottom: 1px solid var(--border);
   display: flex; align-items: center; justify-content: space-between;
@@ -950,13 +950,12 @@ body {
   }
   .landing-sidebar.open { transform: translateY(0); }
   .landing-sidebar-toggle { display: flex; }
-  #scene-landing .landing-footer { right: 0; }
 }
 @media (min-width: 769px) {
   .landing-header-right .btn-ghost.show-mobile { display: none; }
   .sidebar-mode-toggle { display: inline-flex; }
   .landing-sidebar.floating {
-    top: 12px; right: 12px; bottom: 12px; width: 340px;
+    top: 12px; right: 12px; bottom: calc(var(--landing-footer-h) + 12px); width: 340px;
     border: 1px solid var(--border); border-radius: var(--radius-lg);
     box-shadow: var(--shadow); z-index: 110;
   }
