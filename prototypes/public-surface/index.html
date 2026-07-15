@@ -366,19 +366,32 @@ body {
 .heat-blob.h2 { width: 90px; height: 90px; background: var(--orange); left: 50%; top: 44%; }
 .heat-blob.h3 { width: 70px; height: 70px; background: var(--yellow); left: 60%; top: 50%; }
 
-/* ── Landing map with floating sidebar ─────────────────────────── */
-.landing-layout {
-  position: relative; height: calc(100vh - 52px - 44px);
-}
+/* ── Landing: full-screen map + docked sidebar ─────────────────── */
+#scene-landing { position: relative; height: 100vh; overflow: hidden; }
+.landing-layout { position: absolute; inset: 0; }
 .landing-map {
-  position: absolute; inset: 0;
-  background: var(--bg-elevated);
+  position: absolute; inset: 0; height: 100%; width: 100%;
+  background: var(--bg-elevated); border: none;
 }
+/* Header + footer float transparently over the map */
+#scene-landing .landing-header {
+  position: absolute; top: 44px; left: 0; right: 0; z-index: 100;
+  background: linear-gradient(to bottom, rgba(0,0,0,0.55), transparent);
+  border-bottom: none;
+}
+#scene-landing .landing-header .landing-header-title,
+#scene-landing .landing-header .btn-ghost { text-shadow: 0 1px 3px rgba(0,0,0,0.6); }
+#scene-landing .landing-footer {
+  position: absolute; bottom: 0; left: 0; right: 360px; z-index: 100;
+  background: linear-gradient(to top, rgba(0,0,0,0.55), transparent);
+  border-top: none; text-align: center;
+}
+#scene-landing .landing-footer a { text-shadow: 0 1px 3px rgba(0,0,0,0.6); }
 .landing-sidebar {
-  position: absolute; top: 12px; right: 12px; bottom: 12px;
-  width: 340px; background: var(--bg-base);
-  border: 1px solid var(--border); border-radius: var(--radius-lg);
-  box-shadow: var(--shadow); overflow-y: auto; z-index: 10;
+  position: absolute; top: 96px; right: 0; bottom: 0;
+  width: 360px; background: var(--bg-base);
+  border-left: 1px solid var(--border); border-radius: 0;
+  box-shadow: -4px 0 24px rgba(0,0,0,0.25); overflow-y: auto; z-index: 90;
   display: flex; flex-direction: column;
 }
 .landing-sidebar-header {
@@ -917,15 +930,16 @@ body {
   @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
   .modal-handle { display: block; width: 36px; height: 4px; border-radius: 2px; background: var(--border-strong); margin: 0 auto 16px; }
 
-  /* Landing: sidebar → full overlay on mobile */
+  /* Landing: sidebar → full overlay on mobile (below both navs) */
   .landing-sidebar {
-    position: fixed; inset: 56px 0 0 0; z-index: 300; width: 100%;
+    position: fixed; inset: 96px 0 0 0; z-index: 300; width: 100%;
     border-radius: var(--radius-lg) var(--radius-lg) 0 0;
     transform: translateY(100%); transition: transform 0.25s ease;
     border: none; border-top: 1px solid var(--border);
   }
   .landing-sidebar.open { transform: translateY(0); }
   .landing-sidebar-toggle { display: flex; }
+  #scene-landing .landing-footer { right: 0; }
 }
 @media (min-width: 769px) {
   .landing-header-right .btn-ghost.show-mobile { display: none; }
