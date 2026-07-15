@@ -588,6 +588,89 @@ body {
 .info-cta h4 { font-size: 0.88rem; font-weight: 700; margin-bottom: 6px; }
 .info-cta p { font-size: 0.74rem; color: var(--text-muted); margin-bottom: 14px; }
 
+/* ── 6. FIRE STATIONS (split layout) ──────────────────────────── */
+.stations-container { max-width: 1200px; margin: 60px auto 0; padding: 0 20px 20px; }
+.stations-split { display: flex; gap: 0; min-height: calc(100vh - 140px); border-radius: var(--radius-lg); overflow: hidden; border: 1px solid var(--border); }
+.stations-map-side {
+  flex: 1; min-width: 0; background: var(--bg-elevated);
+  display: flex; align-items: center; justify-content: center;
+  position: relative;
+}
+.stations-map-side::before {
+  content: ''; position: absolute; inset: 0;
+  background-image:
+    linear-gradient(rgba(128,128,128,0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(128,128,128,0.06) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+.stations-map-label { position: relative; z-index: 1; font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.1em; }
+.stations-dir-side {
+  width: 380px; flex-shrink: 0; background: var(--bg-base);
+  border-left: 1px solid var(--border); overflow-y: auto; padding: 20px;
+}
+.stations-dir-side h3 { font-size: 0.9rem; font-weight: 700; margin-bottom: 4px; }
+.stations-dir-side .dir-sub { font-size: 0.7rem; color: var(--text-muted); margin-bottom: 16px; }
+.station-card {
+  background: var(--bg-elevated); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 14px 16px; margin-bottom: 8px;
+  transition: all var(--transition);
+}
+.station-card:hover { border-color: var(--border-strong); background: var(--bg-surface); }
+.station-card .st-name { font-size: 0.82rem; font-weight: 600; }
+.station-card .st-meta { font-size: 0.68rem; color: var(--text-muted); margin-top: 2px; }
+.station-card .st-dist { font-size: 0.7rem; color: var(--text-secondary); margin-top: 4px; font-weight: 500; }
+.station-card .st-status {
+  display: inline-block; margin-top: 6px; padding: 2px 8px; border-radius: 999px;
+  font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+}
+.station-card .st-status.active { background: var(--green-bg); color: var(--green); }
+.station-card .st-status.standby { background: rgba(255,204,0,0.12); color: var(--yellow); }
+
+/* ── 7. CONTRIBUTOR DASHBOARD ──────────────────────────────────── */
+.contrib-container { max-width: 960px; margin: 60px auto 0; padding: 0 20px 40px; }
+.contrib-welcome { margin-bottom: 24px; }
+.contrib-welcome h2 { font-size: 1.1rem; font-weight: 700; }
+.contrib-welcome p { font-size: 0.76rem; color: var(--text-muted); }
+.contrib-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 24px; }
+@media (max-width: 480px) { .contrib-stats { grid-template-columns: 1fr; } }
+.contrib-stat-card {
+  background: var(--bg-elevated); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 20px;
+}
+.contrib-stat-card .stat-value { font-size: 1.6rem; font-weight: 800; color: var(--text-primary); }
+.contrib-stat-card .stat-label { font-size: 0.7rem; color: var(--text-muted); margin-top: 2px; }
+.contrib-stat-card .stat-sub { font-size: 0.65rem; color: var(--green); margin-top: 4px; }
+.contrib-section { margin-bottom: 24px; }
+.contrib-section h3 { font-size: 0.85rem; font-weight: 700; margin-bottom: 12px; }
+.contrib-report-card {
+  background: var(--bg-elevated); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 14px 16px; margin-bottom: 8px;
+  display: flex; align-items: center; gap: 14px; transition: all var(--transition);
+}
+.contrib-report-card:hover { border-color: var(--border-strong); }
+.contrib-report-card .rep-status {
+  width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+}
+.contrib-report-card .rep-status.verified { background: var(--green); }
+.contrib-report-card .rep-status.pending { background: var(--yellow); }
+.contrib-report-card .rep-status.review { background: var(--orange); }
+.contrib-report-card .rep-info { flex: 1; min-width: 0; }
+.contrib-report-card .rep-title { font-size: 0.8rem; font-weight: 600; }
+.contrib-report-card .rep-meta { font-size: 0.66rem; color: var(--text-muted); }
+.contrib-report-card .rep-date { font-size: 0.66rem; color: var(--text-muted); flex-shrink: 0; }
+.contrib-mini-map {
+  height: 180px; background: var(--bg-elevated); border-radius: var(--radius);
+  border: 1px solid var(--border); display: flex; align-items: center;
+  justify-content: center; color: var(--text-muted); font-size: 0.72rem;
+}
+
+/* ── Mobile: stations split → stacked ─────────────────────────── */
+@media (max-width: 768px) {
+  .stations-split { flex-direction: column; }
+  .stations-map-side { height: 40vh; }
+  .stations-dir-side { width: 100%; border-left: none; border-top: 1px solid var(--border); }
+}
+
 /* ── Mobile tweaks ─────────────────────────────────────────────── */
 @media (max-width: 768px) {
   .landing-header-right .btn-ghost:not(.show-mobile) { display: none; }
@@ -630,6 +713,8 @@ body {
   <button onclick="showScene('landing')" id="nav-landing">Landing</button>
   <button onclick="showScene('information')" id="nav-information">Information</button>
   <button onclick="showScene('wizard')" id="nav-wizard">Report Wizard</button>
+  <button onclick="showScene('stations')" id="nav-stations">Fire Stations</button>
+  <button onclick="showScene('contributor')" id="nav-contributor">Contributor</button>
   <button onclick="showScene('receipt')" id="nav-receipt">Receipt</button>
   <span style="flex:1"></span>
   <button onclick="toggleTheme()" id="nav-theme" style="background:var(--bg-surface);border:1px solid var(--border-strong);">🌙 Dark</button>
@@ -1114,6 +1199,176 @@ body {
   <footer class="landing-footer">
     <p><strong style="color:var(--text-secondary)">WIMS-BFP</strong> · Bureau of Fire Protection · Republic of the Philippines</p>
     <p><a href="#">Privacy Policy</a> · <a href="#">Register as a reporter</a></p>
+  </footer>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- SCENE 6: FIRE STATIONS -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="scene" id="scene-stations">
+  <header class="landing-header">
+    <div class="landing-header-left">
+      <a href="#" onclick="showScene('landing')" style="display:flex;align-items:center;gap:10px;text-decoration:none;color:inherit">
+        <div class="landing-header-logo">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round">
+            <path d="M12 2L2 22h20L12 2z"/><line x1="12" y1="10" x2="12" y2="16"/><circle cx="12" cy="19" r="1" fill="#fff" stroke="none"/>
+          </svg>
+        </div>
+        <span class="landing-header-title">WIMS-BFP</span>
+      </a>
+    </div>
+    <div class="landing-header-right">
+      <button class="btn btn-ghost show-mobile" onclick="showScene('landing')">Home</button>
+      <button class="btn btn-ghost">Register</button>
+      <button class="btn btn-outline">Sign In</button>
+      <button class="btn btn-primary" onclick="showScene('wizard')">Report a Fire</button>
+    </div>
+  </header>
+
+  <div class="stations-container">
+    <div style="margin-bottom:16px">
+      <h2 style="font-size:1.1rem;font-weight:700">🚒 BFP Fire Stations</h2>
+      <p style="font-size:0.76rem;color:var(--text-muted)">Locate the nearest Bureau of Fire Protection station and response units.</p>
+    </div>
+    <div class="stations-split">
+      <!-- Map side -->
+      <div class="stations-map-side">
+        <span class="stations-map-label">Interactive Map · Station Markers</span>
+      </div>
+      <!-- Directory side -->
+      <div class="stations-dir-side">
+        <h3>Stations near you</h3>
+        <p class="dir-sub">Sorted by distance · 12 stations in NCR</p>
+
+        <div class="station-card">
+          <div class="st-name">BFP NCR — Pasig Central Fire Station</div>
+          <div class="st-meta">📍 Caruncho Ave, Brgy. San Nicolas, Pasig</div>
+          <div class="st-dist">1.2 km away</div>
+          <span class="st-status active">Active</span>
+        </div>
+        <div class="station-card">
+          <div class="st-name">BFP NCR — Antipolo Fire Station</div>
+          <div class="st-meta">📍 M.L. Quezon St, Brgy. San Roque, Antipolo</div>
+          <div class="st-dist">3.8 km away</div>
+          <span class="st-status active">Active</span>
+        </div>
+        <div class="station-card">
+          <div class="st-name">BFP NCR — Marikina Central Fire Station</div>
+          <div class="st-meta">📍 Shoe Ave, Brgy. Sta. Elena, Marikina</div>
+          <div class="st-dist">5.4 km away</div>
+          <span class="st-status active">Active</span>
+        </div>
+        <div class="station-card">
+          <div class="st-name">BFP NCR — Cainta Fire Station</div>
+          <div class="st-meta">📍 A. Bonifacio Ave, Brgy. Sto. Domingo, Cainta</div>
+          <div class="st-dist">6.7 km away</div>
+          <span class="st-status standby">Standby</span>
+        </div>
+        <div class="station-card">
+          <div class="st-name">BFP NCR — Taytay Fire Station</div>
+          <div class="st-meta">📍 Rizal Ave, Brgy. San Juan, Taytay</div>
+          <div class="st-dist">8.1 km away</div>
+          <span class="st-status active">Active</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer class="landing-footer">
+    <p><strong style="color:var(--text-secondary)">WIMS-BFP</strong> · Bureau of Fire Protection · Republic of the Philippines</p>
+    <p><a href="#">Privacy Policy</a></p>
+  </footer>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- SCENE 7: CONTRIBUTOR DASHBOARD -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="scene" id="scene-contributor">
+  <!-- Logged-in navbar -->
+  <header class="landing-header">
+    <div class="landing-header-left">
+      <a href="#" onclick="showScene('landing')" style="display:flex;align-items:center;gap:10px;text-decoration:none;color:inherit">
+        <div class="landing-header-logo">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round">
+            <path d="M12 2L2 22h20L12 2z"/><line x1="12" y1="10" x2="12" y2="16"/><circle cx="12" cy="19" r="1" fill="#fff" stroke="none"/>
+          </svg>
+        </div>
+        <span class="landing-header-title">WIMS-BFP</span>
+      </a>
+    </div>
+    <div class="landing-header-left" style="gap:4px">
+      <button class="btn btn-ghost" onclick="showScene('landing')" style="font-size:0.72rem">Home</button>
+      <button class="btn btn-ghost" style="font-size:0.72rem;color:var(--red);border-bottom:2px solid var(--red);border-radius:0;font-weight:600">Dashboard</button>
+      <button class="btn btn-ghost" onclick="showScene('information')" style="font-size:0.72rem">Information</button>
+    </div>
+    <div class="landing-header-right">
+      <button class="btn btn-primary" onclick="showScene('wizard')" style="font-size:0.72rem">Report a Fire</button>
+      <div style="width:32px;height:32px;border-radius:50%;background:var(--bg-surface);display:flex;align-items:center;justify-content:center;font-size:0.7rem;font-weight:700;color:var(--text-secondary);cursor:pointer" title="Maria Santos">MS</div>
+    </div>
+  </header>
+
+  <div class="contrib-container">
+    <div class="contrib-welcome">
+      <h2>Welcome back, Maria</h2>
+      <p>Civilian Reporter · Pasig City</p>
+    </div>
+
+    <!-- Stat cards -->
+    <div class="contrib-stats">
+      <div class="contrib-stat-card">
+        <div class="stat-value">23</div>
+        <div class="stat-label">Reports you filed</div>
+      </div>
+      <div class="contrib-stat-card">
+        <div class="stat-value">12 <span style="font-size:0.65rem;color:var(--text-muted)">of 15</span></div>
+        <div class="stat-label">Verified reports</div>
+        <div class="stat-sub">↑ 4 this month</div>
+      </div>
+    </div>
+
+    <!-- Reports list -->
+    <div class="contrib-section">
+      <h3>Your reports</h3>
+      <div class="contrib-report-card">
+        <div class="rep-status verified"></div>
+        <div class="rep-info">
+          <div class="rep-title">Grass fire — Marcos Highway</div>
+          <div class="rep-meta">📍 Brgy. Mayamot, Antipolo</div>
+        </div>
+        <span style="font-size:0.6rem;padding:2px 7px;border-radius:999px;background:var(--green-bg);color:var(--green);font-weight:600">Verified</span>
+        <div class="rep-date">Jul 14</div>
+      </div>
+      <div class="contrib-report-card">
+        <div class="rep-status pending"></div>
+        <div class="rep-info">
+          <div class="rep-title">Smoke from commercial building</div>
+          <div class="rep-meta">📍 Brgy. Ugong, Pasig</div>
+        </div>
+        <span style="font-size:0.6rem;padding:2px 7px;border-radius:999px;background:rgba(255,204,0,0.12);color:var(--yellow);font-weight:600">Pending</span>
+        <div class="rep-date">Jul 15</div>
+      </div>
+      <div class="contrib-report-card">
+        <div class="rep-status review"></div>
+        <div class="rep-info">
+          <div class="rep-title">Electrical fire near substation</div>
+          <div class="rep-meta">📍 Brgy. Santolan, Pasig</div>
+        </div>
+        <span style="font-size:0.6rem;padding:2px 7px;border-radius:999px;background:rgba(255,140,0,0.12);color:var(--orange);font-weight:600">In review</span>
+        <div class="rep-date">Jul 13</div>
+      </div>
+    </div>
+
+    <!-- Nearby activity mini map -->
+    <div class="contrib-section">
+      <h3>Nearby activity</h3>
+      <div class="contrib-mini-map">
+        Map · Nearby fires & stations
+      </div>
+    </div>
+  </div>
+
+  <footer class="landing-footer">
+    <p><strong style="color:var(--text-secondary)">WIMS-BFP</strong> · Bureau of Protection · Republic of the Philippines</p>
   </footer>
 </div>
 
