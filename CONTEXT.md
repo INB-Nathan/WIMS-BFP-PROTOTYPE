@@ -4,6 +4,38 @@ Domain language for WIMS-BFP civilian reporting and incident workflow. This glos
 
 ## Language
 
+**Intent Modal**:
+A mandatory full-screen gate shown on every landing page visit that asks the user to choose between "Report a Fire" (→ /report) or "Browse" (→ Public Landing). Replaces the old hero section; there is no dismiss button — the user must choose a path.
+_Avoid_: Splash screen, welcome screen, onboarding modal
+
+**Public Landing**:
+The map-first home page shown after choosing "Browse" in the Intent Modal. It features a heatmap/clustered-pin map layer, a scrollable bottom-sheet with nearby fire activity, announcements, and fire station listings. Replaces the old hero-centric landing.
+_Avoid_: Homepage, hero page, root page
+
+**Civilian Reporter Dashboard**:
+The `/contributor` hub for logged-in civilian reporters, reached through a top navbar (not the sidebar used by staff roles). Shows reporter stats, their submitted reports with status, and a small nearby-activity map.
+_Avoid_: Contributor sidebar, civilian workspace
+
+**Report Wizard**:
+The 5-step report flow at `/report`: Location (with landmark assistance) → Photo (optional) → Category (incident type + what you observe) → Details → Review. The old "Safety" step is removed (nearby fire activity moved to Public Landing, safety warning moved to a persistent banner). Drafts auto-save to localStorage and can be resumed within 24 hours.
+_Avoid_: Report form, multi-step form, report stepper
+
+**Report FAB**:
+A floating action button pinned bottom-right on mobile, and a header button on desktop, that links directly to `/report`. Present on all public and contributor pages.
+_Avoid_: Report shortcut, quick report, emergency button
+
+**Landmark Assistance**:
+An optional text input on the Report Wizard Location step that lets the reporter describe nearby landmarks (e.g. "near Jollibee on Rizal Ave") to supplement map coordinates. It helps validators contextualize the location but is not a substitute for GPS/ pin coordinates.
+_Avoid_: Address field, location notes
+
+**Observable Indicators**:
+Checkable options on the Category step (large flames, heavy smoke, explosions, spreading fast, structures threatened, people trapped, electrical fire, chemical/hazardous smell, other) that replace the old severity dropdown. These are what a civilian can see — not assessed severity — and guide validators in triage.
+_Avoid_: Severity, risk level, assessment
+
+**Report Receipt**:
+The post-submit success screen styled as an official government acknowledgment — BFP branding, report summary, QR code, tracking token, timestamp. Designed to be screenshotted and feel authoritative. Users can track their report with the token; registering unlocks the full contributor dashboard.
+_Avoid_: Success message, confirmation screen, thank-you page
+
 **Civilian Report**:
 A public signal submitted by a civilian about a possible fire or emergency. It is not an official BFP incident record.
 _Avoid_: Incident, confirmed incident, fire incident
