@@ -845,10 +845,6 @@ body {
 .empty-state p { font-size: 0.72rem; color: var(--text-muted); margin-bottom: 16px; }
 
 /* Report row track link */
-.rep-track {
-  font-size: 0.62rem; color: var(--red); text-decoration: underline;
-  cursor: pointer; flex-shrink: 0; background: none; border: none;
-}
 
 /* ── Report Tracking scene ───────────────────────────────────── */
 .tracking-container { max-width: 640px; margin: 80px auto 0; padding: 0 20px 40px; }
@@ -1580,34 +1576,31 @@ body {
         <button class="btn btn-ghost" style="font-size:0.62rem;padding:3px 8px" onclick="toggleEmptyState()">Preview empty</button>
       </div>
       <div id="reports-list">
-      <div class="contrib-report-card" onclick="openModal()" style="cursor:pointer">
+      <div class="contrib-report-card" onclick="openTracking('BFP-7X3Q-P91')" style="cursor:pointer">
         <div class="rep-status verified"></div>
         <div class="rep-info">
           <div class="rep-title">Grass fire — Marcos Highway</div>
           <div class="rep-meta">📍 Brgy. Mayamot, Antipolo</div>
         </div>
         <span style="font-size:0.6rem;padding:2px 7px;border-radius:999px;background:var(--green-bg);color:var(--green);font-weight:600">Verified</span>
-        <button class="rep-track" onclick="event.stopPropagation();openTracking('BFP-7X3Q-P91')">Track →</button>
         <div class="rep-date">Jul 14</div>
       </div>
-      <div class="contrib-report-card" onclick="openModal()" style="cursor:pointer">
+      <div class="contrib-report-card" onclick="openTracking('BFP-2K9M-L44')" style="cursor:pointer">
         <div class="rep-status pending"></div>
         <div class="rep-info">
           <div class="rep-title">Smoke from commercial building</div>
           <div class="rep-meta">📍 Brgy. Ugong, Pasig</div>
         </div>
         <span style="font-size:0.6rem;padding:2px 7px;border-radius:999px;background:rgba(255,204,0,0.12);color:var(--yellow);font-weight:600">Pending</span>
-        <button class="rep-track" onclick="event.stopPropagation();openTracking('BFP-2K9M-L44')">Track →</button>
         <div class="rep-date">Jul 15</div>
       </div>
-      <div class="contrib-report-card" onclick="openModal()" style="cursor:pointer">
+      <div class="contrib-report-card" onclick="openTracking('BFP-9P2R-T88')" style="cursor:pointer">
         <div class="rep-status review"></div>
         <div class="rep-info">
           <div class="rep-title">Electrical fire near substation</div>
           <div class="rep-meta">📍 Brgy. Santolan, Pasig</div>
         </div>
         <span style="font-size:0.6rem;padding:2px 7px;border-radius:999px;background:rgba(255,140,0,0.12);color:var(--orange);font-weight:600">In review</span>
-        <button class="rep-track" onclick="event.stopPropagation();openTracking('BFP-9P2R-T88')">Track →</button>
         <div class="rep-date">Jul 13</div>
       </div>
       </div>
