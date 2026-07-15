@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { forwardRef, useImperativeHandle } from 'react';
 
 // Mock next/navigation
 const mockRouterPush = vi.fn();
@@ -39,14 +40,29 @@ vi.mock('@/lib/api/civilian', () => ({
 }));
 
 // Mock Turnstile as a button that emits a token when clicked, so the test can
-// simulate solving the CAPTCHA.
-vi.mock('@marsidev/react-turnstile', () => ({
-  Turnstile: ({ onSuccess }: { onSuccess: (token: string) => void }) => (
-    <button type="button" data-testid="turnstile" onClick={() => onSuccess('mock-turnstile-token')}>
-      Verify
-    </button>
-  ),
-}));
+// simulate solving the CAPTCHA. The ref exposes reset() so we can assert the
+// widget is reset in place (not remounted) after a failed submit. Declared via
+// vi.hoisted so it is in scope inside the vi.mock factory.
+const { mockTurnstileReset } = vi.hoisted(() => ({ mockTurnstileReset: vi.fn() }));
+vi.mock('@marsidev/react-turnstile', () => {
+  const TurnstileMock = forwardRef<
+    { reset: () => void },
+    { onSuccess?: (token: string) => void }
+  >(({ onSuccess }, ref) => {
+    useImperativeHandle(ref, () => ({ reset: mockTurnstileReset }));
+    return (
+      <button
+        type="button"
+        data-testid="turnstile"
+        onClick={() => onSuccess?.('mock-turnstile-token')}
+      >
+        Verify
+      </button>
+    );
+  });
+  TurnstileMock.displayName = 'Turnstile';
+  return { Turnstile: TurnstileMock };
+});
 
 const VALID = {
   email: 'juan@example.com',
@@ -154,6 +170,7 @@ describe('RegisterPage — field validation', () => {
 describe('RegisterPage — successful submit', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockTurnstileReset.mockClear();
     mockRegisterCivilian.mockResolvedValue({
       status: 'ok',
       message: 'Verification email sent to juan@example.com',

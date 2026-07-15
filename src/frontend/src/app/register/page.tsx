@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Turnstile } from '@marsidev/react-turnstile';
+import { Turnstile, type TurnstileInstance } from '@marsidev/react-turnstile';
 import { registerCivilian } from '@/lib/api/civilian';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -69,26 +69,32 @@ export default function RegisterPage() {
   const [dpaConsent, setDpaConsent] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const [turnstileExpired, setTurnstileExpired] = useState(false);
-  const [turnstileResetKey, setTurnstileResetKey] = useState(0);
   const [errors, setErrors] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const turnstileRef = useRef<TurnstileInstance | undefined>(undefined);
   const turnstileEnabled = (process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? '') !== '';
   const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? '';
 
   const onTurnstileSuccess = useCallback((token: string) => {
     setTurnstileToken(token);
     setTurnstileExpired(false);
+    // Clear any prior CAPTCHA error now that a fresh token is available.
+    setErrors((prev) => prev.filter((e) => !e.toLowerCase().includes('security check')));
   }, []);
 
+  // Do NOT remount the widget on expiry. With refresh-expired: auto (the
+  // default) Turnstile auto-renews the token and re-invokes onSuccess, so the
+  // widget never needs to be recreated. Remounting via a React key calls
+  // turnstile.remove() on the old widget, which can fire the expired callback
+  // again and create a solved -> expired loop that blocks every submit.
   const onTurnstileExpire = useCallback(() => {
     setTurnstileToken(null);
     setTurnstileExpired(true);
-    setTurnstileResetKey((k) => k + 1);
   }, []);
 
   const onTurnstileError = useCallback(() => {
     setTurnstileToken(null);
-    setTurnstileResetKey((k) => k + 1);
+    setTurnstileExpired(true);
     setErrors((prev) => {
       if (!prev.includes('Security check failed. Please refresh the page and try again.')) {
         return [...prev, 'Security check failed. Please refresh the page and try again.'];
@@ -137,10 +143,11 @@ export default function RegisterPage() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Registration failed. Please try again.';
       // Turnstile tokens are single-use — consumed by this attempt regardless
-      // of outcome. Reset so the user gets a fresh token for the next try.
+      // of outcome. Reset the widget in place (no remount) so the user gets a
+      // fresh token without triggering the remove()/expired loop.
       setTurnstileToken(null);
       setTurnstileExpired(true);
-      setTurnstileResetKey((k) => k + 1);
+      turnstileRef.current?.reset();
       if (msg.toLowerCase().includes('captcha')) {
         setErrors(['Security check failed. Please complete the CAPTCHA again.']);
       } else {
@@ -340,7 +347,7 @@ export default function RegisterPage() {
           {turnstileEnabled && (
           <div data-testid="turnstile-wrapper">
             <Turnstile
-              key={turnstileResetKey}
+              ref={turnstileRef}
               siteKey={siteKey}
               onSuccess={onTurnstileSuccess}
               onExpire={onTurnstileExpire}
