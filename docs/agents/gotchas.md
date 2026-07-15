@@ -41,3 +41,13 @@ Each is a real mistake a sub-agent made.
     2. Wait for any running deploy to finish (green check) before touching the VPS.
     3. After it finishes, pull the latest commit and let the pipeline deploy it. Manual VPS edits should be the last resort, not the first reflex.
     4. If you must make an emergency VPS-only fix, commit the change to the repo and push so the next deploy doesn't revert it.
+
+19. **Always set FRONTEND_IMAGE and BACKEND_IMAGE when running `docker compose up` manually on the VPS.** The base `docker-compose.yml` resolves images via `${FRONTEND_IMAGE:-wims-frontend:local}` and `${BACKEND_IMAGE:-wims-backend:local}`. If these env vars are not set, compose falls back to stale `:local` images instead of the `ghcr.io/x1n4te/<image>:latest` images built and deployed by the CD pipeline. The result: frontend/backend silently roll back to whatever outdated local build happened to be cached. Always export both vars and use `--no-build`:
+    ```bash
+    cd /opt/wims-bfp/src
+    export FRONTEND_IMAGE=ghcr.io/x1n4te/wims-frontend:latest
+    export BACKEND_IMAGE=ghcr.io/x1n4te/wims-backend:latest
+    docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.production up -d --no-build --wait <service>
+    ```
+
+20. **Nginx bind mounts go stale after `git reset --hard`.** When `git reset --hard` replaces a file (new inode), Docker bind mounts pointing to the old inode become stale — `docker exec … nginx -s reload` succeeds but the container still serves the old config. Check with `wc -l` on host vs container; if they differ, `docker compose down <svc> && docker compose up -d <svc>` to re-establish the mount. A simple `docker compose up -d <svc>` (without `down` first) does NOT fix this.
