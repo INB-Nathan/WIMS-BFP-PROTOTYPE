@@ -97,6 +97,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // encoders to access the app and view cached incidents when offline.
   const SESSION_CACHE_KEY = 'wims:offline_session_cache';
 
+  // Hang guard (issue #604 / map #603): the session fetch had no timeout, so a
+  // slow or unreachable backend (Next.js API route, /api/auth/session, or
+  // Keycloak) kept the loading spinner up until the browser's TCP timeout
+  // (~2 min), blocking the entire public surface from rendering. Bound the
+  // whole re-hydration attempt to 15s; on timeout it aborts and falls through
+  // to the existing offline cache restore (see the catch below).
+  const FETCH_SESSION_TIMEOUT_MS = 15_000;
+
   // ─── Service-worker role notification (Task 14) ──────────────────────────────
   // Best-effort: tell the active SW which role just signed in so it can
   // pre-warm that role's routes (see ROLE_PREFETCH_ROUTES in public/sw.js).
@@ -132,8 +140,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const fetchSession = useCallback(async () => {
+    const ctrl = new AbortController();
+    const timeout = setTimeout(() => ctrl.abort(), FETCH_SESSION_TIMEOUT_MS);
     try {
-      const requestSession = () => fetch('/api/auth/session');
+      const requestSession = () => fetch('/api/auth/session', { signal: ctrl.signal });
       let res = await requestSession();
 
       if (res.status === 401) {
@@ -191,6 +201,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       restoreSessionFromCache();
       console.error('[AuthContext] fetchSession: initialization failed:', err);
     } finally {
+      clearTimeout(timeout);
       setLoading(false);
     }
   }, [refreshAccessToken, restoreSessionFromCache, notifyServiceWorkerOfRole]);

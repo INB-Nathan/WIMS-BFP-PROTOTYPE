@@ -12,7 +12,7 @@
  *       of SW state and that the logout path exists in the rendered tree.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, waitFor, fireEvent } from '@testing-library/react';
+import { render, waitFor, fireEvent, act } from '@testing-library/react';
 import React from 'react';
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
@@ -589,6 +589,44 @@ describe('AuthContext serverValidated (issue #5)', () => {
     expect(capture.user).toBeNull();
     expect(capture.serverValidated).toBe(false);
   });
+
+  it('resolves loading within the timeout when fetchSession hangs (issue #604)', async () => {
+    // Without the 15s AbortController, this hanging fetch would block the
+    // loading spinner until the browser's TCP timeout (~2 min). The timeout
+    // must fire, abort the request, and fall through to the offline cache.
+    vi.useFakeTimers();
+    let capture: ServerValidatedCapture = { loading: true, user: null, serverValidated: false };
+    try {
+      localStorage.setItem(
+        'wims:offline_session_cache',
+        JSON.stringify({ user: { id: 'cached-user', role: 'encoder' } }),
+      );
+      globalThis.fetch = vi.fn((_url: string, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () =>
+            reject(new DOMException('Aborted', 'AbortError')),
+          );
+        }),
+      ) as unknown as typeof fetch;
+
+      render(
+        <AuthProvider>
+          <FullProbe onCapture={(s) => (capture = s)} />
+        </AuthProvider>,
+      );
+
+      // Advance past the 15s AbortController timeout and flush microtasks.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(16_000);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+    // After the timeout the spinner clears and the user is restored from cache.
+    await waitFor(() => expect(capture.loading).toBe(false));
+    expect(capture.user).toEqual({ id: 'cached-user', role: 'encoder' });
+    expect(capture.serverValidated).toBe(false);
+  }, 20_000);
 });
 
 // ── WS6 (V14.3.3): localStorage minimal PII cache ───────────────────────────
