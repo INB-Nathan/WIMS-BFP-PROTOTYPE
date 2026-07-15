@@ -456,6 +456,13 @@ services:
       - NET_RAW
       - SYS_NICE       # needed for CPU affinity on multi-interface AF_PACKET capture (G-4)
     command: /entrypoint.sh
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1g
+        reservations:
+          memory: 512m
     # Pen-test follow-up 2026-06-29: wims-suricata uses network_mode: "host"
     # for AF_PACKET raw-socket capture, so it does NOT participate in the
     # wims_internal bridge network and Docker DNS cannot resolve `redis` for
