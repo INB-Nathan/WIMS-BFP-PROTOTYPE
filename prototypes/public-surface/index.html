@@ -469,6 +469,26 @@ body {
 .ann-media .ph-icon { font-size: 1.6rem; opacity: 0.7; }
 .ann-media .ph-label { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.08em; }
 
+/* Community resource lists */
+.res-list { list-style: none; margin: 0; padding: 0; }
+.res-list li {
+  font-size: 0.68rem; color: var(--text-secondary); padding: 5px 0;
+  display: flex; gap: 8px; align-items: flex-start; line-height: 1.35;
+}
+.res-list li .ic { flex-shrink: 0; }
+.res-num {
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 0.72rem; padding: 6px 0; border-bottom: 1px solid var(--border);
+}
+.res-num:last-child { border-bottom: none; }
+.res-num .lbl { color: var(--text-secondary); }
+.res-num .n {
+  font-family: 'SF Mono', 'Fira Code', monospace; font-weight: 600;
+  color: var(--text-primary); font-size: 0.74rem;
+}
+.res-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 560px) { .res-grid { grid-template-columns: 1fr; } }
+
 /* Fire card */
 .fire-card {
   background: var(--bg-elevated); border: 1px solid var(--border);
@@ -1444,14 +1464,22 @@ body {
     <div class="sheet-section">
       <h2>📋 Community Resources</h2>
       <p style="font-size:0.72rem;color:var(--text-muted);margin-bottom:12px">Managed by BFP system administrators.</p>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div class="res-grid">
         <div style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius);padding:16px">
-          <div style="font-size:0.8rem;font-weight:600;margin-bottom:4px">🔥 Fire Safety Tips</div>
-          <div style="font-size:0.68rem;color:var(--text-muted)">Essential precautions for homes and workplaces during dry season.</div>
+          <div style="font-size:0.8rem;font-weight:600;margin-bottom:10px">🔥 Fire Safety Tips</div>
+          <ul class="res-list">
+            <li><span class="ic">🔌</span><span>Unplug appliances and switch off LPG when not in use.</span></li>
+            <li><span class="ic">🚭</span><span>Never smoke in bed or near flammable materials.</span></li>
+            <li><span class="ic">🧯</span><span>Keep fire extinguishers accessible and inspected.</span></li>
+            <li><span class="ic">🪟</span><span>Plan and practice a home escape route.</span></li>
+          </ul>
         </div>
         <div style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius);padding:16px">
-          <div style="font-size:0.8rem;font-weight:600;margin-bottom:4px">📞 Emergency Numbers</div>
-          <div style="font-size:0.68rem;color:var(--text-muted)">BFP hotlines, local stations, and emergency contacts by region.</div>
+          <div style="font-size:0.8rem;font-weight:600;margin-bottom:10px">📞 Emergency Numbers</div>
+          <div class="res-num"><span class="lbl">🔥 BFP Emergency</span><span class="n">911</span></div>
+          <div class="res-num"><span class="lbl">📞 BFP National HQ</span><span class="n">(02) 8426-0246</span></div>
+          <div class="res-num"><span class="lbl">🚑 Medical Rescue</span><span class="n">911</span></div>
+          <div class="res-num"><span class="lbl">👮 Police</span><span class="n">117</span></div>
         </div>
       </div>
     </div>
