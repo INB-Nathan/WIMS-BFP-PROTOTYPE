@@ -323,13 +323,14 @@ function getNavSections(role: string | null, badgeCount: number = 0): NavSection
         return sections;
     }
 
-    // Civilian reporters get the Contributor dashboard and the public
-    // Information page (announcements, emergencies, reporting guide).
+    // Civilian reporters get the Contributor dashboard (their main hub)
+    // and the public Information page (announcements, emergencies, reporting guide).
+    // /dashboard redirects to /contributor for this role, so we omit the
+    // redundant "Dashboard" nav item to avoid confusion.
     if (role === 'CIVILIAN_REPORTER') {
         sections.push({
             label: 'Navigation',
             items: [
-                { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
                 { label: 'Operations', href: '/home', icon: Home },
             ],
         });

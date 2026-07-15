@@ -7,9 +7,38 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from services.email.sender import render_email
+from services.email.sender import _html_to_plain_text, render_email
 
 _NOTIFICATIONS_PATH = str(Path(__file__).resolve().parents[1] / "tasks" / "notifications.py")
+
+
+class TestHtmlToPlainText:
+    """Unit tests for _html_to_plain_text, the multipart/alternative converter."""
+
+    def test_preserves_anchor_href(self) -> None:
+        """<a href="URL">TEXT</a> becomes TEXT (URL) in the plain-text part."""
+        html = '<p>Click <a href="https://wimsbfp.tech/verify?code=123456&email=a@b.com">Verify my email</a> to continue.</p>'
+        result = _html_to_plain_text(html)
+        assert "Verify my email (https://wimsbfp.tech/verify?code=123456&email=a@b.com)" in result
+
+    def test_preserves_code_in_plain_text(self) -> None:
+        """The 6-digit code still appears in the plain-text output."""
+        html = '<div><span>123456</span><a href="https://wimsbfp.tech/verify">Verify</a></div>'
+        result = _html_to_plain_text(html)
+        assert "123456" in result
+        assert "Verify (https://wimsbfp.tech/verify)" in result
+
+    def test_strips_tags_after_anchor_preservation(self) -> None:
+        """Remaining HTML tags are stripped, HTML entities are decoded."""
+        html = "<p>Hello <b>world</b> &amp; goodbye</p>"
+        result = _html_to_plain_text(html)
+        assert "Hello world & goodbye" in result
+
+    def test_plain_text_no_anchors_unchanged(self) -> None:
+        """HTML without anchors should still work as before."""
+        html = "<p>Your code is <strong>999888</strong>. It expires soon.</p>"
+        result = _html_to_plain_text(html)
+        assert "Your code is 999888. It expires soon." in result
 
 
 class TestRenderEmail:
