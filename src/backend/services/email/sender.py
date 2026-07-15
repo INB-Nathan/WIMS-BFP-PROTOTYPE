@@ -42,6 +42,14 @@ def _html_to_plain_text(html: str) -> str:
     """Convert HTML email body to plain text for multipart/alternative."""
     text = re.sub(r"<style[^>]*>.*?</style>", "", html, flags=re.DOTALL)
     text = re.sub(r"<script[^>]*>.*?</script>", "", text, flags=re.DOTALL)
+    # Preserve <a href="URL">TEXT</a> as "TEXT (URL)" so plain-text /
+    # preview-pane clients keep a pasteable link.
+    text = re.sub(
+        r'<a[^>]*\shref=["\']([^"\']+)["\'][^>]*>(.*?)</a>',
+        lambda m: f"{re.sub('<[^>]+>', '', m.group(2))} ({m.group(1)})",
+        text,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
     text = re.sub(r"<br\s*/?>", "\n", text)
     text = re.sub(r"</?p[^>]*>", "\n", text, flags=re.IGNORECASE)
     text = re.sub(r"</?tr[^>]*>", "\n", text, flags=re.IGNORECASE)

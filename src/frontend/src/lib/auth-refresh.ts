@@ -16,6 +16,11 @@
  */
 
 const REFRESH_ENDPOINT = '/api/auth/refresh';
+// Hang guard (issue #604 / map #603): a slow or unreachable backend must not
+// block the silent refresh — and therefore the whole auth chain and public
+// surface — until the browser's TCP timeout (~2 min). Bound the fetch to 15s
+// so it fails fast and the caller can fall back to the offline path.
+export const REFRESH_TIMEOUT_MS = 15_000;
 export const REFRESH_LOCK_NAME = 'wims:auth:refresh_lock';
 
 export type RefreshResult =
@@ -26,10 +31,24 @@ export type RefreshResult =
 let refreshInFlight: Promise<RefreshResult> | null = null;
 
 async function doRefresh(): Promise<RefreshResult> {
-  const res = await fetch(REFRESH_ENDPOINT, { method: 'POST', credentials: 'include' });
-  if (res.ok) return { ok: true };
-  if (res.status >= 500 || res.status === 429) return { ok: false, reason: 'offline' };
-  return { ok: false, reason: 'auth' };
+  const ctrl = new AbortController();
+  const tid = setTimeout(() => ctrl.abort(), REFRESH_TIMEOUT_MS);
+  try {
+    const res = await fetch(REFRESH_ENDPOINT, {
+      method: 'POST',
+      credentials: 'include',
+      signal: ctrl.signal,
+    });
+    if (res.ok) return { ok: true };
+    if (res.status >= 500 || res.status === 429) return { ok: false, reason: 'offline' };
+    return { ok: false, reason: 'auth' };
+  } catch {
+    // AbortError (timeout) or network failure — backend unreachable / offline.
+    // The sync engine maps 'offline' to a non-fatal abort reason.
+    return { ok: false, reason: 'offline' };
+  } finally {
+    clearTimeout(tid);
+  }
 }
 
 export async function refreshToken(): Promise<RefreshResult> {
