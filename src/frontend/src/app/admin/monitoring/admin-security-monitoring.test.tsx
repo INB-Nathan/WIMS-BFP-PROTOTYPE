@@ -182,7 +182,9 @@ describe('M8: Security Monitoring page', () => {
     await waitFor(() => {
       expect(screen.getByText(/No threats recorded/i)).toBeInTheDocument();
     });
-    expect(screen.getByText(/No threats found/i)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText(/No threats found/i)).toBeInTheDocument();
+    });
   });
 
   it('distribution bar renders severity labels when data is present', async () => {
@@ -773,7 +775,9 @@ describe('M8: Security Monitoring page — offline-aware read caching (T11)', ()
       expect(mockFetchSecurityLogsSummaryOfflineAware).toHaveBeenCalled();
     });
     // Stale cache banner should be present because at least one call returned fromCache
-    expect(screen.getByText(/Showing cached data/i)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText(/Showing cached data/i)).toBeInTheDocument();
+    });
     // Underlying summary cards should still render from the cached response
     await waitFor(() => {
       expect(screen.getByText('10')).toBeInTheDocument();
