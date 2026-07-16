@@ -51,31 +51,29 @@ describe('IntentModal', () => {
   it('renders the modal on initial visit (no bypass cookie)', async () => {
     render(<IntentModal />);
 
-    // Wait for effect resolution
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /Report a Fire/i })).toBeInTheDocument();
     });
-    expect(screen.getByRole('button', { name: /Browse/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /View Active Fires/i })).toBeInTheDocument();
   });
 
   it('does not render the modal when bypass cookie is set', async () => {
     cookieStore.set('wims_browse_bypass', '1');
     render(<IntentModal />);
 
-    // Wait for effect to resolve
     await waitFor(() => {
       expect(screen.queryByRole('button', { name: /Report a Fire/i })).not.toBeInTheDocument();
     });
   });
 
-  it('sets the bypass cookie and hides modal when Browse is clicked', async () => {
+  it('sets the bypass cookie and hides modal when View Active Fires is clicked', async () => {
     render(<IntentModal />);
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /Browse/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /View Active Fires/i })).toBeInTheDocument();
     });
 
-    const browseBtn = screen.getByRole('button', { name: /Browse/i });
+    const browseBtn = screen.getByRole('button', { name: /View Active Fires/i });
 
     await act(async () => {
       fireEvent.click(browseBtn);
@@ -119,28 +117,53 @@ describe('IntentModal', () => {
     render(<IntentModal />);
 
     await waitFor(() => {
-      expect(screen.getByText(/No account needed/i)).toBeInTheDocument();
+      const matches = screen.getAllByText(/No account needed/i);
+      expect(matches.length).toBeGreaterThanOrEqual(1);
     });
   });
 
   it('renders immediately with no bypass cookie (lazy initializer)', () => {
-    // The lazy initializer runs synchronously on first render.
-    // With no cookie, visible=true on mount.
     render(<IntentModal />);
     expect(screen.getByRole('button', { name: /Report a Fire/i })).toBeInTheDocument();
   });
 
   it('re-shows the modal when cookie value is "0" (stale/expired)', () => {
-    // A stale or cleared cookie may read as '0'. Modal must re-appear for any non-'1'.
     cookieStore.set('wims_browse_bypass', '0');
     render(<IntentModal />);
     expect(screen.getByRole('button', { name: /Report a Fire/i })).toBeInTheDocument();
   });
 
   it('re-shows the modal when cookie value is empty string (cleared)', () => {
-    // An explicitly cleared cookie is an empty string. Modal must re-appear.
     cookieStore.set('wims_browse_bypass', '');
     render(<IntentModal />);
     expect(screen.getByRole('button', { name: /Report a Fire/i })).toBeInTheDocument();
+  });
+
+  it('renders descriptive hints for each choice', async () => {
+    render(<IntentModal />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Start an emergency fire report/i)).toBeInTheDocument();
+    });
+    expect(screen.getByText(/See verified BFP incidents and safety information/i)).toBeInTheDocument();
+  });
+
+  it('renders the WIMS-BFP subtitle description', async () => {
+    render(<IntentModal />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Wildfire Incident Management System/i)).toBeInTheDocument();
+    });
+  });
+
+  it('renders the overlay as a dialog with aria-modal', async () => {
+    render(<IntentModal />);
+
+    await waitFor(() => {
+      const overlay = document.querySelector('.intent-overlay');
+      expect(overlay).toBeInTheDocument();
+      expect(overlay!.getAttribute('role')).toBe('dialog');
+      expect(overlay!.getAttribute('aria-modal')).toBe('true');
+    });
   });
 });

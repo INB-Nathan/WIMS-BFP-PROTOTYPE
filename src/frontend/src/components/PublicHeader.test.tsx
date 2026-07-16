@@ -3,14 +3,21 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { PublicHeader } from './PublicHeader';
 import * as AuthContext from '@/context/AuthContext';
 
+const mockUsePathname = vi.hoisted(() => vi.fn(() => '/'));
+
 // Mock the AuthContext
 vi.mock('@/context/AuthContext', () => ({
   useAuth: vi.fn(),
 }));
 
+vi.mock('next/navigation', () => ({
+  usePathname: () => mockUsePathname(),
+}));
+
 describe('PublicHeader', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockUsePathname.mockReturnValue('/');
   });
 
   describe('Anonymous state', () => {
@@ -28,9 +35,9 @@ describe('PublicHeader', () => {
       });
     });
 
-    it('renders the BFP logo', () => {
+    it('renders the WIMS-BFP logo', () => {
       render(<PublicHeader />);
-      expect(screen.getByText('BFP')).toBeInTheDocument();
+      expect(screen.getByText('WIMS-BFP')).toBeInTheDocument();
     });
 
     it('renders Register and Sign In buttons', () => {
@@ -81,9 +88,9 @@ describe('PublicHeader', () => {
       });
     });
 
-    it('renders the BFP logo', () => {
+    it('renders the WIMS-BFP logo', () => {
       render(<PublicHeader />);
-      expect(screen.getByText('BFP')).toBeInTheDocument();
+      expect(screen.getByText('WIMS-BFP')).toBeInTheDocument();
     });
 
     it('renders nav links: Home, Dashboard, Information', () => {
@@ -112,6 +119,29 @@ describe('PublicHeader', () => {
       render(<PublicHeader />);
       expect(screen.queryByText('Register')).not.toBeInTheDocument();
       expect(screen.queryByText('Sign In')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('Report page', () => {
+    beforeEach(() => {
+      vi.mocked(AuthContext.useAuth).mockReturnValue({
+        user: null,
+        isAuthenticated: false,
+        serverValidated: false,
+        canQueueOfflineWrites: false,
+        loading: false,
+        loggingOut: false,
+        login: vi.fn(),
+        logout: vi.fn(),
+        refreshSession: vi.fn(),
+      });
+      mockUsePathname.mockReturnValue('/report');
+    });
+
+    it('does not render redundant Report a Fire actions', () => {
+      const { container } = render(<PublicHeader />);
+      expect(screen.queryByRole('link', { name: /Report a Fire/i })).not.toBeInTheDocument();
+      expect(container.querySelector('.public-fab')).not.toBeInTheDocument();
     });
   });
 

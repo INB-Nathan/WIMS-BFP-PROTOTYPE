@@ -1,8 +1,16 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { publicApiFetch } from '@/lib/api/public-transport';
+import {
+  IconFlameFilled,
+  IconMapPin,
+  IconX,
+  IconFiretruck,
+  IconClipboardList,
+  IconRefresh,
+} from '@tabler/icons-react';
 
 interface Emergency {
   id: number;
@@ -27,9 +35,11 @@ function severityBadge(severity: string): { label: string; className: string } {
 
 interface LandingSidebarProps {
   onClose?: () => void;
+  closeRef?: React.RefObject<HTMLButtonElement | null>;
+  sidebarTitleId?: string;
 }
 
-export function LandingSidebar({ onClose }: LandingSidebarProps) {
+export function LandingSidebar({ onClose, closeRef, sidebarTitleId }: LandingSidebarProps) {
   const [items, setItems] = useState<Emergency[] | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -51,32 +61,55 @@ export function LandingSidebar({ onClose }: LandingSidebarProps) {
     };
   }, []);
 
+  const handleRetry = useCallback(() => {
+    setItems(null);
+    setFailed(false);
+    publicApiFetch<Emergency[]>('/information/emergencies')
+      .then((data) => {
+        setItems(data ?? []);
+        setFailed(false);
+      })
+      .catch(() => {
+        setItems([]);
+        setFailed(true);
+      });
+  }, []);
+
   return (
     <>
       <div className="landing-sidebar-header">
-        <h3>
-          🔥 Active fires near you{' '}
+        <h3 id={sidebarTitleId}>
+          <IconFlameFilled size={14} aria-hidden /> Active fires near you{' '}
           {items && items.length > 0 && (
             <span className="sidebar-count">{items.length}</span>
           )}
         </h3>
         {onClose && (
           <button
+            ref={closeRef}
             type="button"
             onClick={onClose}
             className="sidebar-close-btn"
             aria-label="Close sidebar"
           >
-            ✕
+            <IconX size={18} aria-hidden />
           </button>
         )}
       </div>
 
       <div className="landing-sidebar-list">
         {failed ? (
-          <p className="sidebar-empty" data-testid="sidebar-error">
-            Unable to load active fires.
-          </p>
+          <div className="sidebar-error" data-testid="sidebar-error">
+            <p>Unable to load active fires.</p>
+            <button
+              type="button"
+              className="sidebar-retry-btn"
+              onClick={handleRetry}
+              data-testid="sidebar-retry-btn"
+            >
+              <IconRefresh size={14} aria-hidden /> Retry
+            </button>
+          </div>
         ) : items === null ? (
           <>
             {[1, 2, 3].map((i) => (
@@ -84,9 +117,17 @@ export function LandingSidebar({ onClose }: LandingSidebarProps) {
             ))}
           </>
         ) : items.length === 0 ? (
-          <p className="sidebar-empty" data-testid="sidebar-empty">
-            No active fires reported.
-          </p>
+          <div className="sidebar-empty" data-testid="sidebar-empty">
+            <p>No active fires reported.</p>
+            <div className="sidebar-empty-actions">
+              <Link href="/fire-stations">
+                <IconFiretruck size={14} aria-hidden /> Find a fire station
+              </Link>
+              <Link href="/report">
+                <IconClipboardList size={14} aria-hidden /> Report a fire
+              </Link>
+            </div>
+          </div>
         ) : (
           items.map((e) => {
             const badge = severityBadge(e.severity);
@@ -95,7 +136,9 @@ export function LandingSidebar({ onClose }: LandingSidebarProps) {
                 <div className={badge.className}>{badge.label}</div>
                 <div className="sf-info">
                   <div className="sf-title">{e.title}</div>
-                  <div className="sf-loc">📍 {e.location}</div>
+                  <div className="sf-loc">
+                    <IconMapPin size={10} aria-hidden /> {e.location}
+                  </div>
                 </div>
               </div>
             );
@@ -109,8 +152,12 @@ export function LandingSidebar({ onClose }: LandingSidebarProps) {
       </div>
 
       <div className="landing-sidebar-footer">
-        <Link href="/incidents">📋 View all incidents →</Link>
-        <Link href="/fire-stations">🚒 Find a fire station →</Link>
+        <Link href="/incidents">
+          <IconClipboardList size={14} aria-hidden /> View all incidents
+        </Link>
+        <Link href="/fire-stations">
+          <IconFiretruck size={14} aria-hidden /> Find a fire station
+        </Link>
       </div>
     </>
   );
