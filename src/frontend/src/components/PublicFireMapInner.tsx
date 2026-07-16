@@ -44,6 +44,8 @@ export interface PublicFireMapInnerProps {
   selectedLocation?: [number, number] | null;
   onGeolocationAvailable?: (lat: number, lng: number) => void;
   showStations?: boolean;
+  /** Auto-request the user's location on mount and fly to it at barangay zoom */
+  locateOnLoad?: boolean;
 }
 
 // ── Cluster color helpers ───────────────────────────────────────────────────
@@ -107,7 +109,11 @@ function MapRecenter({ target, zoom }: { target: [number, number] | null; zoom: 
       return;
     }
     lastTarget.current = target;
-    map.setView(target, zoom, { animate: true });
+    const reduceMotion =
+      typeof window !== 'undefined' &&
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    map.setView(target, zoom, { animate: !reduceMotion });
   }, [target, zoom, map]);
 
   return null;
@@ -186,6 +192,7 @@ export default function PublicFireMapInner({
   selectedLocation,
   onGeolocationAvailable,
   showStations = false,
+  locateOnLoad = false,
 }: PublicFireMapInnerProps) {
   const [clusters, setClusters] = useState<MapClusterItem[]>([]);
   const [mapError, setMapError] = useState<string | null>(null);
@@ -355,6 +362,21 @@ export default function PublicFireMapInner({
     },
     [onGeolocationAvailable, onLocationSelect, selectionMode],
   );
+
+  // ── Auto-locate on load (silent; does not surface the status banner) ──
+  useEffect(() => {
+    if (!locateOnLoad) return;
+    if (typeof navigator === 'undefined' || !navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        handleGeolocation(pos.coords.latitude, pos.coords.longitude);
+      },
+      () => {
+        // Permission denied / unavailable: stay at the default barangay view.
+      },
+      { timeout: 10_000, maximumAge: 30_000 },
+    );
+  }, [locateOnLoad, handleGeolocation]);
 
   // ── Map click for selection mode ────────────────────────────────────────
   function handleMapClick(e: L.LeafletMouseEvent) {

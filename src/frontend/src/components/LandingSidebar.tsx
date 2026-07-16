@@ -119,14 +119,6 @@ export function LandingSidebar({ onClose, closeRef, sidebarTitleId }: LandingSid
         ) : items.length === 0 ? (
           <div className="sidebar-empty" data-testid="sidebar-empty">
             <p>No active fires reported.</p>
-            <div className="sidebar-empty-actions">
-              <Link href="/fire-stations">
-                <IconFiretruck size={14} aria-hidden /> Find a fire station
-              </Link>
-              <Link href="/report">
-                <IconClipboardList size={14} aria-hidden /> Report a fire
-              </Link>
-            </div>
           </div>
         ) : (
           items.map((e) => {

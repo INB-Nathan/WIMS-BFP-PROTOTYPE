@@ -36,6 +36,8 @@ export interface PublicFireMapProps {
   className?: string;
   /** Show fire-station markers on the map */
   showStations?: boolean;
+  /** Auto-request the user's location on mount and fly to it at barangay zoom */
+  locateOnLoad?: boolean;
 }
 
 export function PublicFireMap({
@@ -48,6 +50,7 @@ export function PublicFireMap({
   onGeolocationAvailable,
   className = '',
   showStations = false,
+  locateOnLoad = false,
 }: PublicFireMapProps) {
   const style = useMemo(() => {
     const h = typeof height === 'number' ? `${height}px` : height;
@@ -68,6 +71,7 @@ export function PublicFireMap({
         selectedLocation={selectedLocation}
         onGeolocationAvailable={onGeolocationAvailable}
         showStations={showStations}
+        locateOnLoad={locateOnLoad}
       />
     </div>
   );

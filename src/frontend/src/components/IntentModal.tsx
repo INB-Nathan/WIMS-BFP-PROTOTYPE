@@ -100,8 +100,8 @@ export function IntentModal() {
             inset: 0,
             zIndex: 0,
             background: `
-              linear-gradient(160deg, rgba(26,26,26,0.98) 0%, rgba(26,26,26,0.92) 40%, rgba(59,130,246,0.12) 100%),
-              repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,0.008) 2px, rgba(255,255,255,0.008) 4px)
+              linear-gradient(160deg, rgba(10,10,14,0.95) 0%, rgba(10,10,14,0.9) 40%, rgba(59,130,246,0.2) 100%),
+              repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,0.012) 2px, rgba(255,255,255,0.012) 4px)
             `,
           }}
         />
@@ -113,8 +113,8 @@ export function IntentModal() {
             inset: 0,
             zIndex: 0,
             background: `
-              radial-gradient(ellipse at 30% 70%, rgba(198,40,40,0.12) 0%, transparent 60%),
-              radial-gradient(ellipse at 70% 30%, rgba(234,88,12,0.06) 0%, transparent 50%)
+              radial-gradient(ellipse at 30% 70%, rgba(198,40,40,0.15) 0%, transparent 60%),
+              radial-gradient(ellipse at 70% 30%, rgba(234,88,12,0.08) 0%, transparent 50%)
             `,
           }}
         />

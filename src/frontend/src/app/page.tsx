@@ -5,9 +5,8 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { IntentModal } from '@/components/IntentModal';
-import { EmergenciesSection, AnnouncementsSection } from '@/components/LandingSections';
 import { LandingSidebar } from '@/components/LandingSidebar';
-import { IconMapPinFilled, IconLayoutSidebar, IconShieldCheckFilled } from '@tabler/icons-react';
+import { IconMapPinFilled, IconLayoutSidebar, IconShieldCheckFilled, IconFlameFilled } from '@tabler/icons-react';
 
 const PublicFireMap = dynamic(
   () => import('@/components/PublicFireMap').then((m) => m.PublicFireMap),
@@ -58,8 +57,22 @@ export default function LandingPage() {
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [sidebarOpen, closeSidebar]);
 
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
+    if (typeof window === 'undefined') return 'dark';
+    const saved = window.localStorage.getItem('landing-theme');
+    return saved === 'light' || saved === 'dark' ? saved : 'dark';
+  });
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') window.localStorage.setItem('landing-theme', theme);
+  }, [theme]);
+
+  const toggleTheme = useCallback(() => {
+    setTheme((t) => (t === 'dark' ? 'light' : 'dark'));
+  }, []);
+
   return (
-    <div className="scene-landing">
+    <div className="scene-landing" data-theme={theme}>
       <IntentModal />
 
       {/* ── Floating translucent header ───────────────────────────────── */}
@@ -78,6 +91,15 @@ export default function LandingPage() {
           <span className="landing-header-title">WIMS-BFP</span>
         </div>
         <div className="landing-header-right">
+          <button
+            type="button"
+            onClick={toggleTheme}
+            className="btn-theme-toggle"
+            data-testid="theme-toggle"
+            aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          >
+            {theme === 'dark' ? '🌙 Dark' : '☀️ Light'}
+          </button>
           <Link href="/register" className="btn-ghost" data-testid="header-register">Register</Link>
           <Link href="/login" className="btn-outline" data-testid="header-signin">Sign In</Link>
           <Link href="/report" className="btn-primary" data-testid="header-report">Report a Fire</Link>
@@ -91,7 +113,8 @@ export default function LandingPage() {
           <PublicFireMap
             height="100%"
             className="landing-public-map"
-            zoom={6}
+            zoom={15}
+            locateOnLoad
             showStations={showStations}
           />
         </div>
@@ -133,10 +156,23 @@ export default function LandingPage() {
             sidebarTitleId="landing-sidebar-title"
           />
 
-          {/* Mobile-only: Emergencies + Announcements inside sidebar overlay */}
+          {/* Mobile-only: stylish link to the full information screen
+              (replaces the inline Emergencies + Announcements sections) */}
           <div className="sidebar-mobile-extra" data-testid="sidebar-mobile-extra">
-            <EmergenciesSection />
-            <AnnouncementsSection />
+            <Link
+              href="/information"
+              className="sidebar-info-link"
+              data-testid="sidebar-info-link"
+            >
+              <span className="sidebar-info-link-icon">
+                <IconFlameFilled size={16} aria-hidden />
+              </span>
+              <span className="sidebar-info-link-text">
+                <span className="sidebar-info-link-title">Active fires &amp; BFP announcements</span>
+                <span className="sidebar-info-link-sub">View emergencies, advisories and reporting guide</span>
+              </span>
+              <span className="sidebar-info-link-arrow" aria-hidden>&rarr;</span>
+            </Link>
           </div>
         </aside>
 
@@ -173,17 +209,113 @@ export default function LandingPage() {
           height: 100vh;
           overflow: hidden;
         }
+        /* ── Prototype design tokens (dark default) ──────────────────── */
+        .scene-landing {
+          --bg-deep: #0a0a0e;
+          --bg-base: #111116;
+          --bg-elevated: #18181d;
+          --bg-surface: #202026;
+          --bg-hover: rgba(255,255,255,0.06);
+          --text-primary: #e8e8ed;
+          --text-secondary: rgba(232,232,237,0.65);
+          --text-muted: rgba(232,232,237,0.38);
+          --border: rgba(255,255,255,0.06);
+          --border-strong: rgba(255,255,255,0.12);
+          --primary: #3b82f6;
+          --primary-hover: #2563eb;
+          --primary-bg: rgba(59,130,246,0.12);
+          --red: #dc2626;
+          --red-light: #ef4444;
+          --red-deep: #b91c1c;
+          --red-bg: rgba(220,38,38,0.15);
+          --orange: #ea580c;
+          --orange-light: #ff8a65;
+          --orange-bg: rgba(234,88,12,0.15);
+          --yellow: #d97706;
+          --yellow-light: #fbbf24;
+          --yellow-bg: rgba(217,119,6,0.12);
+          --green: #059669;
+          --green-light: #34d399;
+          --green-bg: rgba(5,150,105,0.12);
+          --blue: #3b82f6;
+          --blue-bg: rgba(59,130,246,0.12);
+          --shadow: 0 2px 12px rgba(0,0,0,0.5);
+          --transition: 180ms ease;
+        }
+        .scene-landing[data-theme="light"] {
+          --bg-deep: #f0eee9;
+          --bg-base: #faf8f4;
+          --bg-elevated: #f5f3ee;
+          --bg-surface: #eeebe5;
+          --bg-hover: rgba(0,0,0,0.04);
+          --text-primary: #1a1815;
+          --text-secondary: rgba(26,24,21,0.62);
+          --text-muted: rgba(26,24,21,0.38);
+          --border: rgba(0,0,0,0.07);
+          --border-strong: rgba(0,0,0,0.14);
+          --primary: #2563eb;
+          --primary-hover: #1d4ed8;
+          --primary-bg: rgba(37,99,235,0.08);
+          --red: #dc2626;
+          --red-light: #ef4444;
+          --red-deep: #b91c1c;
+          --red-bg: rgba(220,38,38,0.08);
+          --orange: #ea580c;
+          --orange-light: #ea580c;
+          --orange-bg: rgba(234,88,12,0.08);
+          --yellow: #d97706;
+          --yellow-light: #d97706;
+          --yellow-bg: rgba(217,119,6,0.08);
+          --green: #059669;
+          --green-light: #059669;
+          --green-bg: rgba(5,150,105,0.08);
+          --blue: #2563eb;
+          --blue-bg: rgba(37,99,235,0.06);
+          --shadow: 0 2px 12px rgba(0,0,0,0.08);
+        }
         .landing-layout {
           position: absolute;
           inset: 0;
         }
         .landing-map {
           position: absolute;
-          inset: 0;
+          top: 52px;
+          bottom: 52px;
+          left: 0;
+          right: 0;
           z-index: 1;
-          height: 100%;
-          width: 100%;
-          background: var(--bg-elevated, #18181d);
+          background:
+            linear-gradient(160deg, rgba(10,10,14,0.95) 0%, rgba(10,10,14,0.9) 40%, rgba(59,130,246,0.2) 100%),
+            repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,0.012) 2px, rgba(255,255,255,0.012) 4px);
+        }
+        .landing-map::after {
+          content: '';
+          position: absolute;
+          inset: 0;
+          z-index: 2;
+          pointer-events: none;
+          mix-blend-mode: screen;
+          background:
+            radial-gradient(ellipse at 30% 70%, rgba(198,40,40,0.18) 0%, transparent 55%),
+            radial-gradient(ellipse at 70% 30%, rgba(234,88,12,0.10) 0%, transparent 45%);
+        }
+        /* Keep the live Leaflet map above the gradient glow overlay. */
+        .landing-map .leaflet-container,
+        .landing-map .landing-public-map {
+          position: relative;
+          z-index: 1;
+        }
+        .scene-landing[data-theme="light"] .landing-map {
+          background:
+            linear-gradient(160deg, rgba(240,238,233,0.96) 0%, rgba(238,240,248,0.92) 50%, rgba(37,99,235,0.06) 100%),
+            repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.015) 2px, rgba(0,0,0,0.015) 4px);
+        }
+        .scene-landing[data-theme="light"] .landing-map::after {
+          z-index: 2;
+          mix-blend-mode: multiply;
+          background:
+            radial-gradient(ellipse at 30% 70%, rgba(198,40,40,0.06) 0%, transparent 55%),
+            radial-gradient(ellipse at 70% 30%, rgba(234,88,12,0.04) 0%, transparent 45%);
         }
 
         /* ── Floating header ───────────────────────────────────────────── */
@@ -198,10 +330,8 @@ export default function LandingPage() {
           justify-content: space-between;
           height: 52px;
           padding: 0 20px;
-          background: rgba(10,10,14,0.82);
-          backdrop-filter: blur(10px);
-          -webkit-backdrop-filter: blur(10px);
-          border-bottom: 1px solid var(--border, rgba(255,255,255,0.06));
+          background: var(--bg-deep, #0a0a0e);
+          border-bottom: 1px solid var(--border-strong, rgba(255,255,255,0.12));
         }
         .landing-header-left {
           display: flex;
@@ -572,10 +702,8 @@ export default function LandingPage() {
           align-items: center;
           justify-content: center;
           gap: 2px;
-          background: rgba(10,10,14,0.82);
-          backdrop-filter: blur(10px);
-          -webkit-backdrop-filter: blur(10px);
-          border-top: 1px solid var(--border, rgba(255,255,255,0.06));
+          background: var(--bg-deep, #0a0a0e);
+          border-top: 1px solid var(--border-strong, rgba(255,255,255,0.12));
           padding: 0 20px;
           font-size: 0.65rem;
           color: var(--text-muted, rgba(232,232,237,0.38));
@@ -594,6 +722,36 @@ export default function LandingPage() {
         .landing-footer a:focus-visible {
           outline: 2px solid #3b82f6;
           outline-offset: 2px;
+        }
+        .scene-landing[data-theme="light"] .landing-header,
+        .scene-landing[data-theme="light"] .landing-footer {
+          background: var(--bg-base, #faf8f4);
+          border-color: var(--border-strong, rgba(0,0,0,0.14));
+        }
+        .scene-landing[data-theme="light"] .landing-header-right .btn-ghost,
+        .scene-landing[data-theme="light"] .landing-header-right .btn-outline {
+          color: var(--text-primary, #1a1815);
+          border-color: var(--border-strong, rgba(0,0,0,0.18));
+          background: transparent;
+        }
+        .scene-landing[data-theme="light"] .landing-header-right .btn-ghost:hover,
+        .scene-landing[data-theme="light"] .landing-header-right .btn-outline:hover {
+          border-color: var(--primary, #2563eb);
+          background: var(--primary-bg, rgba(37,99,235,0.08));
+        }
+        .scene-landing[data-theme="light"] .landing-header-right .btn-primary {
+          background: var(--primary, #2563eb);
+          border-color: var(--primary, #2563eb);
+          color: #fff;
+        }
+        .scene-landing[data-theme="light"] .landing-footer strong {
+          color: var(--text-secondary, rgba(26,24,21,0.62));
+        }
+        .scene-landing[data-theme="light"] .landing-footer a {
+          color: var(--text-muted, rgba(26,24,21,0.38));
+        }
+        .scene-landing[data-theme="light"] .landing-footer a:hover {
+          color: var(--text-secondary, rgba(26,24,21,0.62));
         }
 
         /* ── Mobile sidebar toggle button ──────────────────────────────── */
@@ -625,6 +783,78 @@ export default function LandingPage() {
         .sidebar-mobile-extra {
           display: none;
           padding: 8px 12px 20px;
+        }
+        .sidebar-info-link {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          padding: 14px 14px;
+          border-radius: 12px;
+          background: linear-gradient(135deg, var(--red-bg, rgba(220,38,38,0.15)) 0%, var(--bg-surface, #202026) 60%);
+          border: 1px solid var(--border-strong, rgba(255,255,255,0.12));
+          color: var(--text-primary, #e8e8ed);
+          text-decoration: none;
+          box-shadow: var(--shadow, 0 2px 12px rgba(0,0,0,0.5));
+          transition: transform var(--transition, 180ms ease), border-color var(--transition, 180ms ease), background var(--transition, 180ms ease);
+        }
+        .sidebar-info-link:hover {
+          transform: translateY(-2px);
+          border-color: var(--red, #dc2626);
+          background: linear-gradient(135deg, rgba(220,38,38,0.25) 0%, var(--bg-surface, #202026) 70%);
+        }
+        .sidebar-info-link:focus-visible {
+          outline: 2px solid var(--primary, #3b82f6);
+          outline-offset: 2px;
+        }
+        .sidebar-info-link-icon {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 34px;
+          height: 34px;
+          flex-shrink: 0;
+          border-radius: 9px;
+          background: var(--red, #dc2626);
+          color: #fff;
+        }
+        .sidebar-info-link-text {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+          min-width: 0;
+        }
+        .sidebar-info-link-title {
+          font-size: 0.82rem;
+          font-weight: 700;
+        }
+        .sidebar-info-link-sub {
+          font-size: 0.68rem;
+          color: var(--text-secondary, rgba(232,232,237,0.65));
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .sidebar-info-link-arrow {
+          margin-left: auto;
+          font-size: 1.1rem;
+          color: var(--text-secondary, rgba(232,232,237,0.65));
+          transition: transform var(--transition, 180ms ease);
+        }
+        .sidebar-info-link:hover .sidebar-info-link-arrow {
+          transform: translateX(3px);
+          color: var(--red-light, #ef4444);
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .sidebar-info-link,
+          .sidebar-info-link-arrow {
+            transition: none;
+          }
+          .sidebar-info-link:hover {
+            transform: none;
+          }
+          .sidebar-info-link:hover .sidebar-info-link-arrow {
+            transform: none;
+          }
         }
 
         /* ── Responsive: desktop sidebar inset the map ─────────────────── */
