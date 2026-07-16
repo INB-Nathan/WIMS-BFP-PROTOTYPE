@@ -54,9 +54,12 @@ vi.mock('@/components/LandingSidebar', () => ({
   ),
 }));
 
-// Mock Tabler icon
+// Mock Tabler icons
 vi.mock('@tabler/icons-react', () => ({
   IconMapPinFilled: () => <span data-testid="icon-map-pin" />,
+  IconLayoutSidebar: () => <span data-testid="icon-layout-sidebar" />,
+  IconFlameFilled: () => <span data-testid="icon-flame-filled" />,
+  IconShieldCheckFilled: () => <span data-testid="icon-shield-check" />,
 }));
 
 describe('LandingPage (public landing /)', () => {
@@ -102,8 +105,6 @@ describe('LandingPage (public landing /)', () => {
   it('does NOT render the old "Find a fire station" standalone card', async () => {
     const { default: LandingPage } = await import('../page');
     render(<LandingPage />);
-    // The old card had a link with exact text "Find a fire station".
-    // The new sidebar link says "🚒 Find a fire station →" which includes an emoji prefix.
     expect(screen.queryByRole('link', { name: 'Find a fire station' })).not.toBeInTheDocument();
   });
 
@@ -113,6 +114,13 @@ describe('LandingPage (public landing /)', () => {
     const toggleBtn = screen.getByTestId('toggle-stations-btn');
     expect(toggleBtn).toBeInTheDocument();
     expect(toggleBtn).toHaveAttribute('aria-label', 'Toggle fire stations');
+  });
+
+  it('renders the map trust panel', async () => {
+    const { default: LandingPage } = await import('../page');
+    render(<LandingPage />);
+    expect(screen.getByTestId('landing-trust-panel')).toBeInTheDocument();
+    expect(screen.getByText(/Verified BFP incidents/)).toBeInTheDocument();
   });
 
   it('renders the floating header with Register, Sign In, and Report a Fire', async () => {
@@ -130,20 +138,19 @@ describe('LandingPage (public landing /)', () => {
     expect(screen.getByTestId('landing-sidebar-component')).toBeInTheDocument();
   });
 
-  it('renders the FAB with link to /report', async () => {
+  it('does NOT render a FAB (mobile emergency CTA is the header link only)', async () => {
     const { default: LandingPage } = await import('../page');
     render(<LandingPage />);
-    const fab = screen.getByTestId('fab-report');
-    expect(fab).toBeInTheDocument();
-    expect(fab).toHaveAttribute('href', '/report');
+    expect(screen.queryByTestId('fab-report')).not.toBeInTheDocument();
   });
 
-  it('renders the sidebar toggle button', async () => {
+  it('renders the sidebar toggle button with aria-expanded', async () => {
     const { default: LandingPage } = await import('../page');
     render(<LandingPage />);
     const toggleBtn = screen.getByTestId('sidebar-toggle-btn');
     expect(toggleBtn).toBeInTheDocument();
     expect(toggleBtn).toHaveAttribute('aria-label', 'Toggle active fires sidebar');
+    expect(toggleBtn).toHaveAttribute('aria-expanded', 'false');
   });
 
   it('toggles sidebar open/close when toggle button is clicked', async () => {
@@ -158,9 +165,13 @@ describe('LandingPage (public landing /)', () => {
     await user.click(screen.getByTestId('sidebar-toggle-btn'));
     expect(sidebar.className).toContain('open');
 
+    // aria-expanded reflects open state
+    expect(screen.getByTestId('sidebar-toggle-btn')).toHaveAttribute('aria-expanded', 'true');
+
     // Click sidebar close button
     await user.click(screen.getByTestId('sidebar-close-btn'));
     expect(sidebar.className).not.toContain('open');
+    expect(screen.getByTestId('sidebar-toggle-btn')).toHaveAttribute('aria-expanded', 'false');
   });
 
   it('renders footer with Privacy Policy and Register links', async () => {
@@ -181,5 +192,20 @@ describe('LandingPage (public landing /)', () => {
     render(<LandingPage />);
     // "Become a Reporter" was in the old hero — new header calls it "Register"
     expect(screen.queryByRole('link', { name: 'Become a Reporter' })).not.toBeInTheDocument();
+  });
+
+  it('sidebar has dialog role and aria-modal when open', async () => {
+    const user = userEvent.setup();
+    const { default: LandingPage } = await import('../page');
+    render(<LandingPage />);
+    const sidebar = screen.getByTestId('landing-sidebar');
+
+    // Closed: role=dialog, aria-modal=undefined
+    expect(sidebar).toHaveAttribute('role', 'dialog');
+    expect(sidebar.getAttribute('aria-modal')).toBeNull();
+
+    // Open
+    await user.click(screen.getByTestId('sidebar-toggle-btn'));
+    expect(sidebar).toHaveAttribute('aria-modal', 'true');
   });
 });

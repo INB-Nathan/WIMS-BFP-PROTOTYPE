@@ -3,11 +3,11 @@
 import dynamic from 'next/dynamic';
 import Image from 'next/image';
 import Link from 'next/link';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { IntentModal } from '@/components/IntentModal';
 import { EmergenciesSection, AnnouncementsSection } from '@/components/LandingSections';
 import { LandingSidebar } from '@/components/LandingSidebar';
-import { IconMapPinFilled } from '@tabler/icons-react';
+import { IconMapPinFilled, IconLayoutSidebar, IconShieldCheckFilled } from '@tabler/icons-react';
 
 const PublicFireMap = dynamic(
   () => import('@/components/PublicFireMap').then((m) => m.PublicFireMap),
@@ -17,18 +17,46 @@ const PublicFireMap = dynamic(
 export default function LandingPage() {
   const [showStations, setShowStations] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const sidebarRef = useRef<HTMLElement>(null);
+  const sidebarToggleRef = useRef<HTMLButtonElement>(null);
+  const sidebarCloseRef = useRef<HTMLButtonElement>(null);
 
   const handleToggleStations = useCallback(() => {
     setShowStations((prev) => !prev);
+  }, []);
+
+  const closeSidebar = useCallback(() => {
+    setSidebarOpen(false);
   }, []);
 
   const handleToggleSidebar = useCallback(() => {
     setSidebarOpen((prev) => !prev);
   }, []);
 
-  const handleCloseSidebar = useCallback(() => {
-    setSidebarOpen(false);
-  }, []);
+  // ── Focus management for mobile sidebar dialog ────────────────────────────
+  useEffect(() => {
+    if (sidebarOpen) {
+      // Focus the close button once the sidebar has opened
+      const timer = setTimeout(() => {
+        sidebarCloseRef.current?.focus();
+      }, 300); // after CSS transition
+      return () => clearTimeout(timer);
+    } else {
+      // Restore focus to launcher when sidebar closes
+      sidebarToggleRef.current?.focus();
+    }
+  }, [sidebarOpen]);
+
+  // Escape key closes the mobile sidebar
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape' && sidebarOpen) {
+        closeSidebar();
+      }
+    }
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [sidebarOpen, closeSidebar]);
 
   return (
     <div className="scene-landing">
@@ -82,9 +110,28 @@ export default function LandingPage() {
           </button>
         </div>
 
+        {/* Map trust / meaning panel */}
+        <div className="landing-trust-panel" data-testid="landing-trust-panel">
+          <IconShieldCheckFilled size={12} aria-hidden />
+          <span>
+            Verified BFP incidents · colour shows severity · refresh every minute
+          </span>
+        </div>
+
         {/* Sidebar — active fires */}
-        <aside className={`landing-sidebar${sidebarOpen ? ' open' : ''}`} data-testid="landing-sidebar">
-          <LandingSidebar onClose={handleCloseSidebar} />
+        <aside
+          ref={sidebarRef}
+          className={`landing-sidebar${sidebarOpen ? ' open' : ''}`}
+          data-testid="landing-sidebar"
+          role="dialog"
+          aria-modal={sidebarOpen ? 'true' : undefined}
+          aria-labelledby="landing-sidebar-title"
+        >
+          <LandingSidebar
+            onClose={closeSidebar}
+            closeRef={sidebarCloseRef}
+            sidebarTitleId="landing-sidebar-title"
+          />
 
           {/* Mobile-only: Emergencies + Announcements inside sidebar overlay */}
           <div className="sidebar-mobile-extra" data-testid="sidebar-mobile-extra">
@@ -95,13 +142,15 @@ export default function LandingPage() {
 
         {/* Mobile sidebar toggle */}
         <button
+          ref={sidebarToggleRef}
           type="button"
           className="landing-sidebar-toggle"
           onClick={handleToggleSidebar}
           aria-label="Toggle active fires sidebar"
+          aria-expanded={sidebarOpen}
           data-testid="sidebar-toggle-btn"
         >
-          📋
+          <IconLayoutSidebar size={18} aria-hidden />
         </button>
       </div>
 
@@ -116,11 +165,6 @@ export default function LandingPage() {
           <Link href="/register">Register as a reporter</Link>
         </p>
       </footer>
-
-      {/* ── FAB: Report a Fire (mobile) ────────────────────────────────── */}
-      <Link href="/report" className="fab" title="Report a Fire" data-testid="fab-report">
-        🔥
-      </Link>
 
       <style>{`
         /* ── Immersive full-screen layout ──────────────────────────────── */
@@ -200,6 +244,11 @@ export default function LandingPage() {
         .landing-header-right .btn-ghost:hover {
           color: var(--text-primary, #e8e8ed);
         }
+        .landing-header-right .btn-ghost:focus-visible {
+          outline: 2px solid #3b82f6;
+          outline-offset: 2px;
+          border-radius: 4px;
+        }
         .landing-header-right .btn-outline {
           padding: 6px 14px;
           border-radius: 6px;
@@ -216,6 +265,10 @@ export default function LandingPage() {
         .landing-header-right .btn-outline:hover {
           border-color: rgba(255,255,255,0.4);
         }
+        .landing-header-right .btn-outline:focus-visible {
+          outline: 2px solid #3b82f6;
+          outline-offset: 2px;
+        }
         .landing-header-right .btn-primary {
           padding: 6px 14px;
           border-radius: 6px;
@@ -231,6 +284,10 @@ export default function LandingPage() {
         }
         .landing-header-right .btn-primary:hover {
           background: var(--red-deep, #b91c1c);
+        }
+        .landing-header-right .btn-primary:focus-visible {
+          outline: 2px solid #fbbf24;
+          outline-offset: 2px;
         }
 
         /* ── Map overlay controls ──────────────────────────────────────── */
@@ -264,10 +321,39 @@ export default function LandingPage() {
           color: var(--text-primary, #e8e8ed);
           border-color: rgba(255,255,255,0.3);
         }
+        .landing-map-controls button:focus-visible {
+          outline: 2px solid #3b82f6;
+          outline-offset: 2px;
+        }
         .landing-map-controls button[aria-pressed="true"] {
           background: rgba(198,40,40,0.2);
           border-color: rgba(198,40,40,0.4);
           color: #ef4444;
+        }
+
+        /* ── Map trust panel ───────────────────────────────────────────── */
+        .landing-trust-panel {
+          position: absolute;
+          bottom: 64px;
+          left: 12px;
+          z-index: 70;
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          padding: 5px 10px;
+          border-radius: 6px;
+          background: rgba(10,10,14,0.72);
+          backdrop-filter: blur(8px);
+          -webkit-backdrop-filter: blur(8px);
+          border: 1px solid rgba(255,255,255,0.08);
+          font-size: 0.62rem;
+          color: var(--text-muted, rgba(232,232,237,0.38));
+          line-height: 1.4;
+          max-width: 280px;
+          pointer-events: none;
+        }
+        .landing-trust-panel span {
+          display: inline;
         }
 
         /* ── Sidebar ───────────────────────────────────────────────────── */
@@ -316,6 +402,11 @@ export default function LandingPage() {
         .sidebar-close-btn:hover {
           color: var(--text-primary, #e8e8ed);
         }
+        .sidebar-close-btn:focus-visible {
+          outline: 2px solid #3b82f6;
+          outline-offset: 2px;
+          border-radius: 4px;
+        }
         .landing-sidebar-list {
           flex: 1;
           overflow-y: auto;
@@ -336,6 +427,10 @@ export default function LandingPage() {
         .sidebar-fire-card:hover {
           border-color: var(--border-strong, rgba(255,255,255,0.12));
           background: var(--bg-surface, #202026);
+        }
+        .sidebar-fire-card:focus-visible {
+          outline: 2px solid #3b82f6;
+          outline-offset: 2px;
         }
         .sidebar-fire-card .sf-sev {
           width: 28px;
@@ -380,6 +475,56 @@ export default function LandingPage() {
           text-align: center;
           padding: 20px;
         }
+        .sidebar-error {
+          text-align: center;
+          padding: 20px;
+        }
+        .sidebar-error p {
+          font-size: 0.78rem;
+          color: var(--text-muted, rgba(232,232,237,0.38));
+          margin: 0 0 12px;
+        }
+        .sidebar-retry-btn {
+          background: rgba(255,255,255,0.06);
+          border: 1px solid rgba(255,255,255,0.12);
+          border-radius: 6px;
+          color: var(--text-secondary, rgba(232,232,237,0.65));
+          cursor: pointer;
+          font-family: inherit;
+          font-size: 0.72rem;
+          font-weight: 600;
+          padding: 6px 14px;
+          transition: all 180ms ease;
+        }
+        .sidebar-retry-btn:hover {
+          background: rgba(255,255,255,0.1);
+          border-color: rgba(255,255,255,0.22);
+          color: var(--text-primary, #e8e8ed);
+        }
+        .sidebar-retry-btn:focus-visible {
+          outline: 2px solid #3b82f6;
+          outline-offset: 2px;
+        }
+        .sidebar-empty-actions {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          margin-top: 12px;
+        }
+        .sidebar-empty-actions a {
+          font-size: 0.72rem;
+          color: var(--text-secondary, rgba(232,232,237,0.65));
+          text-decoration: none;
+          transition: color 180ms ease;
+        }
+        .sidebar-empty-actions a:hover {
+          color: var(--text-primary, #e8e8ed);
+        }
+        .sidebar-empty-actions a:focus-visible {
+          outline: 2px solid #3b82f6;
+          outline-offset: 2px;
+          border-radius: 4px;
+        }
         .sidebar-skeleton-card {
           height: 52px;
           margin-bottom: 8px;
@@ -406,6 +551,11 @@ export default function LandingPage() {
         }
         .landing-sidebar-footer a:hover {
           color: var(--text-primary, #e8e8ed);
+        }
+        .landing-sidebar-footer a:focus-visible {
+          outline: 2px solid #3b82f6;
+          outline-offset: 2px;
+          border-radius: 4px;
         }
 
         /* ── Floating footer ───────────────────────────────────────────── */
@@ -440,31 +590,9 @@ export default function LandingPage() {
         .landing-footer a:hover {
           color: var(--text-secondary, rgba(232,232,237,0.65));
         }
-
-        /* ── FAB (mobile only) ─────────────────────────────────────────── */
-        .fab {
-          position: fixed;
-          bottom: 64px;
-          right: 20px;
-          z-index: 200;
-          width: 52px;
-          height: 52px;
-          border-radius: 50%;
-          background: var(--red, #dc2626);
-          border: none;
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          box-shadow: 0 4px 20px rgba(198,40,40,0.35);
-          transition: all 180ms ease;
-          font-size: 1.2rem;
-          color: #fff;
-          text-decoration: none;
-        }
-        .fab:hover {
-          transform: scale(1.05);
-          background: var(--red-deep, #b91c1c);
+        .landing-footer a:focus-visible {
+          outline: 2px solid #3b82f6;
+          outline-offset: 2px;
         }
 
         /* ── Mobile sidebar toggle button ──────────────────────────────── */
@@ -472,7 +600,7 @@ export default function LandingPage() {
           display: none;
           position: fixed;
           bottom: 64px;
-          right: 80px;
+          right: 20px;
           z-index: 200;
           width: 44px;
           height: 44px;
@@ -487,6 +615,10 @@ export default function LandingPage() {
           color: var(--text-primary, #e8e8ed);
           font-family: inherit;
         }
+        .landing-sidebar-toggle:focus-visible {
+          outline: 2px solid #3b82f6;
+          outline-offset: 2px;
+        }
 
         /* ── Mobile extra content (Emergencies + Announcements) ────────── */
         .sidebar-mobile-extra {
@@ -500,7 +632,6 @@ export default function LandingPage() {
             right: 360px;
             transition: right 0.25s ease;
           }
-          .fab { display: none; }
           .sidebar-mobile-extra { display: none; }
         }
 
@@ -530,6 +661,10 @@ export default function LandingPage() {
           .landing-header-right .btn-ghost { display: none; }
           .landing-header-right .btn-outline { display: none; }
           .sidebar-mobile-extra { display: block; }
+          .landing-trust-panel {
+            bottom: 56px;
+            max-width: 220px;
+          }
         }
       `}</style>
     </div>
