@@ -58,8 +58,25 @@ export default function LandingPage() {
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [sidebarOpen, closeSidebar]);
 
+  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+
+  // Restore the visitor's last theme choice (client-only; default dark).
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const saved = window.localStorage.getItem('landing-theme');
+    if (saved === 'light' || saved === 'dark') setTheme(saved);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') window.localStorage.setItem('landing-theme', theme);
+  }, [theme]);
+
+  const toggleTheme = useCallback(() => {
+    setTheme((t) => (t === 'dark' ? 'light' : 'dark'));
+  }, []);
+
   return (
-    <div className="scene-landing">
+    <div className="scene-landing" data-theme={theme}>
       <IntentModal />
 
       {/* ── Floating translucent header ───────────────────────────────── */}
@@ -78,6 +95,15 @@ export default function LandingPage() {
           <span className="landing-header-title">WIMS-BFP</span>
         </div>
         <div className="landing-header-right">
+          <button
+            type="button"
+            onClick={toggleTheme}
+            className="btn-theme-toggle"
+            data-testid="theme-toggle"
+            aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          >
+            {theme === 'dark' ? '🌙 Dark' : '☀️ Light'}
+          </button>
           <Link href="/register" className="btn-ghost" data-testid="header-register">Register</Link>
           <Link href="/login" className="btn-outline" data-testid="header-signin">Sign In</Link>
           <Link href="/report" className="btn-primary" data-testid="header-report">Report a Fire</Link>
@@ -173,17 +199,110 @@ export default function LandingPage() {
           height: 100vh;
           overflow: hidden;
         }
+        /* ── Prototype design tokens (dark default) ──────────────────── */
+        .scene-landing {
+          --bg-deep: #0a0a0e;
+          --bg-base: #111116;
+          --bg-elevated: #18181d;
+          --bg-surface: #202026;
+          --bg-hover: rgba(255,255,255,0.06);
+          --text-primary: #e8e8ed;
+          --text-secondary: rgba(232,232,237,0.65);
+          --text-muted: rgba(232,232,237,0.38);
+          --border: rgba(255,255,255,0.06);
+          --border-strong: rgba(255,255,255,0.12);
+          --primary: #3b82f6;
+          --primary-hover: #2563eb;
+          --primary-bg: rgba(59,130,246,0.12);
+          --red: #dc2626;
+          --red-light: #ef4444;
+          --red-deep: #b91c1c;
+          --red-bg: rgba(220,38,38,0.15);
+          --orange: #ea580c;
+          --orange-light: #ff8a65;
+          --orange-bg: rgba(234,88,12,0.15);
+          --yellow: #d97706;
+          --yellow-light: #fbbf24;
+          --yellow-bg: rgba(217,119,6,0.12);
+          --green: #059669;
+          --green-light: #34d399;
+          --green-bg: rgba(5,150,105,0.12);
+          --blue: #3b82f6;
+          --blue-bg: rgba(59,130,246,0.12);
+          --shadow: 0 2px 12px rgba(0,0,0,0.5);
+          --transition: 180ms ease;
+        }
+        .scene-landing[data-theme="light"] {
+          --bg-deep: #f0eee9;
+          --bg-base: #faf8f4;
+          --bg-elevated: #f5f3ee;
+          --bg-surface: #eeebe5;
+          --bg-hover: rgba(0,0,0,0.04);
+          --text-primary: #1a1815;
+          --text-secondary: rgba(26,24,21,0.62);
+          --text-muted: rgba(26,24,21,0.38);
+          --border: rgba(0,0,0,0.07);
+          --border-strong: rgba(0,0,0,0.14);
+          --primary: #2563eb;
+          --primary-hover: #1d4ed8;
+          --primary-bg: rgba(37,99,235,0.08);
+          --red: #dc2626;
+          --red-light: #ef4444;
+          --red-deep: #b91c1c;
+          --red-bg: rgba(220,38,38,0.08);
+          --orange: #ea580c;
+          --orange-light: #ea580c;
+          --orange-bg: rgba(234,88,12,0.08);
+          --yellow: #d97706;
+          --yellow-light: #d97706;
+          --yellow-bg: rgba(217,119,6,0.08);
+          --green: #059669;
+          --green-light: #059669;
+          --green-bg: rgba(5,150,105,0.08);
+          --blue: #2563eb;
+          --blue-bg: rgba(37,99,235,0.06);
+          --shadow: 0 2px 12px rgba(0,0,0,0.08);
+        }
         .landing-layout {
           position: absolute;
           inset: 0;
         }
         .landing-map {
           position: absolute;
-          inset: 0;
+          top: 52px;
+          bottom: 52px;
+          left: 0;
+          right: 0;
           z-index: 1;
-          height: 100%;
-          width: 100%;
-          background: var(--bg-elevated, #18181d);
+          background:
+            linear-gradient(160deg, rgba(10,10,14,0.95) 0%, rgba(10,10,14,0.9) 40%, rgba(59,130,246,0.2) 100%),
+            repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,0.012) 2px, rgba(255,255,255,0.012) 4px);
+        }
+        .landing-map::after {
+          content: '';
+          position: absolute;
+          inset: 0;
+          z-index: 0;
+          pointer-events: none;
+          background:
+            radial-gradient(ellipse at 30% 70%, rgba(198,40,40,0.15) 0%, transparent 60%),
+            radial-gradient(ellipse at 70% 30%, rgba(234,88,12,0.08) 0%, transparent 50%);
+        }
+        /* Keep the live Leaflet map above the gradient glow overlay. */
+        .landing-map .leaflet-container,
+        .landing-map .landing-public-map {
+          position: relative;
+          z-index: 1;
+        }
+        .scene-landing[data-theme="light"] .landing-map {
+          background:
+            linear-gradient(160deg, rgba(240,238,233,0.96) 0%, rgba(238,240,248,0.92) 50%, rgba(37,99,235,0.06) 100%),
+            repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.015) 2px, rgba(0,0,0,0.015) 4px);
+        }
+        .scene-landing[data-theme="light"] .landing-map::after {
+          background:
+            radial-gradient(ellipse at 30% 70%, rgba(198,40,40,0.05) 0%, transparent 60%),
+            radial-gradient(ellipse at 70% 30%, rgba(234,88,12,0.03) 0%, transparent 50%);
         }
 
         /* ── Floating header ───────────────────────────────────────────── */
