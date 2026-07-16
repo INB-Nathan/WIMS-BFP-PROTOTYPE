@@ -426,8 +426,8 @@
 
 /* Filters */
 .public-surface .ps-filters {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
@@ -436,17 +436,15 @@
 }
 @media (min-width: 640px) {
   .public-surface .ps-filters {
-    flex-direction: row;
-    flex-wrap: wrap;
-    align-items: flex-end;
+    grid-template-columns: minmax(220px, 2fr) repeat(3, minmax(132px, 1fr)) auto;
+    align-items: end;
   }
 }
 .public-surface .ps-filter-field {
   display: flex;
+  min-width: 0;
   flex-direction: column;
   gap: 4px;
-  flex: 1;
-  min-width: 200px;
 }
 .public-surface .ps-filter-label {
   font-size: 0.7rem;
@@ -464,8 +462,8 @@
   color: var(--text-muted);
   pointer-events: none;
 }
-.public-surface .ps-input,
-.public-surface .ps-select {
+.public-surface .ps-filters .ps-input,
+.public-surface .ps-filters .ps-select {
   width: 100%;
   padding: 8px 12px;
   border: 1px solid var(--border-strong);
@@ -475,13 +473,17 @@
   font-family: var(--font);
   font-size: 0.85rem;
 }
-.public-surface .ps-input {
+.public-surface .ps-filter-input-wrap .ps-input {
   padding-left: 32px;
 }
-.public-surface .ps-input:focus,
-.public-surface .ps-select:focus {
+.public-surface .ps-filters .ps-input:focus,
+.public-surface .ps-filters .ps-select:focus {
   outline: none;
   border-color: var(--primary);
+}
+.public-surface .ps-filter-result-count {
+  margin: 8px 2px 0;
+  font-size: 0.78rem;
 }
 
 /* Pills (severity / status / urgency) */

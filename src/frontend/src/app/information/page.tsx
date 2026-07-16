@@ -1,5 +1,7 @@
 'use client';
 
+import '@/styles/public-surface.css';
+
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 // Tabler icons — filled variants are preferred per #610 where available.
@@ -379,6 +381,7 @@ export default function InformationPage() {
                       id="emergency-date-from"
                       type="date"
                       value={dateFrom}
+                      max={dateTo || undefined}
                       onChange={(e) => setDateFrom(e.target.value)}
                       className="ps-input"
                     />
@@ -391,6 +394,7 @@ export default function InformationPage() {
                       id="emergency-date-to"
                       type="date"
                       value={dateTo}
+                      min={dateFrom || undefined}
                       onChange={(e) => setDateTo(e.target.value)}
                       className="ps-input"
                     />
@@ -405,6 +409,11 @@ export default function InformationPage() {
                     </button>
                   )}
                 </div>
+                {!emergenciesBusy && !emergenciesError && emergencies && filteredEmergencies && (
+                  <p className="ps-filter-result-count ps-muted" aria-live="polite">
+                    Showing {filteredEmergencies.length} of {emergencies.length} emergencies
+                  </p>
+                )}
 
                 {emergenciesBusy && (
                   <p className="ps-status-msg" role="status">

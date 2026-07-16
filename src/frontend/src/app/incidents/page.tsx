@@ -1,5 +1,7 @@
 'use client';
 
+import '@/styles/public-surface.css';
+
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
