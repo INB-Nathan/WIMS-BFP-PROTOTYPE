@@ -4,8 +4,8 @@ Wayfinder ticket #634: manually-drawn fire perimeters (National Validator only)
 with full TSTZRANGE edit history, plus a junction table linking civilian reports
 to validated fire incidents.
 
-Revision ID: 0021
-Revises: 0020
+Revision ID: 0024
+Revises: 0023
 """
 
 from __future__ import annotations
@@ -14,8 +14,8 @@ from typing import Sequence, Union
 
 from alembic import op
 
-revision: str = "0021"
-down_revision: Union[str, None] = "0020"
+revision: str = "0024"
+down_revision: Union[str, None] = "0023"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

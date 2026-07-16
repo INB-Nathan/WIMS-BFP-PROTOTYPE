@@ -5,7 +5,7 @@ stage life cycle (RECEIVED → UNDER_REVIEW → HELP_DISPATCHED → ON_SCENE →
 RESOLVED, plus terminals CLOSED_DUPLICATE / CLOSED_INSUFFICIENT) and
 stage-specific JSONB metadata.
 
-Revision ID: 0021
+Revision ID: 0023
 Revises: 0020 (existing citizen_reports_routing_geometry on master)
 """
 
@@ -15,7 +15,7 @@ from typing import Sequence, Union
 
 from alembic import op
 
-revision: str = "0021"
+revision: str = "0023"
 down_revision: Union[str, None] = "0020"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
