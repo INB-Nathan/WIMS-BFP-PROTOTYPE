@@ -1,6 +1,25 @@
-import { render, screen } from '@testing-library/react';
+import { render } from '@testing-library/react';
 import { describe, it, expect } from 'vitest';
+import {
+  IconCircleFilled,
+  IconTriangleFilled,
+  IconOctagonFilled,
+  IconAlertTriangleFilled,
+} from '@tabler/icons-react';
 import { SeverityIndicator } from '../SeverityIndicator';
+
+/**
+ * Render a reference Tabler icon and return its SVG element's innerHTML
+ * (path data, which is stable across renders).
+ */
+function referenceIconInnerHtml(
+  Icon: React.ComponentType<{ size?: number; className?: string }>,
+  size = 24,
+): string {
+  const { container } = render(<Icon size={size} />);
+  const svg = container.querySelector('svg');
+  return svg?.innerHTML ?? '';
+}
 
 describe('SeverityIndicator', () => {
   it('renders low severity with circle shape and green color', () => {
@@ -9,6 +28,8 @@ describe('SeverityIndicator', () => {
     expect(svg).toBeInTheDocument();
     expect(svg).toHaveAttribute('aria-label', 'Low severity');
     expect(svg).toHaveStyle({ color: '#059669' });
+    // Verify correct icon identity (IconCircleFilled)
+    expect(svg?.innerHTML).toBe(referenceIconInnerHtml(IconCircleFilled));
   });
 
   it('renders medium severity with triangle shape and yellow color', () => {
@@ -17,6 +38,8 @@ describe('SeverityIndicator', () => {
     expect(svg).toBeInTheDocument();
     expect(svg).toHaveAttribute('aria-label', 'Medium severity');
     expect(svg).toHaveStyle({ color: '#d97706' });
+    // Verify correct icon identity (IconTriangleFilled)
+    expect(svg?.innerHTML).toBe(referenceIconInnerHtml(IconTriangleFilled));
   });
 
   it('renders high severity with octagon shape and orange color', () => {
@@ -25,6 +48,8 @@ describe('SeverityIndicator', () => {
     expect(svg).toBeInTheDocument();
     expect(svg).toHaveAttribute('aria-label', 'High severity');
     expect(svg).toHaveStyle({ color: '#ea580c' });
+    // Verify correct icon identity (IconOctagonFilled)
+    expect(svg?.innerHTML).toBe(referenceIconInnerHtml(IconOctagonFilled));
   });
 
   it('renders critical severity with alert triangle shape and red color', () => {
@@ -33,6 +58,8 @@ describe('SeverityIndicator', () => {
     expect(svg).toBeInTheDocument();
     expect(svg).toHaveAttribute('aria-label', 'Critical severity');
     expect(svg).toHaveStyle({ color: '#dc2626' });
+    // Verify correct icon identity (IconAlertTriangleFilled)
+    expect(svg?.innerHTML).toBe(referenceIconInnerHtml(IconAlertTriangleFilled));
   });
 
   it('accepts custom size prop', () => {

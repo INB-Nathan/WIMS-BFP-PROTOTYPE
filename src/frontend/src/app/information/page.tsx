@@ -2,18 +2,21 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
+// Tabler icons — filled variants are preferred per #610 where available.
+// Icons kept as outline (no filled Tabler variant exists):
+// IconClipboardList, IconTag, IconCamera, IconSpeakerphone, IconMailbox
 import {
   IconClipboardList,
   IconTag,
-  IconStar,
   IconCamera,
-  IconLock,
-  IconRefresh,
-  IconAlertTriangle,
-  IconSpeakerphone,
-  IconBook,
-  IconSun,
   IconMailbox,
+  IconSpeakerphone,
+  IconRefresh,
+  IconStarFilled,
+  IconSunFilled,
+  IconLockFilled,
+  IconAlertTriangleFilled,
+  IconBookFilled,
 } from '@tabler/icons-react';
 import { useAuth } from '@/context/AuthContext';
 import { ApiRequestError } from '@/lib/api/errors';
@@ -59,7 +62,7 @@ const GUIDE_CARDS = [
     desc: 'Fire (wildfire, structural, grass), Flood (urban, river, coastal), Earthquake, Medical, Infrastructure, Weather, Hazmat. Choose the closest match — validators will reclassify if needed.',
   },
   {
-    Icon: IconStar,
+    Icon: IconStarFilled,
     title: 'Understanding your trust score',
     desc: 'Trust scores range from 0–100. Higher scores come from complete reports, consistent submissions, and reports that are actioned by validators. Your score affects how quickly your reports are reviewed.',
   },
@@ -69,7 +72,7 @@ const GUIDE_CARDS = [
     desc: 'Capture wide shots for context, close-ups for detail. Include landmarks when possible. Avoid including identifiable people without consent. Photos are encrypted in transit and storage.',
   },
   {
-    Icon: IconLock,
+    Icon: IconLockFilled,
     title: 'Privacy & safety',
     desc: 'Your personal information is never shared publicly. Report locations are generalized for public display. Do not put yourself at risk to submit a report — your safety comes first.',
   },
@@ -200,7 +203,7 @@ export default function InformationPage() {
             tab === 'emergencies' ? 'bg-[#C62828] text-white' : 'text-gray-500'
           }`}
         >
-          <IconAlertTriangle size={18} aria-hidden />
+          <IconAlertTriangleFilled size={18} aria-hidden />
           Emergencies
         </button>
         <button
@@ -220,7 +223,7 @@ export default function InformationPage() {
             tab === 'guide' ? 'bg-[#C62828] text-white' : 'text-gray-500'
           }`}
         >
-          <IconBook size={18} aria-hidden />
+          <IconBookFilled size={18} aria-hidden />
           Reporting Guide
         </button>
       </div>
@@ -245,7 +248,7 @@ export default function InformationPage() {
           {!emergenciesBusy && !emergenciesError && emergencies?.length === 0 && (
             <div className="rounded border bg-white p-10 text-center shadow-sm">
               <div className="flex justify-center text-gray-400">
-                <IconSun size={48} aria-hidden />
+                <IconSunFilled size={48} aria-hidden />
               </div>
               <h3 className="mt-3 text-base font-semibold">No active emergencies</h3>
               <p className="mt-2 text-sm text-gray-600">

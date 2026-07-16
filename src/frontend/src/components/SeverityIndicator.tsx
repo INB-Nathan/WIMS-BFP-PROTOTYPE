@@ -17,7 +17,13 @@ interface SeverityIndicatorProps {
 const severityConfig: Record<
   SeverityLevel,
   {
-    Icon: React.ComponentType<{ size?: number; className?: string }>;
+    Icon: React.ComponentType<{
+      size?: number;
+      className?: string;
+      style?: React.CSSProperties;
+      'aria-label'?: string;
+      role?: string;
+    }>;
     color: string;
     label: string;
   }
@@ -45,7 +51,7 @@ const severityConfig: Record<
 };
 
 export function SeverityIndicator({ level, size = 24, className = '' }: SeverityIndicatorProps) {
-  const config = severityConfig[level];
+  const config = severityConfig[level] ?? severityConfig.low;
   const { Icon, color, label } = config;
 
   return (

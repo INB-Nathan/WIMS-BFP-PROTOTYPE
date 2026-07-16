@@ -1,4 +1,4 @@
-import { render } from '@testing-library/react';
+import { render, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import InformationPage from '../page';
 
@@ -23,12 +23,15 @@ describe('InformationPage - Icon System', () => {
 
   it('renders with Tabler icons, not emoji characters, in guide cards', () => {
     vi.mocked(useAuth).mockReturnValue({
-      user: { id: '1', name: 'Test User', role: 'CIVILIAN_REPORTER' },
+      user: { id: '1', preferred_username: 'Test User', role: 'CIVILIAN_REPORTER' },
       loading: false,
       login: vi.fn(),
       logout: vi.fn(),
-      checkSession: vi.fn(),
       refreshSession: vi.fn(),
+      isAuthenticated: true,
+      serverValidated: true,
+      canQueueOfflineWrites: true,
+      loggingOut: false,
     });
 
     const { container } = render(<InformationPage />);
@@ -59,18 +62,25 @@ describe('InformationPage - Icon System', () => {
 
   it('renders tab buttons with Tabler icons, not emoji', () => {
     vi.mocked(useAuth).mockReturnValue({
-      user: { id: '1', name: 'Test User', role: 'CIVILIAN_REPORTER' },
+      user: { id: '1', preferred_username: 'Test User', role: 'CIVILIAN_REPORTER' },
       loading: false,
       login: vi.fn(),
       logout: vi.fn(),
-      checkSession: vi.fn(),
       refreshSession: vi.fn(),
+      isAuthenticated: true,
+      serverValidated: true,
+      canQueueOfflineWrites: true,
+      loggingOut: false,
     });
 
     const { container } = render(<InformationPage />);
 
-    // Get tab buttons
-    const tabButtons = container.querySelectorAll('button[type="button"]');
+    // Select the tab container (the first div with rounded-lg inside the header)
+    const header = container.querySelector('header');
+    const tabContainer = header?.nextElementSibling;
+    const tabButtons = tabContainer?.querySelectorAll('button') ?? [];
+
+    expect(tabButtons.length).toBeGreaterThanOrEqual(3);
 
     // Check that tab buttons don't contain emoji text nodes
     tabButtons.forEach((button) => {
@@ -79,40 +89,94 @@ describe('InformationPage - Icon System', () => {
       expect(textContent).not.toMatch(/^[⚠📢📖]/);
     });
 
-    // Verify SVG icons are in tab buttons
-    const tabSvgs = Array.from(tabButtons).flatMap(btn => Array.from(btn.querySelectorAll('svg')));
-    expect(tabSvgs.length).toBeGreaterThanOrEqual(3); // At least 3 tab icons
+    // Verify SVG icons are in each tab button
+    tabButtons.forEach((button) => {
+      const svg = button.querySelector('svg');
+      expect(svg).toBeInTheDocument();
+    });
   });
 
   it('renders empty state icons as SVG, not emoji', () => {
     vi.mocked(useAuth).mockReturnValue({
-      user: { id: '1', name: 'Test User', role: 'CIVILIAN_REPORTER' },
+      user: { id: '1', preferred_username: 'Test User', role: 'CIVILIAN_REPORTER' },
       loading: false,
       login: vi.fn(),
       logout: vi.fn(),
-      checkSession: vi.fn(),
       refreshSession: vi.fn(),
+      isAuthenticated: true,
+      serverValidated: true,
+      canQueueOfflineWrites: true,
+      loggingOut: false,
     });
 
     const { container } = render(<InformationPage />);
 
-    // Empty states use IconSun (🌤️) and IconMailbox (📭) — verify no emoji in empty state areas
-    const emptyStateContainers = container.querySelectorAll('.text-center');
-    emptyStateContainers.forEach((emptyState) => {
-      const html = emptyState.innerHTML;
-      expect(html).not.toMatch(/🌤️/);
-      expect(html).not.toMatch(/📭/);
+    // Empty state containers are .text-center divs inside the emergencies/announcements sections
+    const emergenciesSection = container.querySelector('[aria-labelledby="emergencies-heading"]');
+    const announcementsSection = container.querySelector('[aria-labelledby="announcements-heading"]');
+
+    [emergenciesSection, announcementsSection].forEach((section) => {
+      if (!section) return;
+      const emptyStateDivs = section.querySelectorAll('.text-center');
+      emptyStateDivs.forEach((div) => {
+        const html = div.innerHTML;
+        // Should contain an SVG icon, not the old emoji
+        expect(html).not.toMatch(/🌤️/);
+        expect(html).not.toMatch(/📭/);
+      });
+    });
+  });
+
+  it('guide card icon wrappers contain SVG not emoji', () => {
+    vi.mocked(useAuth).mockReturnValue({
+      user: { id: '1', preferred_username: 'Test User', role: 'CIVILIAN_REPORTER' },
+      loading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+      refreshSession: vi.fn(),
+      isAuthenticated: true,
+      serverValidated: true,
+      canQueueOfflineWrites: true,
+      loggingOut: false,
+    });
+
+    const { container } = render(<InformationPage />);
+
+    // Click the 'Reporting Guide' tab to show the guide section
+    const tabButtons = container.querySelectorAll('button');
+    const guideTab = Array.from(tabButtons).find((btn) =>
+      btn.textContent?.includes('Reporting Guide'),
+    );
+    expect(guideTab).toBeDefined();
+    fireEvent.click(guideTab!);
+
+    const guideSection = container.querySelector('[aria-labelledby="guide-heading"]');
+    expect(guideSection).toBeInTheDocument();
+
+    // Each guide card has an icon wrapper div (flex items-center justify-center)
+    const iconWrappers = guideSection?.querySelectorAll('.flex.items-center.justify-center') ?? [];
+    expect(iconWrappers.length).toBeGreaterThanOrEqual(6); // 6 guide cards
+
+    iconWrappers.forEach((wrapper) => {
+      const innerHtml = wrapper.innerHTML;
+      // Should contain an SVG (Tabler icon)
+      expect(wrapper.querySelector('svg')).toBeInTheDocument();
+      // Should NOT contain emoji characters
+      expect(innerHtml).not.toMatch(/[📋🏷️⭐📸🔒🔄]/);
     });
   });
 
   it('only allows location pin emoji (📍) in emergency list items, not as UI icons', () => {
     vi.mocked(useAuth).mockReturnValue({
-      user: { id: '1', name: 'Test User', role: 'CIVILIAN_REPORTER' },
+      user: { id: '1', preferred_username: 'Test User', role: 'CIVILIAN_REPORTER' },
       loading: false,
       login: vi.fn(),
       logout: vi.fn(),
-      checkSession: vi.fn(),
       refreshSession: vi.fn(),
+      isAuthenticated: true,
+      serverValidated: true,
+      canQueueOfflineWrites: true,
+      loggingOut: false,
     });
 
     const { container } = render(<InformationPage />);

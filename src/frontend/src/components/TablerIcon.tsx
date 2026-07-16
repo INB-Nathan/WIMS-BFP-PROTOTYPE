@@ -20,6 +20,8 @@ export function TablerIconWrapper({
   'aria-label': ariaLabel,
   'aria-hidden': ariaHidden,
 }: TablerIconProps) {
+  if (!Icon) return null;
+
   return (
     <Icon
       size={size}
