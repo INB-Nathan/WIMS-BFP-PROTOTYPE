@@ -6,6 +6,8 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { defaultRouteForRole } from '@/lib/roleRedirect';
 import { ArrowRight, CheckCircle, Lock } from 'lucide-react';
+import { PublicThemeProvider } from '@/components/public/PublicThemeProvider';
+import '@/styles/public-surface.css';
 
 function RegistrationBanner() {
     const searchParams = useSearchParams();
@@ -14,19 +16,7 @@ function RegistrationBanner() {
     return (
         <div
             role="alert"
-            className="registration-banner"
-            style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                background: '#F0FDF4',
-                border: '1px solid #BBF7D0',
-                color: '#15803D',
-                borderRadius: 8,
-                padding: '10px 14px',
-                fontSize: '0.85rem',
-                fontWeight: 600,
-            }}
+            className="ps-registration-banner"
         >
             <CheckCircle className="w-4 h-4" aria-hidden />
             Account created! Sign in to continue.
@@ -34,7 +24,7 @@ function RegistrationBanner() {
     );
 }
 
-export default function LoginPage() {
+function LoginInner() {
     const router = useRouter();
     const { user, loading, login } = useAuth();
 
@@ -54,28 +44,28 @@ export default function LoginPage() {
     };
 
     return (
-        <div className="login-page">
+        <div className="ps-auth-split">
             {/* Left Panel — BFP Branding */}
-            <div className="wims-login-branding">
-                <div className="wims-branding-content">
-                    <div className="wims-logo-wrap">
+            <div className="ps-auth-branding">
+                <div className="ps-branding-content">
+                    <div className="ps-auth-logo">
                         <Image
                             src="/bfp-logo.svg"
                             alt="Bureau of Fire Protection"
                             fill
-                            className="wims-logo"
+                            className="ps-logo"
                             priority
                         />
                     </div>
 
-                    <h1 className="wims-brand-title">
+                    <h1 className="ps-brand-title">
                         Web-based Incident
                         <br />
                         Management System
                     </h1>
-                    <p className="wims-brand-subtitle">Bureau of Fire Protection</p>
+                    <p className="ps-brand-subtitle">Bureau of Fire Protection</p>
 
-                    <div className="wims-brand-tagline">
+                    <div className="ps-brand-tagline">
                         <CheckCircle className="w-4 h-4" aria-hidden />
                         <span>Secured &bull; Monitored &bull; Explainable</span>
                     </div>
@@ -83,10 +73,10 @@ export default function LoginPage() {
             </div>
 
             {/* Right Panel — Login Form */}
-            <div className="wims-login-form">
-                <div className="wims-form-container">
-                    <h2 className="wims-form-title">Sign In</h2>
-                    <p className="wims-form-subtitle">
+            <div className="ps-auth-form">
+                <div className="ps-form-container">
+                    <h2 className="ps-form-title">Sign In</h2>
+                    <p className="ps-form-subtitle">
                         Access the WIMS-BFP dashboard
                     </p>
 
@@ -94,9 +84,9 @@ export default function LoginPage() {
                         <RegistrationBanner />
                     </Suspense>
 
-                    <div className="wims-form-card">
-                        <div className="wims-sso-notice">
-                            <Lock className="w-4 h-4 text-theme-accent-mid flex-shrink-0" />
+                    <div className="ps-form-card">
+                        <div className="ps-sso-notice">
+                            <Lock className="w-4 h-4 ps-sso-icon" aria-hidden />
                             <p>
                                 Secure single sign-on powered by Keycloak.
                                 Your credentials are never stored by this application.
@@ -104,19 +94,28 @@ export default function LoginPage() {
                         </div>
 
                         <button
+                            type="button"
                             onClick={handleLogin}
-                            className="wims-button"
+                            className="ps-btn ps-btn-primary ps-btn-block"
                         >
                             Login with Keycloak
                             <ArrowRight className="w-4 h-4" />
                         </button>
                     </div>
 
-                    <p className="wims-copyright">
+                    <p className="ps-copyright">
                         &copy; 2026 Bureau of Fire Protection &mdash; All rights reserved.
                     </p>
                 </div>
             </div>
         </div>
+    );
+}
+
+export default function LoginPage() {
+    return (
+        <PublicThemeProvider>
+            <LoginInner />
+        </PublicThemeProvider>
     );
 }
