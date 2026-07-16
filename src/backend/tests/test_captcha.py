@@ -112,10 +112,66 @@ async def test_verify_turnstile_empty_env_var(monkeypatch):
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_verify_turnstile_http_error_raises_429():
-    """Network/timeout error from Cloudflare → HTTPException(429)."""
+async def test_verify_turnstile_network_error_fails_open():
+    """Network/connection error reaching Cloudflare → fail OPEN (issue #570:
+    an outage of the CAPTCHA provider must not reject every anonymous
+    submission), not HTTPException."""
     respx.post(TURNSTILE_VERIFY_URL).mock(
         side_effect=httpx.RequestError("Connection failed"),
+    )
+
+    result = await verify_turnstile("test-token")
+
+    assert result is True
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_verify_turnstile_timeout_fails_open():
+    """Timeout reaching Cloudflare → fail OPEN, same as any other network error."""
+    respx.post(TURNSTILE_VERIFY_URL).mock(
+        side_effect=httpx.TimeoutException("Request timed out"),
+    )
+
+    result = await verify_turnstile("test-token")
+
+    assert result is True
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_verify_turnstile_upstream_5xx_fails_open():
+    """Cloudflare itself erroring (5xx) → fail OPEN, not a 429 rejection."""
+    respx.post(TURNSTILE_VERIFY_URL).respond(status_code=503)
+
+    result = await verify_turnstile("test-token")
+
+    assert result is True
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_verify_turnstile_malformed_json_fails_closed():
+    """Cloudflare reachable but returning a non-JSON body → fail CLOSED
+    (429), not open. A tampered/garbled response from a reachable endpoint
+    is not the same thing as the endpoint being unreachable, and must not
+    silently bypass CAPTCHA."""
+    respx.post(TURNSTILE_VERIFY_URL).respond(status_code=200, content="not json")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await verify_turnstile("test-token")
+
+    assert exc_info.value.status_code == 429
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_verify_turnstile_4xx_with_valid_body_still_processed():
+    """A non-5xx status (e.g. 400) with a parseable success:false body is
+    processed normally as a rejection — 4xx is not treated as an outage."""
+    respx.post(TURNSTILE_VERIFY_URL).respond(
+        status_code=400,
+        json={"success": False, "error-codes": ["invalid-input-response"]},
     )
 
     with pytest.raises(HTTPException) as exc_info:
@@ -123,3 +179,54 @@ async def test_verify_turnstile_http_error_raises_429():
 
     assert exc_info.value.status_code == 429
     assert exc_info.value.detail == "CAPTCHA verification failed"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_verify_turnstile_invalid_secret_raises_500_not_429():
+    """Cloudflare telling us OUR secret is wrong is a deploy misconfiguration,
+    not a client-side CAPTCHA rejection — must surface as 500, not the
+    generic 429 an actual bad/expired token gets."""
+    respx.post(TURNSTILE_VERIFY_URL).respond(
+        status_code=200,
+        json={"success": False, "error-codes": ["invalid-input-secret"]},
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await verify_turnstile("test-token")
+
+    assert exc_info.value.status_code == 500
+    assert exc_info.value.detail == "CAPTCHA service misconfigured"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_verify_turnstile_missing_secret_error_code_raises_500():
+    """Same as above for Cloudflare's "missing-input-secret" error code."""
+    respx.post(TURNSTILE_VERIFY_URL).respond(
+        status_code=200,
+        json={"success": False, "error-codes": ["missing-input-secret"]},
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await verify_turnstile("test-token")
+
+    assert exc_info.value.status_code == 500
+    assert exc_info.value.detail == "CAPTCHA service misconfigured"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_verify_turnstile_empty_token_still_reaches_cloudflare():
+    """An empty-string token is sent through to Cloudflare like any other
+    value (it isn't special-cased) and is rejected by Cloudflare's own
+    validation, not by our code short-circuiting it."""
+    respx.post(TURNSTILE_VERIFY_URL).respond(
+        status_code=200,
+        json={"success": False, "error-codes": ["missing-input-response"]},
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await verify_turnstile("")
+
+    assert exc_info.value.status_code == 429

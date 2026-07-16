@@ -423,9 +423,18 @@ async def register(
             REGISTER_RATE_WINDOW,
         )
 
-    # 2. Verify Turnstile (skip when not configured)
-    if os.environ.get("TURNSTILE_SECRET_KEY", ""):
-        await verify_turnstile(body.turnstile_token, client_ip)
+    # 2. Verify Turnstile. Always call this — verify_turnstile() itself is
+    # the single source of truth for "secret not configured" (raises 500)
+    # vs. "secret configured but Cloudflare rejected/couldn't verify the
+    # token" (429, or fail-open on a genuine service outage). Previously this
+    # call was skipped entirely whenever TURNSTILE_SECRET_KEY was unset,
+    # which meant a production deploy that forgot to set the secret silently
+    # accepted every anonymous registration with zero CAPTCHA verification
+    # instead of hard-failing loudly. Local/CI dev environments already ship
+    # a working dummy secret in .env.example (Cloudflare's documented
+    # always-pass test key), so there's no dev-convenience reason to keep
+    # the bypass.
+    await verify_turnstile(body.turnstile_token, client_ip)
 
     # 3. Validate email uniqueness via Keycloak lookup
     try:
