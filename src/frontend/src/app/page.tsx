@@ -180,6 +180,7 @@ export default function LandingPage() {
         .landing-map {
           position: absolute;
           inset: 0;
+          z-index: 1;
           height: 100%;
           width: 100%;
           background: var(--bg-elevated, #18181d);
