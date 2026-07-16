@@ -6,6 +6,7 @@ wims:events:incident     — incident status changes, corrections
 wims:events:verification — triage cluster workflow (claim, terminal action, split, merge)
 wims:events:security     — threat log insertions, AI analysis results
 wims:events:system       — system-level events (maintenance, config changes)
+wims:events:status_update — civilian report status stage transitions
 """
 
 from __future__ import annotations
@@ -66,6 +67,7 @@ CHANNELS = {
     "verification": "wims:events:verification",
     "security": "wims:events:security",
     "system": "wims:events:system",
+    "status_update": "wims:events:status_update",
 }
 
 
@@ -404,5 +406,41 @@ def publish_security_event_sync(
         )
         r.publish(CHANNELS["security"], message)
         logger.debug("Published (sync) %s → %s", event_type, CHANNELS["security"])
+    except Exception:
+        logger.warning("Failed to publish (sync) %s", event_type, exc_info=True)
+
+
+def publish_status_update_event_sync(
+    event_type: str,
+    *,
+    report_id: int,
+    stage: str,
+    actor_id: str | None = None,
+    actor_role: str | None = None,
+    extra: dict[str, Any] | None = None,
+) -> None:
+    """Publish a civilian report status update event synchronously.
+
+    Fires when a validator changes a report's stage via the triage action
+    workflow. Frontend SSE listeners on the tracking page subscribe to
+    wims:events:status_update to push live timeline updates without polling.
+    """
+    try:
+        r = _get_sync_redis()
+        payload: dict[str, Any] = {"report_id": report_id, "stage": stage}
+        if extra:
+            payload.update(extra)
+        message = json.dumps(
+            {
+                "channel": CHANNELS["status_update"],
+                "event_type": event_type,
+                "payload": payload,
+                "actor_id": actor_id,
+                "actor_role": actor_role,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+        r.publish(CHANNELS["status_update"], message)
+        logger.debug("Published (sync) %s → %s", event_type, CHANNELS["status_update"])
     except Exception:
         logger.warning("Failed to publish (sync) %s", event_type, exc_info=True)

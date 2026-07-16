@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from auth import get_current_wims_user
 from auth import get_db_with_rls
 from utils.audit import log_system_audit
+from schemas.civilian import StatusUpdateRequest, StatusUpdateResponse
 from services.civilian_triage import (
     BulkPromoteRequest,
     BulkDismissRequest,
@@ -24,6 +25,7 @@ from services.civilian_triage import (
     TerminalActionRequest,
     TriageQueueResponse,
     WorkflowResult,
+    apply_status_update_command,
     apply_terminal_action_command,
     claim_cluster_command,
     correct_terminal_report_command,
@@ -157,6 +159,51 @@ def correct_terminal_report(
     db: Annotated[Session, Depends(get_db_with_rls)],
 ) -> WorkflowResult:
     return correct_terminal_report_command(report_id, body, request, user, db)
+
+
+STATUS_UPDATE_ALLOWED_ROLES = ("NATIONAL_VALIDATOR", "REGIONAL_ENCODER")
+
+
+def _require_status_update_actor(
+    current_user: Annotated[dict, Depends(get_current_wims_user)],
+) -> dict:
+    """Allow NATIONAL_VALIDATOR (via dedicated dependency) or REGIONAL_ENCODER."""
+    role = current_user.get("role")
+    if role not in STATUS_UPDATE_ALLOWED_ROLES:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Role '{role}' cannot send civilian status updates",
+        )
+    return current_user
+
+
+@router.post(
+    "/reports/{report_id}/update-status",
+    response_model=StatusUpdateResponse,
+    status_code=201,
+)
+def update_report_status(
+    report_id: int,
+    body: StatusUpdateRequest,
+    request: Request,
+    user: Annotated[dict, Depends(_require_status_update_actor)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
+) -> StatusUpdateResponse:
+    """Record a validator-to-civilian status update for a civilian report.
+
+    NATIONAL_VALIDATOR and REGIONAL_ENCODER only. Enforces the forward-only
+    stage lifecycle and per-stage metadata requirements, inserts into
+    wims.report_status_updates, audits the action, and publishes an SSE event.
+    """
+    result = apply_status_update_command(
+        db=db,
+        report_id=report_id,
+        stage=body.stage,
+        metadata=body.metadata,
+        actor_user=user,
+        request=request,
+    )
+    return StatusUpdateResponse(**result)
 
 
 @router.post("/clusters/{cluster_id}/split", response_model=WorkflowResult, status_code=201)
