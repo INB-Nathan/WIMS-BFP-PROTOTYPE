@@ -111,6 +111,7 @@ function MapRecenter({ target, zoom }: { target: [number, number] | null; zoom: 
     lastTarget.current = target;
     const reduceMotion =
       typeof window !== 'undefined' &&
+      typeof window.matchMedia === 'function' &&
       window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     map.setView(target, zoom, { animate: !reduceMotion });
   }, [target, zoom, map]);
