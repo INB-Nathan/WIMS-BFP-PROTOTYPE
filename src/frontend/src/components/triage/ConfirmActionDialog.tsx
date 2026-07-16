@@ -1,7 +1,7 @@
 'use client';
 
 import { AlertTriangle, Loader2, X } from 'lucide-react';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 
 export type ConfirmTone = 'standard' | 'caution' | 'destructive';
 
@@ -34,18 +34,47 @@ export function ConfirmActionDialog({
   onCancel,
   preview,
 }: ConfirmActionDialogProps) {
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const lastTriggerRef = useRef<HTMLElement | null>(null);
+
   useEffect(() => {
     if (!open) return;
+    // Remember what had focus so we can restore it on close.
+    lastTriggerRef.current = (document.activeElement as HTMLElement) ?? null;
+    // Move focus into the dialog (Cancel is the safe default for a destructive confirm).
+    const cancel = panelRef.current?.querySelector<HTMLButtonElement>('.triage-button-ghost');
+    (cancel ?? panelRef.current)?.focus();
+
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') {
         e.preventDefault();
         e.stopPropagation();
         onCancel();
+        return;
+      }
+      if (e.key === 'Tab' && panelRef.current) {
+        const focusables = panelRef.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+        );
+        if (focusables.length === 0) return;
+        const first = focusables[0];
+        const last = focusables[focusables.length - 1];
+        const active = document.activeElement;
+        if (e.shiftKey && active === first) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && active === last) {
+          e.preventDefault();
+          first.focus();
+        }
       }
     }
     // Use capture phase so we win the race against the parent modal's Escape handler.
     window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
+    return () => {
+      window.removeEventListener('keydown', onKey, true);
+      lastTriggerRef.current?.focus?.();
+    };
   }, [open, onCancel]);
 
   if (!open) return null;
@@ -61,7 +90,7 @@ export function ConfirmActionDialog({
       }}
       data-testid="triage-confirm-dialog"
     >
-      <div className="triage-confirm__panel" onMouseDown={(e) => e.stopPropagation()}>
+      <div className="triage-confirm__panel" onMouseDown={(e) => e.stopPropagation()} ref={panelRef}>
         <button
           type="button"
           aria-label="Cancel confirmation"

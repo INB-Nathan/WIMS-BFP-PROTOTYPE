@@ -88,4 +88,33 @@ describe('StatusUpdatePanel (#636)', () => {
     renderPanel({ busy: true });
     expect((screen.getByTestId('update-send-button') as HTMLButtonElement).disabled).toBe(true);
   });
+
+  it('disables the send button and shows an error when HELP_DISPATCHED fields are empty', () => {
+    renderPanel({ stage: 'HELP_DISPATCHED' as StatusUpdateStage });
+    const btn = screen.getByTestId('update-send-button') as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+    expect(btn).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getByTestId('update-form-error')).toHaveTextContent('Station name and jurisdiction are required.');
+  });
+
+  it('disables the send button when CLOSED_DUPLICATE id is non-numeric', () => {
+    renderPanel({ stage: 'CLOSED_DUPLICATE' as StatusUpdateStage, duplicateOf: 'abc' });
+    expect((screen.getByTestId('update-send-button') as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId('update-form-error')).toHaveTextContent('positive integer');
+  });
+
+  it('enables the send button once HELP_DISPATCHED required fields are filled', () => {
+    renderPanel({
+      stage: 'HELP_DISPATCHED' as StatusUpdateStage,
+      stationName: 'BFP East',
+      jurisdiction: 'Batangas',
+    });
+    expect((screen.getByTestId('update-send-button') as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.queryByTestId('update-form-error')).toBeNull();
+  });
+
+  it('renders a terminal warning for terminal stages', () => {
+    renderPanel({ stage: 'RESOLVED' as StatusUpdateStage, outcomeSummary: 'Done' });
+    expect(screen.getByTestId('update-note-terminal')).toHaveTextContent('no further status updates');
+  });
 });

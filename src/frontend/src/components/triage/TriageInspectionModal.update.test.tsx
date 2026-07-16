@@ -53,10 +53,10 @@ function cluster(overrides: Partial<TriageClusterEntry> = {}): TriageClusterEntr
   };
 }
 
-function renderModal(clusterIn: TriageClusterEntry) {
+function renderModal(clusterIn: TriageClusterEntry, role = 'NATIONAL_VALIDATOR') {
   const onMessage = vi.fn();
   const onError = vi.fn();
-  render(
+  const utils = render(
     <TriageInspectionModal
       openCluster={clusterIn}
       inspectionMode="cluster"
@@ -64,11 +64,11 @@ function renderModal(clusterIn: TriageClusterEntry) {
       onReloadQueue={vi.fn()}
       onMessage={onMessage}
       onError={onError}
-      role="NATIONAL_VALIDATOR"
+      role={role}
       currentUsername="validator1"
     />,
   );
-  return { onMessage, onError };
+  return { ...utils, onMessage, onError };
 }
 
 describe('TriageInspectionModal — #636 context + Send Update', () => {
@@ -80,11 +80,34 @@ describe('TriageInspectionModal — #636 context + Send Update', () => {
     expect(screen.getByTestId('triage-context-station-phone')).toHaveTextContent('123-4567');
   });
 
-  it('opens the Send Update tab when the "6" shortcut is pressed', async () => {
+  it('opens the Send Update tab when the "6" shortcut is pressed (allowed role)', async () => {
     const user = userEvent.setup();
     renderModal(cluster());
     await user.keyboard('6');
     expect(screen.getByTestId('triage-panel-update')).toBeInTheDocument();
     expect(screen.getByTestId('update-stage-select')).toBeInTheDocument();
+  });
+
+  it('hides the Send Update tab for SYSTEM_ADMIN and ignores the 6 shortcut', async () => {
+    const user = userEvent.setup();
+    renderModal(cluster(), 'SYSTEM_ADMIN');
+    // SYSTEM_ADMIN has no Send Update tab rendered.
+    expect(screen.queryByTestId('triage-panel-update')).toBeNull();
+    await user.keyboard('6');
+    // 6 must not open the update panel for SYSTEM_ADMIN.
+    expect(screen.queryByTestId('triage-panel-update')).toBeNull();
+  });
+
+  it('shows a closed notice when the anchor report is already terminal', async () => {
+    const user = userEvent.setup();
+    const closedCluster = cluster({
+      reports: [report({ status: 'ACTIONED', report_id: 10 })],
+      anchor_report_id: 10,
+    });
+    renderModal(closedCluster);
+    await user.keyboard('6');
+    expect(screen.getByTestId('triage-panel-update-closed')).toBeInTheDocument();
+    expect(screen.getByTestId('triage-panel-update-closed')).toHaveTextContent('already closed');
+    expect(screen.queryByTestId('update-stage-select')).toBeNull();
   });
 });

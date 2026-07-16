@@ -1,6 +1,6 @@
 'use client';
 
-import { Info, Loader2, Send } from 'lucide-react';
+import { AlertTriangle, Info, Loader2, Send } from 'lucide-react';
 import type { StatusUpdateStage } from '@/lib/api';
 
 export interface StatusUpdatePanelProps {
@@ -32,6 +32,28 @@ interface StageSpec {
   tone: 'standard' | 'caution' | 'destructive';
 }
 
+/** Confirmation tone per stage — terminal stages escalate the confirm dialog. */
+export const STAGE_TONE: Record<StatusUpdateStage, 'standard' | 'caution' | 'destructive'> = {
+  RECEIVED: 'standard',
+  UNDER_REVIEW: 'standard',
+  HELP_DISPATCHED: 'standard',
+  ON_SCENE: 'standard',
+  RESOLVED: 'caution',
+  CLOSED_DUPLICATE: 'caution',
+  CLOSED_INSUFFICIENT: 'caution',
+};
+
+/** Whether a stage is terminal (no further status updates allowed after it). */
+export const STAGE_TERMINAL: Record<StatusUpdateStage, boolean> = {
+  RECEIVED: false,
+  UNDER_REVIEW: false,
+  HELP_DISPATCHED: false,
+  ON_SCENE: false,
+  RESOLVED: true,
+  CLOSED_DUPLICATE: true,
+  CLOSED_INSUFFICIENT: true,
+};
+
 /** Fixed forward-only lifecycle stages for validator-to-civilian updates.
  * Order mirrors the backend _STAGE_ORDER. Terminal stages are visually de-emphasised. */
 const STAGES: StageSpec[] = [
@@ -39,7 +61,7 @@ const STAGES: StageSpec[] = [
   { value: 'UNDER_REVIEW', label: 'Under Review', hint: 'A validator is actively reviewing the report.', tone: 'standard' },
   { value: 'HELP_DISPATCHED', label: 'Help Dispatched', hint: 'Responders are en route. Provide station, jurisdiction, and ETA.', tone: 'standard' },
   { value: 'ON_SCENE', label: 'On Scene', hint: 'Responders have arrived. Provide arrival time.', tone: 'standard' },
-  { value: 'RESOLVED', label: 'Resolved', hint: 'Situation resolved. Provide an outcome summary.', tone: 'standard' },
+  { value: 'RESOLVED', label: 'Resolved', hint: 'Situation resolved. Provide an outcome summary.', tone: 'caution' },
   { value: 'CLOSED_DUPLICATE', label: 'Closed — Duplicate', hint: 'Closed as a duplicate of another report.', tone: 'caution' },
   { value: 'CLOSED_INSUFFICIENT', label: 'Closed — Insufficient', hint: 'Closed due to insufficient information.', tone: 'caution' },
 ];
@@ -53,7 +75,34 @@ const STAGES: StageSpec[] = [
  */
 export function StatusUpdatePanel(props: StatusUpdatePanelProps) {
   const stageSpec = STAGES.find((s) => s.value === props.stage) ?? STAGES[1];
-  const canApply = !props.busy;
+
+  // Pre-confirm validation: required metadata per stage must be filled before
+  // the review dialog opens, so the user is never bounced after confirming.
+  let formError: string | null = null;
+  switch (props.stage) {
+    case 'HELP_DISPATCHED':
+      if (!props.stationName.trim() || !props.jurisdiction.trim()) {
+        formError = 'Station name and jurisdiction are required.';
+      }
+      break;
+    case 'ON_SCENE':
+      if (!props.arrivedAt.trim()) formError = 'Arrival time is required.';
+      break;
+    case 'RESOLVED':
+      if (!props.outcomeSummary.trim()) formError = 'An outcome summary is required.';
+      break;
+    case 'CLOSED_DUPLICATE':
+      if (!/^\d+$/.test(props.duplicateOf.trim()) || Number(props.duplicateOf) <= 0) {
+        formError = 'Duplicate-of report id must be a positive integer.';
+      }
+      break;
+    case 'CLOSED_INSUFFICIENT':
+      if (!props.reason.trim()) formError = 'A closure reason is required.';
+      break;
+    default:
+      break;
+  }
+  const canApply = !props.busy && formError === null;
 
   return (
     <section className="triage-panel" data-testid="triage-panel-update">
@@ -213,12 +262,27 @@ export function StatusUpdatePanel(props: StatusUpdatePanelProps) {
         </p>
       ) : null}
 
+      {STAGE_TERMINAL[props.stage] ? (
+        <p className="triage-update__warn" data-testid="update-note-terminal">
+          <AlertTriangle className="h-3 w-3" />
+          This is a terminal update. After sending, no further status updates can be published
+          for this report.
+        </p>
+      ) : null}
+
+      {formError && (
+        <p className="triage-update__error" data-testid="update-form-error" role="alert">
+          {formError}
+        </p>
+      )}
+
       <button
         type="button"
         className="triage-action-btn triage-action-btn--primary"
         data-testid="update-send-button"
         onClick={props.onRequestConfirm}
         disabled={!canApply}
+        aria-disabled={!canApply}
       >
         {props.busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
         Review &amp; send update
