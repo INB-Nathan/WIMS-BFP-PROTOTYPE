@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Turnstile, type TurnstileInstance } from '@marsidev/react-turnstile';
 import { registerCivilian } from '@/lib/api/civilian';
+import { PublicThemeProvider } from '@/components/public/PublicThemeProvider';
+import '@/styles/public-surface.css';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const CONTACT_RE = /^09\d{9}$/;
@@ -58,7 +60,25 @@ function validate(values: {
   return errors;
 }
 
-export default function RegisterPage() {
+const BENEFITS = [
+  {
+    icon: '🔥',
+    title: 'Report incidents fast',
+    text: 'Flag fires and hazards in seconds from any device, even offline.',
+  },
+  {
+    icon: '🗺️',
+    title: 'Track on the map',
+    text: 'See nearby stations and live incident heatmaps across your area.',
+  },
+  {
+    icon: '🔔',
+    title: 'Stay informed',
+    text: 'Get status updates as verified responders act on your report.',
+  },
+];
+
+function RegisterInner() {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [firstName, setFirstName] = useState('');
@@ -159,234 +179,237 @@ export default function RegisterPage() {
   }
 
   return (
-    <main
-      className="register-page"
-      style={{
-        minHeight: '100vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 24,
-        background: 'linear-gradient(160deg, #5A1515 0%, #8E1B1B 40%, #C62828 100%)',
-      }}
-    >
-      <div
-        className="register-card"
-        style={{
-          width: '100%',
-          maxWidth: 480,
-          background: 'var(--card-bg, #fff)',
-          borderRadius: 16,
-          padding: 32,
-          boxShadow: '0 10px 40px rgba(0,0,0,0.25)',
-        }}
-      >
-        <h1 style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: 4 }}>
-          Become a Reporter
-        </h1>
-        <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: 24 }}>
-          Create a civilian reporter account for WIMS-BFP.
-        </p>
-
-        {errors.length > 0 && (
-          <div
-            role="alert"
-            className="register-errors"
-            data-testid="register-errors"
-            style={{
-              background: '#FEF2F2',
-              color: '#B91C1C',
-              border: '1px solid #FECACA',
-              borderRadius: 8,
-              padding: '10px 14px',
-              marginBottom: 16,
-              fontSize: '0.82rem',
-            }}
-          >
-            <ul style={{ margin: 0, paddingLeft: 18 }}>
-              {errors.map((err, i) => (
-                <li key={i}>{err}</li>
-              ))}
-            </ul>
+    <main className="ps-auth-page">
+      <div className="ps-auth-grid">
+        {/* Left: benefits */}
+        <section className="ps-auth-benefits" aria-label="Why become a reporter">
+          <div className="ps-auth-hero">
+            <h1>Become a Reporter</h1>
+            <p>Create a civilian reporter account for WIMS-BFP.</p>
           </div>
-        )}
-
-        <form onSubmit={handleSubmit} noValidate style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <label style={{ display: 'block' }}>
-            <span style={labelStyle}>Email</span>
-            <input
-              type="email"
-              name="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@example.com"
-              aria-label="Email"
-              data-testid="email"
-              style={inputStyle}
-            />
-          </label>
-
-          <div style={{ display: 'flex', gap: 12 }}>
-            <label style={{ display: 'block', flex: 1 }}>
-              <span style={labelStyle}>First name</span>
-              <input
-                type="text"
-                name="first_name"
-                value={firstName}
-                onChange={(e) => setFirstName(e.target.value)}
-                placeholder="Juan"
-                aria-label="First name"
-                data-testid="first_name"
-                style={inputStyle}
-              />
-            </label>
-            <label style={{ display: 'block', flex: 1 }}>
-              <span style={labelStyle}>Last name</span>
-              <input
-                type="text"
-                name="last_name"
-                value={lastName}
-                onChange={(e) => setLastName(e.target.value)}
-                placeholder="Dela Cruz"
-                aria-label="Last name"
-                data-testid="last_name"
-                style={inputStyle}
-              />
-            </label>
-          </div>
-
-          <label style={{ display: 'block' }}>
-            <span style={labelStyle}>Password</span>
-            <input
-              type="password"
-              name="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="At least 12 characters"
-              aria-label="Password"
-              data-testid="password"
-              style={inputStyle}
-            />
-          </label>
-
-          {showPwRequirements && (
-            <div
-              data-testid="password-requirements"
-              style={{
-                background: '#F9FAFB',
-                border: '1px solid #E5E7EB',
-                borderRadius: 8,
-                padding: '10px 14px',
-                fontSize: '0.78rem',
-                color: 'var(--text-secondary)',
-              }}
-            >
-              <div style={{ fontWeight: 600, marginBottom: 6, color: 'var(--text-primary)' }}>
-                Password requirements:
+          {BENEFITS.map((b) => (
+            <div className="ps-auth-benefit" key={b.title}>
+              <span className="ps-benefit-icon" aria-hidden>
+                {b.icon}
+              </span>
+              <div className="ps-benefit-text">
+                <h4>{b.title}</h4>
+                <p>{b.text}</p>
               </div>
-              <PwReq met={pwChecks.minLength} label="At least 12 characters" />
-              <PwReq met={pwChecks.upperCase} label="One uppercase letter" />
-              <PwReq met={pwChecks.lowerCase} label="One lowercase letter" />
-              <PwReq met={pwChecks.digit} label="One number" />
-              <PwReq met={pwChecks.specialChar} label="One special character (!@#$%^&*...)" />
             </div>
-          )}
+          ))}
+        </section>
 
-          <label style={{ display: 'block' }}>
-            <span style={labelStyle}>Confirm password</span>
-            <input
-              type="password"
-              name="confirm_password"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              placeholder="Re-enter your password"
-              aria-label="Confirm password"
-              data-testid="confirm_password"
-              style={{
-                ...inputStyle,
-                ...(confirmPassword.length > 0 && password !== confirmPassword
-                  ? { borderColor: '#DC2626', borderWidth: 2 }
-                  : {}),
-              }}
-            />
-          </label>
+        {/* Right: form */}
+        <section>
+          <div className="ps-card">
+            <h2 className="ps-form-title ps-section-title">
+              Register
+            </h2>
 
-          <label style={{ display: 'block' }}>
-            <span style={labelStyle}>Contact number</span>
-            <input
-              type="tel"
-              name="contact_number"
-              value={contactNumber}
-              onChange={(e) => setContactNumber(e.target.value)}
-              placeholder="09XXXXXXXXX"
-              aria-label="Contact number"
-              data-testid="contact_number"
-              style={inputStyle}
-            />
-          </label>
-
-          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-            <input
-              type="checkbox"
-              name="dpa_consent"
-              checked={dpaConsent}
-              onChange={(e) => setDpaConsent(e.target.checked)}
-              aria-label="Data Privacy Act consent"
-              data-testid="dpa_consent"
-              style={{ marginTop: 3 }}
-            />
-            <span>
-              I have read and agree to the{' '}
-              <Link href="/privacy" style={{ color: '#C62828', textDecoration: 'underline' }}>
-                Data Privacy Act
-              </Link>{' '}
-              consent and acknowledge how my data will be used.
-            </span>
-          </label>
-
-          {turnstileEnabled && (
-          <div data-testid="turnstile-wrapper">
-            <Turnstile
-              ref={turnstileRef}
-              siteKey={siteKey}
-              onSuccess={onTurnstileSuccess}
-              onExpire={onTurnstileExpire}
-              onError={onTurnstileError}
-            />
-            {turnstileExpired && (
-              <p style={{ fontSize: '0.78rem', color: '#D97706', marginTop: 6 }}>
-                ⚠ Security check expired. Please complete it again.
-              </p>
+            {errors.length > 0 && (
+              <div
+                role="alert"
+                className="ps-error-alert"
+                data-testid="register-errors"
+              >
+                <ul>
+                  {errors.map((err, i) => (
+                    <li key={i}>{err}</li>
+                  ))}
+                </ul>
+              </div>
             )}
+
+            <form onSubmit={handleSubmit} noValidate>
+              <div className="ps-field">
+                <label className="ps-label" htmlFor="email">
+                  Email
+                </label>
+                <input
+                  id="email"
+                  type="email"
+                  name="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  aria-label="Email"
+                  data-testid="email"
+                  className="ps-input"
+                />
+              </div>
+
+              <div className="ps-field-row">
+                <div className="ps-field">
+                  <label className="ps-label" htmlFor="first_name">
+                    First name
+                  </label>
+                  <input
+                    id="first_name"
+                    type="text"
+                    name="first_name"
+                    value={firstName}
+                    onChange={(e) => setFirstName(e.target.value)}
+                    placeholder="Juan"
+                    aria-label="First name"
+                    data-testid="first_name"
+                    className="ps-input"
+                  />
+                </div>
+                <div className="ps-field">
+                  <label className="ps-label" htmlFor="last_name">
+                    Last name
+                  </label>
+                  <input
+                    id="last_name"
+                    type="text"
+                    name="last_name"
+                    value={lastName}
+                    onChange={(e) => setLastName(e.target.value)}
+                    placeholder="Dela Cruz"
+                    aria-label="Last name"
+                    data-testid="last_name"
+                    className="ps-input"
+                  />
+                </div>
+              </div>
+
+              <div className="ps-field">
+                <label className="ps-label" htmlFor="password">
+                  Password
+                </label>
+                <input
+                  id="password"
+                  type="password"
+                  name="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="At least 12 characters"
+                  aria-label="Password"
+                  data-testid="password"
+                  className="ps-input"
+                />
+                <div
+                  className="ps-password-strength"
+                  data-testid="password-strength"
+                  data-strength={passwordValid(pwChecks) ? 'strong' : password.length >= 8 ? 'medium' : 'weak'}
+                  aria-hidden
+                >
+                  <span className="ps-pw-bar" />
+                  <span className="ps-pw-bar" />
+                  <span className="ps-pw-bar" />
+                  <span className="ps-pw-bar" />
+                </div>
+              </div>
+
+              {showPwRequirements && (
+                <div
+                  data-testid="password-requirements"
+                  className="ps-pw-requirements"
+                >
+                  <div className="ps-pw-requirements-title">
+                    Password requirements:
+                  </div>
+                  <PwReq met={pwChecks.minLength} label="At least 12 characters" />
+                  <PwReq met={pwChecks.upperCase} label="One uppercase letter" />
+                  <PwReq met={pwChecks.lowerCase} label="One lowercase letter" />
+                  <PwReq met={pwChecks.digit} label="One number" />
+                  <PwReq met={pwChecks.specialChar} label="One special character (!@#$%^&*...)" />
+                </div>
+              )}
+
+              <div className="ps-field">
+                <label className="ps-label" htmlFor="confirm_password">
+                  Confirm password
+                </label>
+                <input
+                  id="confirm_password"
+                  type="password"
+                  name="confirm_password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="Re-enter your password"
+                  aria-label="Confirm password"
+                  data-testid="confirm_password"
+                  aria-invalid={confirmPassword.length > 0 && password !== confirmPassword}
+                  className="ps-input"
+                />
+                {confirmPassword.length > 0 && password !== confirmPassword && (
+                  <p className="ps-pw-hint ps-error" role="alert" aria-live="polite">
+                    These passwords don’t match yet.
+                  </p>
+                )}
+              </div>
+
+              <div className="ps-field">
+                <label className="ps-label" htmlFor="contact_number">
+                  Contact number
+                </label>
+                <input
+                  id="contact_number"
+                  type="tel"
+                  name="contact_number"
+                  value={contactNumber}
+                  onChange={(e) => setContactNumber(e.target.value)}
+                  placeholder="09XXXXXXXXX"
+                  aria-label="Contact number"
+                  data-testid="contact_number"
+                  className="ps-input"
+                />
+              </div>
+
+              <label className="ps-check-row" htmlFor="dpa_consent">
+                <input
+                  id="dpa_consent"
+                  type="checkbox"
+                  name="dpa_consent"
+                  checked={dpaConsent}
+                  onChange={(e) => setDpaConsent(e.target.checked)}
+                  aria-label="Data Privacy Act consent"
+                  data-testid="dpa_consent"
+                />
+                <span>
+                  I have read and agree to the{' '}
+                  <Link href="/privacy" className="ps-check-row-link">
+                    Data Privacy Act
+                  </Link>{' '}
+                  consent and acknowledge how my data will be used.
+                </span>
+              </label>
+
+              {turnstileEnabled && (
+                <div data-testid="turnstile-wrapper">
+                  <Turnstile
+                    ref={turnstileRef}
+                    siteKey={siteKey}
+                    onSuccess={onTurnstileSuccess}
+                    onExpire={onTurnstileExpire}
+                    onError={onTurnstileError}
+                  />
+                  {turnstileExpired && (
+                    <p className="ps-pw-hint ps-error" role="alert">
+                      ⚠ Security check expired. Please complete it again.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={submitting}
+                data-testid="register-submit"
+                className="ps-btn ps-btn-primary ps-btn-block"
+              >
+                {submitting ? 'Creating account…' : 'Create account'}
+              </button>
+            </form>
+
+            <p className="ps-auth-foot">
+              Already have an account?{' '}
+              <Link href="/login">Sign in</Link>
+            </p>
           </div>
-          )}
-
-          <button
-            type="submit"
-            disabled={submitting}
-            data-testid="register-submit"
-            style={{
-              marginTop: 4,
-              padding: '14px 24px',
-              borderRadius: 8,
-              fontSize: '0.9rem',
-              fontWeight: 700,
-              border: 'none',
-              cursor: submitting ? 'not-allowed' : 'pointer',
-              background: submitting ? '#9CA3AF' : '#C62828',
-              color: '#fff',
-            }}
-          >
-            {submitting ? 'Creating account…' : 'Create account'}
-          </button>
-        </form>
-
-        <p style={{ marginTop: 20, fontSize: '0.82rem', color: 'var(--text-secondary)', textAlign: 'center' }}>
-          Already have an account?{' '}
-          <Link href="/login" style={{ color: '#C62828', fontWeight: 600, textDecoration: 'underline' }}>
-            Sign in
-          </Link>
-        </p>
+        </section>
       </div>
     </main>
   );
@@ -400,7 +423,7 @@ function PwReq({ met, label }: { met: boolean; label: string }) {
         alignItems: 'center',
         gap: 6,
         padding: '2px 0',
-        color: met ? '#16A34A' : '#9CA3AF',
+        color: met ? 'var(--green)' : 'var(--text-muted)',
       }}
     >
       <span style={{ fontSize: '0.85rem', width: 16, textAlign: 'center' }}>
@@ -411,20 +434,10 @@ function PwReq({ met, label }: { met: boolean; label: string }) {
   );
 }
 
-const labelStyle: React.CSSProperties = {
-  display: 'block',
-  fontSize: '0.78rem',
-  fontWeight: 600,
-  color: 'var(--text-secondary)',
-  marginBottom: 6,
-};
-
-const inputStyle: React.CSSProperties = {
-  width: '100%',
-  padding: '11px 12px',
-  borderRadius: 8,
-  border: '1px solid var(--border-color, #e5e7eb)',
-  fontSize: '0.9rem',
-  background: 'var(--card-bg, #fff)',
-  color: 'var(--text-primary, #1A1D23)',
-};
+export default function RegisterPage() {
+  return (
+    <PublicThemeProvider>
+      <RegisterInner />
+    </PublicThemeProvider>
+  );
+}

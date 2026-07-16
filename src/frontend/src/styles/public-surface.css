@@ -308,3 +308,390 @@
   outline: 2px solid var(--primary);
   outline-offset: 2px;
 }
+
+/* ── Auth screens: register + login (issue #652) ──
+ * Reuses the prototype palette via the .public-surface token scope.
+ * No new hex values are introduced here. */
+
+/* Centered auth page over the signature gradient hero */
+.public-surface .ps-auth-page {
+  min-height: calc(100vh - 52px - 52px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 20px;
+  background:
+    linear-gradient(160deg, rgba(10, 10, 14, 0.96) 0%, rgba(10, 10, 14, 0.88) 40%, rgba(220, 38, 38, 0.12) 100%),
+    repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(255, 255, 255, 0.008) 3px, rgba(255, 255, 255, 0.008) 4px);
+}
+.public-surface[data-theme='light'] .ps-auth-page {
+  background:
+    linear-gradient(160deg, rgba(250, 248, 244, 0.96) 0%, rgba(250, 248, 244, 0.9) 40%, rgba(220, 38, 38, 0.05) 100%),
+    repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(0, 0, 0, 0.006) 3px, rgba(0, 0, 0, 0.006) 4px);
+}
+
+/* Register: benefits + form two-column split */
+.public-surface .ps-auth-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 32px;
+  align-items: start;
+  width: 100%;
+  max-width: 960px;
+}
+.public-surface .ps-auth-grid.ps-auth-single {
+  grid-template-columns: 1fr;
+  max-width: 480px;
+}
+@media (max-width: 768px) {
+  .public-surface .ps-auth-grid {
+    grid-template-columns: 1fr;
+    max-width: 480px;
+  }
+}
+
+.public-surface .ps-auth-hero {
+  text-align: center;
+  margin-bottom: 24px;
+}
+.public-surface .ps-auth-hero h1 {
+  font-size: 1.4rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+.public-surface .ps-auth-hero p {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.public-surface .ps-auth-benefits {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 8px;
+}
+.public-surface .ps-auth-benefit {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px;
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+.public-surface .ps-benefit-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--primary-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+.public-surface .ps-benefit-text h4 {
+  font-size: 0.82rem;
+  font-weight: 600;
+  margin-bottom: 2px;
+  color: var(--text-primary);
+}
+.public-surface .ps-benefit-text p {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+/* Form fields */
+.public-surface .ps-field {
+  margin-bottom: 14px;
+  display: block;
+}
+.public-surface .ps-field-row {
+  display: flex;
+  gap: 12px;
+}
+.public-surface .ps-field-row > .ps-field {
+  flex: 1;
+  min-width: 0;
+}
+.public-surface .ps-label {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+.public-surface .ps-input {
+  width: 100%;
+  padding: 11px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  font-family: var(--font);
+  transition: border-color var(--transition);
+}
+.public-surface .ps-input::placeholder {
+  color: var(--text-muted);
+}
+.public-surface .ps-input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+.public-surface .ps-input[aria-invalid='true'] {
+  border-color: var(--red);
+  border-width: 2px;
+}
+
+/* Password strength meter (driven by .ps-pw-weak|medium|strong on the wrapper) */
+.public-surface .ps-password-strength {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px;
+}
+.public-surface .ps-pw-bar {
+  flex: 1;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--bg-surface);
+  transition: background var(--transition);
+}
+.public-surface .ps-password-strength.ps-pw-weak .ps-pw-bar {
+  background: var(--red);
+}
+.public-surface .ps-password-strength.ps-pw-medium .ps-pw-bar {
+  background: var(--orange);
+}
+.public-surface .ps-password-strength.ps-pw-strong .ps-pw-bar {
+  background: var(--green);
+}
+.public-surface .ps-pw-requirements {
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  margin-bottom: 14px;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+.public-surface .ps-pw-requirements-title {
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: var(--text-primary);
+}
+.public-surface .ps-pw-hint.ps-error {
+  color: var(--red);
+}
+.public-surface .ps-pw-hint.ps-ok {
+  color: var(--green);
+}
+.public-surface .ps-section-title {
+  font-weight: 700;
+  font-size: 1.2rem;
+  margin-bottom: 16px;
+  color: var(--text-primary);
+}
+
+/* Checkbox / consent row */
+.public-surface .ps-check-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 14px 0;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+.public-surface .ps-check-row input[type='checkbox'] {
+  accent-color: var(--primary);
+  width: 16px;
+  height: 16px;
+  margin-top: 3px;
+  flex-shrink: 0;
+}
+.public-surface .ps-check-row a {
+  color: var(--red);
+  text-decoration: underline;
+}
+
+/* Inline error block */
+.public-surface .ps-error-alert {
+  background: var(--red-bg);
+  color: var(--red-light);
+  border: 1px solid var(--red);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  font-size: 0.82rem;
+}
+.public-surface .ps-error-alert ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+/* Submit / secondary actions */
+.public-surface .ps-btn-primary.ps-btn-block {
+  width: 100%;
+  justify-content: center;
+  margin-top: 4px;
+  padding: 14px 24px;
+  font-size: 0.9rem;
+}
+.public-surface .ps-btn-primary:disabled {
+  background: var(--text-muted);
+  cursor: not-allowed;
+  box-shadow: none;
+}
+.public-surface .ps-auth-foot {
+  margin-top: 20px;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  text-align: center;
+}
+.public-surface .ps-auth-foot a {
+  color: var(--red);
+  font-weight: 600;
+  text-decoration: underline;
+}
+
+/* ── Login split layout ── */
+.public-surface .ps-auth-split {
+  display: flex;
+  min-height: calc(100vh - 52px - 52px);
+}
+@media (max-width: 768px) {
+  .public-surface .ps-auth-split {
+    flex-direction: column;
+  }
+}
+.public-surface .ps-auth-branding {
+  position: relative;
+  width: 45%;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    linear-gradient(160deg, rgba(10, 10, 14, 0.96) 0%, rgba(10, 10, 14, 0.88) 40%, rgba(220, 38, 38, 0.18) 100%),
+    repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(255, 255, 255, 0.008) 3px, rgba(255, 255, 255, 0.008) 4px);
+  clip-path: polygon(0 0, 90% 0, 70% 100%, 0 100%);
+  overflow: hidden;
+  padding: 2rem;
+}
+.public-surface[data-theme='light'] .ps-auth-branding {
+  background:
+    linear-gradient(160deg, rgba(250, 248, 244, 0.96) 0%, rgba(250, 248, 244, 0.9) 40%, rgba(220, 38, 38, 0.08) 100%),
+    repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(0, 0, 0, 0.006) 3px, rgba(0, 0, 0, 0.006) 4px);
+}
+.public-surface .ps-branding-content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  max-width: 380px;
+  margin-right: -5%;
+}
+.public-surface .ps-auth-logo {
+  width: 120px;
+  height: 120px;
+  margin-bottom: 1.5rem;
+  filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.2));
+}
+.public-surface .ps-auth-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.public-surface .ps-brand-title {
+  font-family: var(--font);
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.3;
+  margin: 0 0 0.5rem 0;
+}
+.public-surface .ps-brand-subtitle {
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+  margin: 0 0 1.5rem 0;
+}
+.public-surface .ps-brand-tagline {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.public-surface .ps-auth-form {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 6%;
+  background: var(--bg-deep);
+}
+.public-surface .ps-form-container {
+  width: 100%;
+  max-width: 380px;
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+.public-surface .ps-form-title {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 0.25rem 0;
+}
+.public-surface .ps-form-subtitle {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  margin: 0 0 1.5rem 0;
+}
+.public-surface .ps-form-card {
+  background: var(--bg-elevated);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+.public-surface .ps-sso-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  border-radius: var(--radius-sm);
+  background: var(--bg-base);
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+.public-surface .ps-sso-icon {
+  color: var(--primary);
+  flex-shrink: 0;
+}
+.public-surface .ps-copyright {
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+.public-surface .ps-registration-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--green-bg);
+  border: 1px solid var(--green);
+  color: var(--green-light);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
