@@ -504,10 +504,12 @@ describe('M8: Security Monitoring page', () => {
       expect(screen.getByText('Audit Highlights')).toBeInTheDocument();
     });
 
-    // Notable events should render with their action_type labels
-    expect(screen.getByText('HITL_REVIEW')).toBeInTheDocument();
-    expect(screen.getByText('BREACH_DETECTED')).toBeInTheDocument();
-    expect(screen.getByText('PII_EXPORT')).toBeInTheDocument();
+    // Notable events are populated by an async audit-log fetch; wait for them.
+    await waitFor(() => {
+      expect(screen.getByText('HITL_REVIEW')).toBeInTheDocument();
+      expect(screen.getByText('BREACH_DETECTED')).toBeInTheDocument();
+      expect(screen.getByText('PII_EXPORT')).toBeInTheDocument();
+    });
 
     // UNRELATED_ACTION should NOT appear (not a notable type)
     expect(screen.queryByText('UNRELATED_ACTION')).not.toBeInTheDocument();
