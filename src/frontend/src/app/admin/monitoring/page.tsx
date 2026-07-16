@@ -21,6 +21,7 @@ import { AutoRefreshToast } from '@/components/ui/AutoRefreshToast';
 import type { SecurityLogFilter, BulkBlockPreviewResult } from '@/types/api';
 import { ShieldAlert, RefreshCw, AlertTriangle, Info, WifiOff } from 'lucide-react';
 import { BlockedIpsPanel } from './BlockedIpsPanel';
+import { BulkBlockPreviewPanel, type BulkGroupChoice } from './BulkBlockPreviewPanel';
 import { useAutoRefresh } from '@/lib/useAutoRefresh';
 
 type SeverityLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
@@ -301,7 +302,6 @@ export default function SecurityMonitoringPage() {
   // device group gets its own three-way choice — block that device, block
   // the IP(s) behind that group's logs instead, or skip it entirely — not
   // just an on/off toggle for device-blocking.
-  type BulkGroupChoice = 'device' | 'ip' | 'skip';
   const [bulkPreview, setBulkPreview] = useState<BulkBlockPreviewResult | null>(null);
   const [bulkPreviewLoading, setBulkPreviewLoading] = useState(false);
   const [bulkGroupChoices, setBulkGroupChoices] = useState<Record<string, BulkGroupChoice>>({});
@@ -340,49 +340,75 @@ export default function SecurityMonitoringPage() {
 
   const handleCancelBulkPreview = () => setBulkPreview(null);
 
+  // Each confirmed group/bucket is its own independent bulk-action call. A
+  // failure in one must not silently abandon the rest (the old single
+  // try/catch aborted the whole loop on the first error, leaving later
+  // groups untouched with no record of what was and wasn't applied) — every
+  // job runs regardless of earlier failures, and the final toast reports
+  // exactly what succeeded and what didn't so the admin can retry only the
+  // groups that actually failed instead of re-running the whole selection.
   const handleConfirmBulkBlocks = async () => {
     if (!bulkPreview) return;
     const blockIpOnly = bulkPreview.ip_only_log_ids.length > 0 && bulkIpOnlyChecked;
-    const anyDeviceGroupActive = bulkPreview.device_groups.some(
-      g => (bulkGroupChoices[g.device_token_hash] ?? 'device') !== 'skip'
-    );
 
-    if (!anyDeviceGroupActive && !blockIpOnly) {
+    type BulkBlockJob = { label: string; action: 'block_device' | 'block_ip'; log_ids: number[] };
+    const jobs: BulkBlockJob[] = [];
+    for (const group of bulkPreview.device_groups) {
+      const choice = bulkGroupChoices[group.device_token_hash] ?? 'device';
+      if (choice === 'skip') continue;
+      jobs.push({
+        label: `device ${group.device_token_hash.slice(0, 12)}…`,
+        action: choice === 'device' ? 'block_device' : 'block_ip',
+        log_ids: group.log_ids,
+      });
+    }
+    if (blockIpOnly) {
+      jobs.push({ label: 'IP-only logs', action: 'block_ip', log_ids: bulkPreview.ip_only_log_ids });
+    }
+
+    if (jobs.length === 0) {
       setBulkPreview(null);
       return;
     }
 
-    try {
-      let deviceLogCount = 0;
-      let ipLogCount = 0;
-      for (const group of bulkPreview.device_groups) {
-        const choice = bulkGroupChoices[group.device_token_hash] ?? 'device';
-        if (choice === 'skip') continue;
-        await bulkActionSecurityLogs({
-          log_ids: group.log_ids,
-          action: choice === 'device' ? 'block_device' : 'block_ip',
-          ttl_hours: 24,
-        });
-        if (choice === 'device') deviceLogCount += group.log_ids.length;
-        else ipLogCount += group.log_ids.length;
+    let deviceLogCount = 0;
+    let ipLogCount = 0;
+    const failures: string[] = [];
+
+    for (const job of jobs) {
+      try {
+        await bulkActionSecurityLogs({ log_ids: job.log_ids, action: job.action, ttl_hours: 24 });
+        if (job.action === 'block_device') deviceLogCount += job.log_ids.length;
+        else ipLogCount += job.log_ids.length;
+      } catch (err: unknown) {
+        const apiErr = err as { detail?: unknown; message?: string };
+        const detail = typeof apiErr.detail === 'string' ? apiErr.detail : apiErr.message;
+        failures.push(detail ? `${job.label} (${detail})` : job.label);
       }
-      if (blockIpOnly) {
-        await bulkActionSecurityLogs({ log_ids: bulkPreview.ip_only_log_ids, action: 'block_ip', ttl_hours: 24 });
-        ipLogCount += bulkPreview.ip_only_log_ids.length;
-      }
-      const parts = [
-        deviceLogCount > 0 ? `${deviceLogCount} log(s) by device` : null,
-        ipLogCount > 0 ? `${ipLogCount} log(s) by IP` : null,
-      ].filter(Boolean);
-      setToast({ type: 'success', text: `Blocked ${parts.join(' and ')}` });
+    }
+
+    const successParts = [
+      deviceLogCount > 0 ? `${deviceLogCount} log(s) by device` : null,
+      ipLogCount > 0 ? `${ipLogCount} log(s) by IP` : null,
+    ].filter(Boolean);
+
+    if (failures.length === 0) {
+      setToast({ type: 'success', text: `Blocked ${successParts.join(' and ')}` });
       setBulkPreview(null);
       setSelectedLogIds(new Set());
-      loadThreats();
-    } catch (err: unknown) {
-      const apiErr = err as { detail?: unknown; message?: string };
-      const detail = typeof apiErr.detail === 'string' ? apiErr.detail : undefined;
-      setToast({ type: 'error', text: detail || apiErr.message || 'Bulk block failed' });
+    } else if (successParts.length === 0) {
+      // Nothing succeeded — keep the panel open so the admin can retry
+      // without re-fetching/re-grouping the selection.
+      setToast({ type: 'error', text: `Bulk block failed for: ${failures.join('; ')}` });
+    } else {
+      setToast({
+        type: 'error',
+        text: `Blocked ${successParts.join(' and ')}, but failed for: ${failures.join('; ')}`,
+      });
+      setBulkPreview(null);
+      setSelectedLogIds(new Set());
     }
+    loadThreats();
   };
 
   const handleBlockByFilter = async () => {
@@ -441,35 +467,27 @@ export default function SecurityMonitoringPage() {
   }, [blockIpNow]);
 
   // Wayfinder #571: modified blocking flow — a row with a device_token_hash
-  // offers a device-vs-IP choice; never silently falls back to IP blocking
-  // when a hash is present (design spec §8.2).
-  const handleBlockLog = useCallback(async (log: ThreatLogItem) => {
-    if (!log.device_token_hash) {
-      await handleBlockSourceIp(log);
-      return;
-    }
+  // gets two dedicated buttons (Block Device / Block IP), each with its own
+  // single confirm(). Previously this was one button that chained two
+  // window.confirm() calls (OK = device, Cancel = "choose IP instead"); a
+  // reflexive Cancel-then-OK click could block an IP the admin never
+  // intended to touch. Two separate buttons remove that ambiguity — every
+  // confirm() unambiguously maps to exactly one outcome (do this, or abort).
+  const handleBlockDevice = useCallback(async (log: ThreatLogItem) => {
+    if (!log.device_token_hash) return;
     const truncated = `${log.device_token_hash.slice(0, 12)}…`;
-    const blockDevice = window.confirm(
-      `This alert is linked to device ${truncated}.\n\nOK = Block this device\nCancel = choose to block the IP instead`
-    );
-    if (blockDevice) {
-      try {
-        await blockSecurityLog(log.log_id, { type: 'device', ttl_hours: 24 });
-        setToast({ type: 'success', text: `Blocked device ${truncated}` });
-        loadThreats();
-      } catch (err: unknown) {
-        const apiErr = err as { detail?: unknown; message?: string };
-        const detail = typeof apiErr.detail === 'string' ? apiErr.detail : undefined;
-        setToast({ type: 'error', text: detail || apiErr.message || 'Failed to block device' });
-        console.error('blockSecurityLog(device) error', err);
-      }
-      return;
+    if (!window.confirm(`Block device ${truncated}? A repeat offender will be blocked permanently.`)) return;
+    try {
+      await blockSecurityLog(log.log_id, { type: 'device', ttl_hours: 24 });
+      setToast({ type: 'success', text: `Blocked device ${truncated}` });
+      loadThreats();
+    } catch (err: unknown) {
+      const apiErr = err as { detail?: unknown; message?: string };
+      const detail = typeof apiErr.detail === 'string' ? apiErr.detail : undefined;
+      setToast({ type: 'error', text: detail || apiErr.message || 'Failed to block device' });
+      console.error('blockSecurityLog(device) error', err);
     }
-    if (!window.confirm(`Block source IP ${log.source_ip} for 24 hours instead? A repeat offender will be blocked permanently.`)) {
-      return;
-    }
-    await blockIpNow(log);
-  }, [handleBlockSourceIp, blockIpNow, loadThreats]);
+  }, [loadThreats]);
 
   // T11: Create Incident handler
   const handleCreateIncident = useCallback(async (log: ThreatLogItem) => {
@@ -877,95 +895,15 @@ export default function SecurityMonitoringPage() {
           {/* Wayfinder #571: bulk grouping preview panel — only shown when the
               selection includes at least one device-linked log. */}
           {bulkPreview && (
-            <div
-              data-testid="bulk-block-preview-panel"
-              className="card-body pt-0"
-              style={{ borderTop: '1px solid var(--border-color)' }}
-            >
-              <div className="text-xs font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
-                Preview grouped blocks:
-              </div>
-              <div className="space-y-2 mb-3">
-                {bulkPreview.device_groups.map(group => {
-                  const choice = bulkGroupChoices[group.device_token_hash] ?? 'device';
-                  return (
-                    <div
-                      key={group.device_token_hash}
-                      data-testid="bulk-preview-device-group"
-                      className="flex flex-wrap items-center gap-3 text-xs"
-                    >
-                      <span className="font-mono font-bold" style={{ color: 'var(--text-primary)' }}>
-                        {group.device_token_hash.slice(0, 12)}…
-                      </span>
-                      <span style={{ color: 'var(--text-muted)' }}>
-                        ({group.log_ids.length} {group.log_ids.length === 1 ? 'log' : 'logs'})
-                      </span>
-                      <div className="flex items-center gap-3" role="radiogroup" aria-label={`Block choice for device ${group.device_token_hash}`}>
-                        <label className="flex items-center gap-1 cursor-pointer">
-                          <input
-                            type="radio"
-                            name={`bulk-group-choice-${group.device_token_hash}`}
-                            checked={choice === 'device'}
-                            onChange={() => setBulkGroupChoice(group.device_token_hash, 'device')}
-                          />
-                          Block Device
-                        </label>
-                        <label className="flex items-center gap-1 cursor-pointer">
-                          <input
-                            type="radio"
-                            name={`bulk-group-choice-${group.device_token_hash}`}
-                            checked={choice === 'ip'}
-                            onChange={() => setBulkGroupChoice(group.device_token_hash, 'ip')}
-                          />
-                          Block IP
-                        </label>
-                        <label className="flex items-center gap-1 cursor-pointer">
-                          <input
-                            type="radio"
-                            name={`bulk-group-choice-${group.device_token_hash}`}
-                            checked={choice === 'skip'}
-                            onChange={() => setBulkGroupChoice(group.device_token_hash, 'skip')}
-                          />
-                          Skip
-                        </label>
-                      </div>
-                    </div>
-                  );
-                })}
-                {bulkPreview.ip_only_log_ids.length > 0 && (
-                  <label
-                    data-testid="bulk-preview-ip-group"
-                    className="flex items-center gap-2 text-xs cursor-pointer"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={bulkIpOnlyChecked}
-                      onChange={() => setBulkIpOnlyChecked(v => !v)}
-                    />
-                    <span style={{ color: 'var(--text-muted)' }}>
-                      IP-only ({bulkPreview.ip_only_log_ids.length}{' '}
-                      {bulkPreview.ip_only_log_ids.length === 1 ? 'log' : 'logs'}, no device link) — Block source IP(s)
-                    </span>
-                  </label>
-                )}
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleConfirmBulkBlocks}
-                  className="px-3 py-1.5 text-xs font-semibold rounded-md transition-colors"
-                  style={{ backgroundColor: 'var(--bfp-maroon)', color: '#ffffff' }}
-                >
-                  Confirm Blocks
-                </button>
-                <button
-                  onClick={handleCancelBulkPreview}
-                  className="px-3 py-1.5 text-xs font-semibold rounded-md border transition-colors"
-                  style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
+            <BulkBlockPreviewPanel
+              preview={bulkPreview}
+              groupChoices={bulkGroupChoices}
+              onGroupChoiceChange={setBulkGroupChoice}
+              ipOnlyChecked={bulkIpOnlyChecked}
+              onIpOnlyToggle={() => setBulkIpOnlyChecked(v => !v)}
+              onConfirm={handleConfirmBulkBlocks}
+              onCancel={handleCancelBulkPreview}
+            />
           )}
         </div>
       )}
@@ -1133,21 +1071,40 @@ export default function SecurityMonitoringPage() {
                           Request More Info
                         </button>
 
-                        {/* Block Source IP / Device — primary action, maroon.
-                            Offers a device-vs-IP choice when the row carries
-                            a device_token_hash (Wayfinder #571). */}
-                        <button
-                          onClick={() => handleBlockLog(log)}
-                          className="px-2 py-1 text-[11px] font-semibold rounded transition-colors"
-                          style={{ backgroundColor: 'var(--bfp-maroon)', color: '#ffffff' }}
-                          title={
-                            log.device_token_hash
-                              ? 'Block this device or its source IP'
-                              : 'Block this source IP'
-                          }
-                        >
-                          {log.device_token_hash ? 'Block Device / IP' : 'Block Source IP'}
-                        </button>
+                        {/* Block Device / Block Source IP — two dedicated
+                            buttons when the row carries a device_token_hash
+                            (Wayfinder #571), each with its own single
+                            confirm() so neither action can be reached by
+                            accident via a chained Cancel/OK click. */}
+                        {log.device_token_hash ? (
+                          <>
+                            <button
+                              onClick={() => handleBlockDevice(log)}
+                              className="px-2 py-1 text-[11px] font-semibold rounded transition-colors"
+                              style={{ backgroundColor: 'var(--bfp-maroon)', color: '#ffffff' }}
+                              title="Block this device"
+                            >
+                              Block Device
+                            </button>
+                            <button
+                              onClick={() => handleBlockSourceIp(log)}
+                              className="px-2 py-1 text-[11px] font-semibold rounded border transition-colors"
+                              style={{ borderColor: 'var(--bfp-maroon)', color: 'var(--bfp-maroon)' }}
+                              title="Block this source IP instead"
+                            >
+                              Block IP
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            onClick={() => handleBlockSourceIp(log)}
+                            className="px-2 py-1 text-[11px] font-semibold rounded transition-colors"
+                            style={{ backgroundColor: 'var(--bfp-maroon)', color: '#ffffff' }}
+                            title="Block this source IP"
+                          >
+                            Block Source IP
+                          </button>
+                        )}
 
                         {/* Create Incident — secondary */}
                         <button
