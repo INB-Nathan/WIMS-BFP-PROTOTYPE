@@ -38,100 +38,6 @@ const URGENCY_COLORS: Record<string, string> = {
   general: '#94A3B8',
 };
 
-// ── Live ticker marquee ──────────────────────────────────────────────────────
-
-export function LiveTicker() {
-  const [titles, setTitles] = useState<string[]>([]);
-
-  useEffect(() => {
-    let cancelled = false;
-    publicApiFetch<Emergency[]>('/information/emergencies')
-      .then((data) => {
-        if (cancelled) return;
-        setTitles(
-          (data ?? [])
-            .slice(0, 12)
-            .map((e) => e.title)
-            .filter((t): t is string => Boolean(t)),
-        );
-      })
-      .catch(() => {
-        // Graceful degradation: an empty/failed fetch shows a calm default.
-        if (!cancelled) setTitles([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  return (
-    <div
-      className="landing-ticker"
-      style={{
-        background: '#8E1B1B',
-        color: '#fff',
-        padding: '10px 24px',
-        display: 'flex',
-        alignItems: 'center',
-        gap: 12,
-        overflow: 'hidden',
-        fontSize: '0.76rem',
-        borderBottom: '2px solid rgba(0,0,0,0.15)',
-      }}
-    >
-      <div
-        className="landing-ticker-label"
-        style={{
-          fontWeight: 700,
-          fontSize: '0.65rem',
-          letterSpacing: '0.08em',
-          textTransform: 'uppercase',
-          background: 'rgba(255,255,255,0.15)',
-          padding: '3px 10px',
-          borderRadius: 4,
-          flexShrink: 0,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 5,
-        }}
-      >
-        <span
-          className="landing-tick-dot"
-          style={{ width: 5, height: 5, borderRadius: '50%', background: '#4ADE80' }}
-        />
-        Live
-      </div>
-      <div className="landing-ticker-viewport" style={{ whiteSpace: 'nowrap', overflow: 'hidden', flex: 1 }}>
-        {titles.length > 0 ? (
-          <div className="landing-ticker-track" style={{ display: 'inline-flex' }}>
-            {[...titles, ...titles].map((t, i) => (
-              <span key={i} className="landing-ticker-item" style={{ marginRight: 40, opacity: 0.9 }}>
-                <strong style={{ opacity: 1 }}>{t}</strong>
-              </span>
-            ))}
-          </div>
-        ) : (
-          <span className="landing-ticker-item" style={{ opacity: 0.75 }}>
-            No active emergencies
-          </span>
-        )}
-      </div>
-      <style>{`
-        @keyframes landing-marquee {
-          from { transform: translateX(0); }
-          to { transform: translateX(-50%); }
-        }
-        .landing-ticker-track {
-          animation: landing-marquee 32s linear infinite;
-        }
-        .landing-ticker-viewport:hover .landing-ticker-track {
-          animation-play-state: paused;
-        }
-      `}</style>
-    </div>
-  );
-}
-
 // ── Active emergencies grid ──────────────────────────────────────────────────
 
 export function EmergenciesSection() {
@@ -253,6 +159,13 @@ export function AnnouncementsSection() {
 
   return (
     <section className="section" style={{ marginBottom: 36 }}>
+      {/* skeleton-pulse keyframe injected here — used by skeleton cards during loading */}
+      <style>{`
+        @keyframes skeleton-pulse {
+          0%, 100% { opacity: 0.3; }
+          50% { opacity: 0.7; }
+        }
+      `}</style>
       <div className="section-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
         <h2 style={{ fontFamily: 'var(--font-display, inherit)', fontSize: '1.1rem', fontWeight: 700 }}>BFP Announcements</h2>
       </div>
@@ -261,9 +174,26 @@ export function AnnouncementsSection() {
           Unable to load announcements right now. Please try again later.
         </p>
       ) : items === null ? (
-        <p style={{ color: 'var(--text-secondary)', fontSize: '0.84rem' }}>Loading announcements…</p>
+        /* ── Skeleton placeholders during fetch ── */
+        <div className="ann-skeleton-list" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {[1, 2, 3].map((i) => (
+            <div
+              key={i}
+              className="ann-skeleton-card"
+              data-testid="announcement-skeleton"
+              style={{
+                height: 52,
+                borderRadius: 8,
+                background: 'var(--bg-surface, #f3f4f6)',
+                animation: 'skeleton-pulse 1.8s ease-in-out infinite',
+              }}
+            />
+          ))}
+        </div>
       ) : items.length === 0 ? (
-        <p style={{ color: 'var(--text-secondary)', fontSize: '0.84rem' }}>No announcements.</p>
+        <p style={{ color: 'var(--text-secondary)', fontSize: '0.84rem' }} data-testid="announcements-empty">
+          No active announcements at this time.
+        </p>
       ) : (
         <div className="ann-list" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {items.map((a) => {

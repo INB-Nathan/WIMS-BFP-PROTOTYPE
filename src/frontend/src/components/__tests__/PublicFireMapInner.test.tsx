@@ -56,6 +56,11 @@ vi.mock('@/lib/api', () => ({
   fetchClusters: (...args: unknown[]) => mockFetchClusters(...args),
 }));
 
+const mockFetchStations = vi.fn();
+vi.mock('@/lib/api/map', () => ({
+  fetchStations: (...args: unknown[]) => mockFetchStations(...args),
+}));
+
 vi.mock('../map/leafletIcons', () => ({
   userLocationIcon: { options: { className: 'leaflet-user-location' } },
   firePinIcon: { options: { className: 'leaflet-fire-pin' } },
@@ -183,5 +188,48 @@ describe('PublicFireMapInner', () => {
     });
 
     expect(screen.getByText(/Could not get location/)).toBeInTheDocument();
+  });
+
+  describe('fire station layer', () => {
+    beforeEach(() => {
+      mockFetchStations.mockReset();
+    });
+
+    it('shows error banner when fetchStations rejects', async () => {
+      mockFetchStations.mockRejectedValue(new Error('network error'));
+      render(<PublicFireMapInner center={[14.6, 121.0]} zoom={10} showStations={true} />);
+
+      // The effect runs asynchronously; wait for the error banner to appear
+      const errorBanner = await screen.findByText('Unable to load fire stations');
+      expect(errorBanner).toBeInTheDocument();
+      expect(mockFetchStations).toHaveBeenCalledTimes(1);
+    });
+
+    it('shows success count badge when fetchStations resolves with data', async () => {
+      mockFetchStations.mockResolvedValue([
+        { station_id: 1, station_name: 'Station A', address: 'Addr A', region_name: 'Region 1', latitude: 14.6, longitude: 121.0 },
+        { station_id: 2, station_name: 'Station B', address: 'Addr B', region_name: 'Region 2', latitude: 14.7, longitude: 121.1 },
+      ]);
+      render(<PublicFireMapInner center={[14.6, 121.0]} zoom={10} showStations={true} />);
+
+      const badge = await screen.findByText('2 fire stations');
+      expect(badge).toBeInTheDocument();
+      expect(mockFetchStations).toHaveBeenCalledTimes(1);
+    });
+
+    it('shows singular badge when fetchStations returns 1 station', async () => {
+      mockFetchStations.mockResolvedValue([
+        { station_id: 1, station_name: 'Station A', address: null, region_name: null, latitude: 14.6, longitude: 121.0 },
+      ]);
+      render(<PublicFireMapInner center={[14.6, 121.0]} zoom={10} showStations={true} />);
+
+      const badge = await screen.findByText('1 fire station');
+      expect(badge).toBeInTheDocument();
+    });
+
+    it('does not fetch stations when showStations is false', () => {
+      render(<PublicFireMapInner center={[14.6, 121.0]} zoom={10} showStations={false} />);
+      expect(mockFetchStations).not.toHaveBeenCalled();
+    });
   });
 });
