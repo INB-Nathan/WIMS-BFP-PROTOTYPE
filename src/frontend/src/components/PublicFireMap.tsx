@@ -34,6 +34,8 @@ export interface PublicFireMapProps {
   onGeolocationAvailable?: (lat: number, lng: number) => void;
   /** Additional CSS class */
   className?: string;
+  /** Show fire-station markers on the map */
+  showStations?: boolean;
 }
 
 export function PublicFireMap({
@@ -45,6 +47,7 @@ export function PublicFireMap({
   selectedLocation,
   onGeolocationAvailable,
   className = '',
+  showStations = false,
 }: PublicFireMapProps) {
   const style = useMemo(() => {
     const h = typeof height === 'number' ? `${height}px` : height;
@@ -64,6 +67,7 @@ export function PublicFireMap({
         selectionMode={selectionMode}
         selectedLocation={selectedLocation}
         onGeolocationAvailable={onGeolocationAvailable}
+        showStations={showStations}
       />
     </div>
   );

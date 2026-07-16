@@ -60,6 +60,18 @@ export interface EmergencyServicesResponse {
 // ── API calls ───────────────────────────────────────────────────────────────
 
 /**
+ * Fetch all BFP fire stations (public, no auth).
+ * Returns all stations sorted by name. This endpoint is called from the
+ * public civilian portal (/fire-stations and the landing-page map layer).
+ *
+ * Path discovered: ref.py @router.get("/fire-stations") registered
+ * under the `/api/ref` prefix in main.py.
+ */
+export async function fetchStations(): Promise<StationItem[]> {
+  return publicApiFetch<StationItem[]>('/api/ref/fire-stations');
+}
+
+/**
  * Fetch clustered fire incident markers within a bounding box.
  *
  * @param sw - South-west corner [lat, lng]

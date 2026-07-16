@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   MapContainer,
   TileLayer,
@@ -12,6 +12,8 @@ import {
 } from 'react-leaflet';
 import L from 'leaflet';
 import { fetchClusters } from '@/lib/api';
+import { fetchStations } from '@/lib/api/map';
+import type { StationItem } from '@/lib/api/map';
 import { userLocationIcon, firePinIcon } from './map/leafletIcons';
 import type {
   MapClusterItem,
@@ -41,6 +43,7 @@ export interface PublicFireMapInnerProps {
   selectionMode?: boolean;
   selectedLocation?: [number, number] | null;
   onGeolocationAvailable?: (lat: number, lng: number) => void;
+  showStations?: boolean;
 }
 
 // ── Cluster color helpers ───────────────────────────────────────────────────
@@ -182,6 +185,7 @@ export default function PublicFireMapInner({
   selectionMode = false,
   selectedLocation,
   onGeolocationAvailable,
+  showStations = false,
 }: PublicFireMapInnerProps) {
   const [clusters, setClusters] = useState<MapClusterItem[]>([]);
   const [mapError, setMapError] = useState<string | null>(null);
@@ -190,6 +194,45 @@ export default function PublicFireMapInner({
     selectedLocation ?? null,
   );
   const [degraded, setDegraded] = useState(false);
+  const [stations, setStations] = useState<StationItem[] | null>(null);
+  const [stationError, setStationError] = useState(false);
+
+  // ── Fetch stations when layer is toggled on ─────────────────────────
+  useEffect(() => {
+    if (!showStations) {
+      setStations(null);
+      setStationError(false);
+      return;
+    }
+    let cancelled = false;
+    fetchStations()
+      .then((data) => {
+        if (!cancelled) {
+          setStations(data);
+          setStationError(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setStationError(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [showStations]);
+
+  // Station marker style (blue, distinct from cluster circles)
+  const stationIcon = useMemo(() => L.divIcon({
+    className: 'leaflet-station-marker',
+    html: `<div style="
+      width: 12px; height: 12px;
+      background: #3b82f6;
+      border: 2px solid #fff;
+      border-radius: 2px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+    "></div>`,
+    iconSize: [12, 12],
+    iconAnchor: [6, 6],
+  }), []);
 
   // Display-only geolocation state (non-selection mode)
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
@@ -399,6 +442,26 @@ export default function PublicFireMapInner({
               </div>
             </Popup>
           </CircleMarker>
+        ))}
+
+        {/* Fire-station markers (togglable layer) */}
+        {showStations && stationError && (
+          <div className="absolute bottom-12 left-3 z-[1000] bg-white/90 rounded-md px-3 py-1.5 text-xs text-red-600 shadow-sm border border-slate-200">
+            Unable to load fire stations
+          </div>
+        )}
+        {showStations && stations && stations.length > 0 && (
+          <div className="absolute bottom-12 left-3 z-[1000] bg-white/90 rounded-md px-3 py-1.5 text-xs text-slate-500 shadow-sm border border-slate-200">
+            {stations.length} fire station{stations.length !== 1 ? 's' : ''}
+          </div>
+        )}
+        {showStations && stations?.map((s) => (
+          <Marker
+            key={s.station_id}
+            position={[s.latitude, s.longitude]}
+            icon={stationIcon}
+            interactive={false}
+          />
         ))}
       </MapContainer>
 
