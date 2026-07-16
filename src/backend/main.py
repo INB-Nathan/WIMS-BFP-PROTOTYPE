@@ -795,6 +795,26 @@ async def _resync_blocklist_on_boot():
         logger.warning("Boot blocklist resync failed: %s", e)
 
 
+@app.on_event("startup")
+def _require_turnstile_secret_key():
+    """Fail fast at boot if TURNSTILE_SECRET_KEY is unset (issue #570
+    criterion 5). Previously this was only discovered per-request, the first
+    time an anonymous civilian submission or registration actually needed
+    CAPTCHA verification (services/captcha.py raises 500 there) — a
+    misconfigured deploy could sit unnoticed until a real user hit it.
+    .env.example ships a working default (Cloudflare's documented always-pass
+    test key), so every environment — dev, CI, and production — is expected
+    to have this set to *something*; there is no legitimate "not configured"
+    state to tolerate.
+    """
+    if not os.environ.get("TURNSTILE_SECRET_KEY", ""):
+        raise RuntimeError(
+            "TURNSTILE_SECRET_KEY must be set — see .env.example for a local/CI "
+            "dummy value (Cloudflare's always-pass test key) or configure the "
+            "real production secret."
+        )
+
+
 def _apply_users_rls(db) -> None:  # type: ignore[type-arg]
     """Broaden users SELECT policy so BFP staff roles can JOIN wims.users."""
     db.execute(text("DROP POLICY IF EXISTS users_self_or_admin_select ON wims.users"))
