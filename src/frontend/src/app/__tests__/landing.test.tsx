@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+import userEvent from '@testing-library/user-event';
 
 // Mock next/navigation (used by IntentModal)
 const mockPush = vi.fn();
@@ -10,8 +11,17 @@ vi.mock('next/navigation', () => ({
 // Mock next/link
 vi.mock('next/link', () => ({
   __esModule: true,
-  default: ({ children, href, ...rest }: { children: React.ReactNode; href: string }) => (
-    <a href={href} {...rest}>{children}</a>
+  default: ({
+    children,
+    href,
+    ...rest
+  }: {
+    children: React.ReactNode;
+    href: string;
+  }) => (
+    <a href={href} {...rest}>
+      {children}
+    </a>
   ),
 }));
 
@@ -30,6 +40,17 @@ vi.mock('@/components/LandingSections', () => ({
 vi.mock('@/components/PublicFireMap', () => ({
   PublicFireMap: ({ showStations }: { showStations?: boolean }) => (
     <div data-testid="public-fire-map" data-show-stations={String(showStations)} />
+  ),
+}));
+
+// Mock LandingSidebar — fires data is tested separately
+vi.mock('@/components/LandingSidebar', () => ({
+  LandingSidebar: ({ onClose }: { onClose?: () => void }) => (
+    <div data-testid="landing-sidebar-component">
+      <button data-testid="sidebar-close-btn" onClick={onClose}>
+        Close
+      </button>
+    </div>
   ),
 }));
 
@@ -55,7 +76,7 @@ describe('LandingPage (public landing /)', () => {
     expect(screen.getByTestId('public-fire-map')).toBeInTheDocument();
   });
 
-  it('renders emergencies and announcements sections', async () => {
+  it('renders emergencies and announcements sections in the sidebar mobile extra', async () => {
     const { default: LandingPage } = await import('../page');
     render(<LandingPage />);
     expect(screen.getByTestId('emergencies-section')).toBeInTheDocument();
@@ -63,8 +84,9 @@ describe('LandingPage (public landing /)', () => {
   });
 
   it('does NOT export LiveTicker from LandingSections', async () => {
-    // Bypass the LandingSections mock to check the real module no longer exports LiveTicker
-    const actualMod = await vi.importActual<Record<string, unknown>>('@/components/LandingSections');
+    const actualMod = await vi.importActual<Record<string, unknown>>(
+      '@/components/LandingSections',
+    );
     expect(actualMod.LiveTicker).toBeUndefined();
   });
 
@@ -73,15 +95,16 @@ describe('LandingPage (public landing /)', () => {
     render(<LandingPage />);
     // The old hero section displayed an h1 "WIMS-BFP" in the page markup.
     // The new page puts "WIMS-BFP" inside the IntentModal (mocked away),
-    // so no h1 should be directly in the page.
+    // and the header uses a span, not an h1.
     expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument();
   });
 
   it('does NOT render the old "Find a fire station" standalone card', async () => {
     const { default: LandingPage } = await import('../page');
     render(<LandingPage />);
-    // The old card had link text "Find a fire station"
-    expect(screen.queryByText(/Find a fire station/i)).not.toBeInTheDocument();
+    // The old card had a link with exact text "Find a fire station".
+    // The new sidebar link says "🚒 Find a fire station →" which includes an emoji prefix.
+    expect(screen.queryByRole('link', { name: 'Find a fire station' })).not.toBeInTheDocument();
   });
 
   it('renders the fire stations toggle button on the map overlay', async () => {
@@ -92,32 +115,71 @@ describe('LandingPage (public landing /)', () => {
     expect(toggleBtn).toHaveAttribute('aria-label', 'Toggle fire stations');
   });
 
+  it('renders the floating header with Register, Sign In, and Report a Fire', async () => {
+    const { default: LandingPage } = await import('../page');
+    render(<LandingPage />);
+    expect(screen.getByTestId('header-register')).toHaveAttribute('href', '/register');
+    expect(screen.getByTestId('header-signin')).toHaveAttribute('href', '/login');
+    expect(screen.getByTestId('header-report')).toHaveAttribute('href', '/report');
+  });
+
+  it('renders the sidebar', async () => {
+    const { default: LandingPage } = await import('../page');
+    render(<LandingPage />);
+    expect(screen.getByTestId('landing-sidebar')).toBeInTheDocument();
+    expect(screen.getByTestId('landing-sidebar-component')).toBeInTheDocument();
+  });
+
+  it('renders the FAB with link to /report', async () => {
+    const { default: LandingPage } = await import('../page');
+    render(<LandingPage />);
+    const fab = screen.getByTestId('fab-report');
+    expect(fab).toBeInTheDocument();
+    expect(fab).toHaveAttribute('href', '/report');
+  });
+
+  it('renders the sidebar toggle button', async () => {
+    const { default: LandingPage } = await import('../page');
+    render(<LandingPage />);
+    const toggleBtn = screen.getByTestId('sidebar-toggle-btn');
+    expect(toggleBtn).toBeInTheDocument();
+    expect(toggleBtn).toHaveAttribute('aria-label', 'Toggle active fires sidebar');
+  });
+
+  it('toggles sidebar open/close when toggle button is clicked', async () => {
+    const user = userEvent.setup();
+    const { default: LandingPage } = await import('../page');
+    render(<LandingPage />);
+    const sidebar = screen.getByTestId('landing-sidebar');
+    // Sidebar starts closed (no 'open' class)
+    expect(sidebar.className).not.toContain('open');
+
+    // Click toggle button to open
+    await user.click(screen.getByTestId('sidebar-toggle-btn'));
+    expect(sidebar.className).toContain('open');
+
+    // Click sidebar close button
+    await user.click(screen.getByTestId('sidebar-close-btn'));
+    expect(sidebar.className).not.toContain('open');
+  });
+
   it('renders footer with Privacy Policy and Register links', async () => {
     const { default: LandingPage } = await import('../page');
     render(<LandingPage />);
-    expect(screen.getByRole('link', { name: 'Privacy Policy' })).toHaveAttribute('href', '/privacy');
-    expect(screen.getByRole('link', { name: 'Register' })).toHaveAttribute('href', '/register');
-  });
-
-  it('renders the fire-stations link in the bottom sheet', async () => {
-    const { default: LandingPage } = await import('../page');
-    render(<LandingPage />);
-    // Find the link whose content includes "Fire stations" and "Locate the nearest"
-    const stationLinks = screen.getAllByRole('link');
-    const bottomStationLink = stationLinks.find(
-      (link) =>
-        link.getAttribute('href') === '/fire-stations' &&
-        link.textContent?.includes('Fire stations'),
+    expect(screen.getByRole('link', { name: 'Privacy Policy' })).toHaveAttribute(
+      'href',
+      '/privacy',
     );
-    expect(bottomStationLink).toBeTruthy();
-    expect(bottomStationLink?.textContent).toContain('Locate the nearest BFP station');
+    expect(screen.getByRole('link', { name: 'Register as a reporter' })).toHaveAttribute(
+      'href',
+      '/register',
+    );
   });
 
-  it('renders no old hero CTA buttons (Report a Fire, Become a Reporter, Sign In)', async () => {
+  it('does NOT render the old hero CTA buttons', async () => {
     const { default: LandingPage } = await import('../page');
     render(<LandingPage />);
-    // These were in the old hero section
+    // "Become a Reporter" was in the old hero — new header calls it "Register"
     expect(screen.queryByRole('link', { name: 'Become a Reporter' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: /^Sign In$/ })).not.toBeInTheDocument();
   });
 });
