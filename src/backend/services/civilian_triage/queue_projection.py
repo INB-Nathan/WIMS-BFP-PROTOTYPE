@@ -354,7 +354,17 @@ def get_queue(
                 FROM wims.citizen_reports cr
                 LEFT JOIN wims.ref_fire_stations fs ON fs.station_id = cr.nearest_station_id
                 LEFT JOIN wims.ref_regions rg ON rg.region_id = fs.region_id
-                LEFT JOIN wims.ref_provinces pr ON pr.region_id = rg.region_id
+                -- A region maps to MULTIPLE provinces (ref_provinces has
+                -- UNIQUE(region_id, province_name)), so a plain JOIN would
+                -- multiply rows per report. Use a scalar subquery to return
+                -- exactly ONE province_name per region (deterministic pick).
+                CROSS JOIN LATERAL (
+                    SELECT pr.province_name
+                    FROM wims.ref_provinces pr
+                    WHERE pr.region_id = rg.region_id
+                    ORDER BY pr.province_name
+                    LIMIT 1
+                ) pr
             ),
             dup_counts AS (
                 -- Duplicate device signals within 30 min for each report
