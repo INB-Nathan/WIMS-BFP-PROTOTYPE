@@ -112,14 +112,49 @@ async def test_verify_turnstile_empty_env_var(monkeypatch):
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_verify_turnstile_http_error_raises_429():
-    """Network/timeout error from Cloudflare → HTTPException(429)."""
+async def test_verify_turnstile_network_error_fails_open():
+    """Network/connection error reaching Cloudflare → fail OPEN (issue #570:
+    an outage of the CAPTCHA provider must not reject every anonymous
+    submission), not HTTPException."""
     respx.post(TURNSTILE_VERIFY_URL).mock(
         side_effect=httpx.RequestError("Connection failed"),
     )
 
-    with pytest.raises(HTTPException) as exc_info:
-        await verify_turnstile("test-token")
+    result = await verify_turnstile("test-token")
 
-    assert exc_info.value.status_code == 429
-    assert exc_info.value.detail == "CAPTCHA verification failed"
+    assert result is True
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_verify_turnstile_timeout_fails_open():
+    """Timeout reaching Cloudflare → fail OPEN, same as any other network error."""
+    respx.post(TURNSTILE_VERIFY_URL).mock(
+        side_effect=httpx.TimeoutException("Request timed out"),
+    )
+
+    result = await verify_turnstile("test-token")
+
+    assert result is True
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_verify_turnstile_upstream_5xx_fails_open():
+    """Cloudflare itself erroring (5xx) → fail OPEN, not a 429 rejection."""
+    respx.post(TURNSTILE_VERIFY_URL).respond(status_code=503)
+
+    result = await verify_turnstile("test-token")
+
+    assert result is True
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_verify_turnstile_malformed_json_fails_open():
+    """Cloudflare returning a non-JSON body → fail OPEN, not a crash."""
+    respx.post(TURNSTILE_VERIFY_URL).respond(status_code=200, content="not json")
+
+    result = await verify_turnstile("test-token")
+
+    assert result is True
