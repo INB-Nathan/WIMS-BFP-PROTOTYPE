@@ -4,14 +4,21 @@
 **Branch:** `feat/654-public-header-theme-unify` (base `5bb7f458`)
 
 ## Dependency order (must follow)
-1. **Step 0 (LayoutShell provider)** MUST land first — `PublicHeader` cannot call
-   `usePublicTheme()` until it is wrapped by `PublicThemeProvider`.
-2. **Step 3 (global CSS)** MUST land before Step 1 removes `PublicHeader`'s `<style jsx>`,
-   otherwise the header is unstyled.
-3. Steps 1, 2, 4, 5 can follow in any order after 0 + 3.
-4. Step 6 (tests) last.
+1. **Step 4 (add `showHeader` prop + import css in provider)** MUST land FIRST — Step 0 references
+   `showHeader={false}`, which does not exist yet (`PublicThemeProvider.tsx:31-37` only takes
+   `children` + `showThemeToggle`). Also the provider must import `public-surface.css` (see
+   step 4) BEFORE Step 5 removes the page-level imports, or the `.public-surface` tokens that
+   `PublicHeader` relies on vanish.
+2. **Step 0 (LayoutShell provider)** next — `PublicHeader` cannot call `usePublicTheme()` until
+   wrapped by `PublicThemeProvider`.
+3. **Step 3 (global CSS)** MUST land before Step 1 removes `PublicHeader`'s `<style jsx>`, else
+   the header is unstyled. Must also define `.btn-theme-toggle` (no CSS exists today — only
+   `.public-surface .ps-theme-toggle` at `public-surface.css:291-310`).
+4. Steps 1, 2, 5 can follow after 0 + 3 + 4.
+5. Step 6 (tests) last.
 
----
+> Note: `PublicHeader.test.tsx` lives at `src/frontend/src/components/PublicHeader.test.tsx`
+> (NOT `components/__tests__/`). `landing.test.tsx` is at `src/frontend/src/app/__tests__/`.
 
 ## Step 0 — `LayoutShell.tsx`: single public-theme owner (BLOCKER fix)
 **File:** `src/frontend/src/components/LayoutShell.tsx`
@@ -78,24 +85,51 @@ overrides `~726-742`.
   `.landing-header-right .btn-ghost/-outline/-primary` (+ `:hover`/`:focus-visible`) using
   `var(--text-secondary)`, `var(--text-primary)`, `var(--border-strong)`, `var(--red)`,
   `var(--red-deep)` — exact values from `page.tsx:362-419`.
+- **`.btn-theme-toggle` global rule (REQUIRED — no CSS exists today):** add a global equivalent
+  of `.public-surface .ps-theme-toggle` (`public-surface.css:291-310`) so the landing/
+  PublicHeader toggle is styled outside `.public-surface` scope:
+  ```css
+  .btn-theme-toggle {
+    padding: 6px 12px; border-radius: var(--radius-sm); font-size: 0.74rem; font-weight: 600;
+    font-family: var(--font); background: var(--bg-surface); border: 1px solid var(--border-strong);
+    color: var(--text-primary); cursor: pointer; transition: border-color var(--transition), background var(--transition);
+  }
+  .btn-theme-toggle:hover { border-color: var(--border-strong); background: var(--bg-hover); }
+  .btn-theme-toggle:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+  ```
+  (Alternatively keep both classes `className="btn-theme-toggle ps-theme-toggle"` on the button
+  and rely on `.public-surface .ps-theme-toggle` when inside the wrapper — but the global rule is
+  safer since `PublicHeader` renders the toggle on routes where `.public-surface` is the wrapper
+  ancestor via LayoutShell, so either works; prefer the explicit global rule.)
 - `[data-theme="light"]` overrides (from `page.tsx:726-742`).
 - Civilian nav + avatar (prototype `ah-primary-nav`/`ah-avatar`,
   `prototypes/public-surface/index.html:1304-1309, 1171-1180`):
   `.landing-header-nav { display:none } @media(min-width:768px){ .landing-header-nav{display:flex} }`
   `.landing-header-avatar { width:32px;height:32px;border-radius:50%;background:var(--bg-surface);
   color:var(--text-secondary);... }`
-- **Responsive guard:** civilian nav links use their own class (not bare `.btn-ghost`) OR add
-  explicit `.landing-header-nav .btn-ghost { display:inline }` on mobile so `page.tsx:892-893`
-  (which hides `.btn-ghost`/`.btn-outline` in `.landing-header-right`) does NOT hide them.
+- **Responsive note (corrected):** `page.tsx:892-893` hides `.landing-header-right .btn-ghost`/
+  `.btn-outline` ONLY via the landing page's OWN inline style, and `LayoutShell` never mounts
+  `PublicHeader` on `/` (`LayoutShell.tsx:87-93`). So civilian links on other routes do NOT hit
+  that rule. No cross-route conflict exists; the guard in the earlier draft was unnecessary.
+  Just ensure civilian nav is `display:none` below 768px (per above) and test intended mobile
+  visibility, not a nonexistent conflict.
 **Verify:** `PublicHeader` (outside `.public-surface`? no — it's now inside provider wrapper)
 resolves `var(--*)` and shows correct dark chrome on `/login`, `/register`, `/contributor`, etc.
 
-## Step 4 — `PublicThemeProvider.tsx`: add `showHeader` prop
+## Step 4 — `PublicThemeProvider.tsx`: add `showHeader` prop + own the CSS import
 **File:** `src/frontend/src/components/public/PublicThemeProvider.tsx`
-**Anchor:** signature `~31`, `ps-header` JSX `~54-72`.
-**Change:** `export function PublicThemeProvider({ children, showThemeToggle = true, showHeader = true }: ...)`.
-Conditionally render `{showHeader && (<header className="ps-header">...</header>)}`.
-Keep `usePublicTheme` export + `.public-surface` wrapper + footer unchanged.
+**Anchor:** signature `~31-37`, `ps-header` JSX `~54-72`, no css import today (`rg` confirms
+provider imports no `.css`).
+**Change:**
+- Add `import '@/styles/public-surface.css';` at top (this becomes the single owner of the
+  public-surface design system; Step 5 then removes the page-level imports safely).
+- Change signature: `export function PublicThemeProvider({ children, showThemeToggle = true,
+  showHeader = true }: { children: React.ReactNode; showThemeToggle?: boolean; showHeader?: boolean })`.
+- Conditionally render `{showHeader && (<header className="ps-header">...</header>)}`
+  (wrap the existing `ps-header` block).
+- Keep `usePublicTheme` export + `.public-surface` wrapper + footer unchanged.
+**Why this lands FIRST:** Step 0 needs `showHeader` to exist; and the `.public-surface` CSS must
+be loaded by the provider (not the pages) or `PublicHeader`'s token scope breaks at Step 5.
 
 ## Step 5 — `report/page.tsx` & `tracking/page.tsx`: drop own provider + css import
 **Files:** `src/frontend/src/app/report/page.tsx`, `src/frontend/src/app/tracking/page.tsx`
@@ -107,7 +141,8 @@ Keep `usePublicTheme` export + `.public-surface` wrapper + footer unchanged.
 **Verify:** `/report` and `/tracking` render exactly ONE header (no `ps-header` duplicate).
 
 ## Step 6 — Tests
-**File:** `src/frontend/src/components/__tests__/PublicHeader.test.tsx`
+**File:** `src/frontend/src/components/PublicHeader.test.tsx` (note: this path, not
+`components/__tests__/`)
 - Replace all `.public-header` selectors with `.landing-header` (staff asserts ~:201-287,
   FAB tests ~:148-179 → remove FAB expectations or convert to `.landing-header` report link).
 - Add civilian assertions: Home/Dashboard/Information links present + `.landing-header-avatar`
@@ -124,12 +159,39 @@ Keep `usePublicTheme` export + `.public-surface` wrapper + footer unchanged.
 **New (route-level one-header):**
 - Render `/report` and `/tracking` (mocked) and assert exactly one `<header>` element present.
 
+## Validation findings (openai-codex/gpt-5.6-terra, medium reasoning — 2026-07-17)
+
+Verdict: REVISE. Two BLOCKERs from round 1 were fixed; medium reasoning surfaced two NEW
+BLOCKERs + corrections, now applied to this plan:
+
+- **BLOCKER — impossible dependency order.** Step 0 used `showHeader={false}` but the prop
+  only existed in the (later) Step 4 (`PublicThemeProvider.tsx:31-37`). *Fixed:* Step 4
+  (now renumbered to land FIRST) adds `showHeader` + the provider's own `public-surface.css`
+  import before Step 0/Step 5.
+- **BLOCKER — token CSS would vanish.** `public-surface.css` was imported ONLY by
+  `report/page.tsx:5` + `tracking/page.tsx:10`; the provider imported no CSS. Removing both
+  page imports (old Step 5) would delete the `.public-surface` tokens `PublicHeader` needs.
+  *Fixed:* Step 4 makes the provider the single owner of `public-surface.css`; Step 5 then
+  safely drops the page imports.
+- **WARNING — unstyled toggle.** `btn-theme-toggle` has NO CSS definition anywhere (only
+  `.public-surface .ps-theme-toggle` at `public-surface.css:291-310`). *Fixed:* Step 3 adds a
+  global `.btn-theme-toggle` rule.
+- **WARNING — mobile-hide premise wrong.** `page.tsx:892-893` hides `.btn-ghost`/`.btn-outline`
+  only via the landing page's OWN inline style, and `PublicHeader` never mounts on `/`
+  (`LayoutShell.tsx:87-93`). No cross-route conflict; the earlier guard was unnecessary.
+  *Fixed:* Step 3 responsive note corrected.
+- **INFO — test path wrong.** `PublicHeader.test.tsx` is at
+  `src/frontend/src/components/PublicHeader.test.tsx`, NOT `components/__tests__/`. *Fixed:*
+  Step 6 path corrected; verification command updated.
+
 ---
+
 
 ## Verification checklist
 1. `npx eslint src/frontend/src/components/PublicHeader.tsx src/frontend/src/app/page.tsx
-   src/frontend/src/components/public/PublicThemeProvider.tsx src/frontend/src/components/LayoutShell.tsx`
-2. `npx vitest run src/app/__tests__/landing.test.tsx src/components/__tests__/PublicHeader.test.tsx`
+   src/frontend/src/components/public/PublicThemeProvider.tsx src/frontend/src/components/LayoutShell.tsx
+   src/frontend/src/styles/public-header.css`
+2. `npx vitest run src/frontend/src/app/__tests__/landing.test.tsx src/frontend/src/components/PublicHeader.test.tsx`
 3. `npm run lint` (0 new errors)
 4. `npm run build` (passes)
 5. Manual: `/` anon → opaque `.landing-header` + `ps-theme-toggle`; civilian login →
