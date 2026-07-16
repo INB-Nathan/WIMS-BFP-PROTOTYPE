@@ -43,6 +43,8 @@ describe('PublicHeader', () => {
       render(<PublicHeader />);
       const reportButtons = screen.getAllByText('Report a Fire');
       expect(reportButtons.length).toBeGreaterThan(0);
+      const reportLinks = screen.getAllByRole('link', { name: /Report a Fire/i });
+      reportLinks.forEach((link) => expect(link).toHaveAttribute('href', '/report'));
     });
 
     it('does not render nav links for anonymous users', () => {
@@ -102,6 +104,8 @@ describe('PublicHeader', () => {
       render(<PublicHeader />);
       const reportButtons = screen.getAllByText('Report a Fire');
       expect(reportButtons.length).toBeGreaterThan(0);
+      const reportLinks = screen.getAllByRole('link', { name: /Report a Fire/i });
+      reportLinks.forEach((link) => expect(link).toHaveAttribute('href', '/report'));
     });
 
     it('does not render Register or Sign In buttons', () => {
@@ -141,7 +145,7 @@ describe('PublicHeader', () => {
     it('FAB has accessible label', () => {
       const { container } = render(<PublicHeader />);
       const fab = container.querySelector('.public-fab');
-      expect(fab).toHaveAttribute('aria-label', 'Report a fire');
+      expect(fab).toHaveAttribute('aria-label', 'Report a Fire');
     });
   });
 

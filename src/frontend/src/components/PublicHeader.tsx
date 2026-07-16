@@ -79,8 +79,8 @@ export function PublicHeader() {
             )}
 
             {isCivilian && (
-              <div className="public-header-avatar">
-                {user.preferred_username?.[0]?.toUpperCase() || user.email?.[0]?.toUpperCase() || 'U'}
+              <div className="public-header-avatar" role="img" aria-label={user.preferred_username || user.email || 'User avatar'}>
+                {user.preferred_username?.[0]?.toUpperCase() || user.sub?.[0]?.toUpperCase() || 'U'}
               </div>
             )}
 
@@ -94,7 +94,7 @@ export function PublicHeader() {
       </header>
 
       {/* Mobile FAB (hidden on desktop) */}
-      <Link href="/report" className="public-fab" aria-label="Report a fire">
+      <Link href="/report" className="public-fab" aria-label="Report a Fire">
         <AlertCircle size={24} aria-hidden />
       </Link>
 
