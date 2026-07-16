@@ -309,6 +309,413 @@
   outline-offset: 2px;
 }
 
+/* ────────────────────────────────────────────────────────────────
+ * Information + Incidents (#653)
+ * Public Information Hub (/information) and the /incidents redirector,
+ * styled with the shared public-surface tokens. No new hardcoded hex —
+ * every color reuses a .public-surface token.
+ * ──────────────────────────────────────────────────────────────── */
+
+.public-surface .ps-header-logo-link {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+.public-surface .ps-header-title {
+  font-family: var(--font);
+  font-weight: 700;
+  font-size: 0.95rem;
+  letter-spacing: 0.02em;
+  color: var(--text-primary);
+}
+
+.public-surface .ps-content {
+  position: relative;
+  z-index: 1;
+  min-height: calc(100vh - 104px);
+}
+.public-surface .ps-info-inner {
+  max-width: 72rem;
+  margin: 0 auto;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.public-surface .ps-info-title {
+  font-family: var(--font);
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+.public-surface .ps-info-subtitle {
+  margin: 4px 0 0;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+/* Tabs */
+.public-surface .ps-info-tabs {
+  display: flex;
+  gap: 4px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px;
+}
+.public-surface .ps-info-tab {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  font-family: var(--font);
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.public-surface .ps-info-tab:hover {
+  color: var(--text-secondary);
+  background: var(--bg-hover);
+}
+.public-surface .ps-info-tab.is-active {
+  background: var(--red);
+  color: #fff;
+}
+.public-surface .ps-info-tab:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* Anonymous-only CTA */
+.public-surface .ps-info-cta {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--primary-bg);
+  border: 1px solid var(--primary);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+}
+@media (min-width: 640px) {
+  .public-surface .ps-info-cta {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+}
+.public-surface .ps-info-cta-body h2 {
+  margin: 0 0 4px;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.public-surface .ps-info-cta-body p {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+/* Filters */
+.public-surface .ps-filters {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+}
+@media (min-width: 640px) {
+  .public-surface .ps-filters {
+    grid-template-columns: minmax(220px, 2fr) repeat(3, minmax(132px, 1fr)) auto;
+    align-items: end;
+  }
+}
+.public-surface .ps-filter-field {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+.public-surface .ps-filter-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.public-surface .ps-filter-input-wrap {
+  position: relative;
+}
+.public-surface .ps-filter-icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  pointer-events: none;
+}
+.public-surface .ps-filters .ps-input,
+.public-surface .ps-filters .ps-select {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-family: var(--font);
+  font-size: 0.85rem;
+}
+.public-surface .ps-filter-input-wrap .ps-input {
+  padding-left: 32px;
+}
+.public-surface .ps-filters .ps-input:focus,
+.public-surface .ps-filters .ps-select:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+.public-surface .ps-filter-result-count {
+  margin: 8px 2px 0;
+  font-size: 0.78rem;
+}
+
+/* Pills (severity / status / urgency) */
+.public-surface .ps-pill {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.public-surface .ps-pill-red {
+  background: var(--red-bg);
+  color: var(--red-light);
+}
+.public-surface .ps-pill-orange {
+  background: var(--orange-bg);
+  color: var(--orange-light);
+}
+.public-surface .ps-pill-green {
+  background: var(--green-bg);
+  color: var(--green-light);
+}
+.public-surface .ps-pill-cyan {
+  background: var(--blue-bg);
+  color: var(--blue);
+}
+.public-surface .ps-pill-slate {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+
+/* Emergency list */
+.public-surface .ps-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.public-surface .ps-list-item {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 14px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  box-shadow: var(--shadow);
+}
+.public-surface .ps-sev-bar {
+  width: 3px;
+  align-self: stretch;
+  border-radius: 2px;
+  min-height: 40px;
+}
+.public-surface .ps-list-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.public-surface .ps-list-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.public-surface .ps-list-loc {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+.public-surface .ps-list-desc {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+.public-surface .ps-list-meta {
+  text-align: right;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+.public-surface .ps-list-time {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+/* Announcements */
+.public-surface .ps-announcement-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.public-surface .ps-announcement-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--red);
+  border-radius: var(--radius);
+  padding: 20px;
+  box-shadow: var(--shadow);
+}
+.public-surface .ps-announcement-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+.public-surface .ps-announcement-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.public-surface .ps-announcement-body {
+  margin: 4px 0 0;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+.public-surface .ps-announcement-img {
+  margin-top: 12px;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+.public-surface .ps-announcement-img img {
+  display: block;
+  width: 100%;
+  max-height: 320px;
+  object-fit: cover;
+}
+
+/* Guide cards */
+.public-surface .ps-info-guide-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+@media (min-width: 640px) {
+  .public-surface .ps-info-guide-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+@media (min-width: 1024px) {
+  .public-surface .ps-info-guide-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+.public-surface .ps-info-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  box-shadow: var(--shadow);
+}
+.public-surface .ps-info-card-icon {
+  color: var(--primary);
+  margin-bottom: 12px;
+}
+.public-surface .ps-info-card-title {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.public-surface .ps-info-card-desc {
+  margin: 4px 0 0;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+/* Empty / status states */
+.public-surface .ps-empty {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 40px 24px;
+  text-align: center;
+  box-shadow: var(--shadow);
+}
+.public-surface .ps-empty-icon {
+  display: flex;
+  justify-content: center;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+}
+.public-surface .ps-empty-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.public-surface .ps-empty-text {
+  margin: 8px 0 0;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+.public-surface .ps-status-msg {
+  color: var(--text-secondary);
+}
+.public-surface .ps-alert {
+  border: 1px solid var(--orange-bg);
+  background: var(--orange-bg);
+  border-radius: var(--radius);
+  padding: 16px;
+}
+.public-surface .ps-alert p {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 0.85rem;
+}
+.public-surface .ps-alert button {
+  margin-top: 8px;
+  background: none;
+  border: none;
+  color: var(--primary);
+  text-decoration: underline;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
 /* ── Auth screens: register + login (issue #652) ──
  * Reuses the prototype palette via the .public-surface token scope.
  * No new hex values are introduced here. */
