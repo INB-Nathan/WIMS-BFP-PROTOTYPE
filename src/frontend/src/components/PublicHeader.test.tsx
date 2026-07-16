@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { PublicHeader } from './PublicHeader';
 import * as AuthContext from '@/context/AuthContext';
+import * as PublicThemeProvider from '@/components/public/PublicThemeProvider';
 
 const mockUsePathname = vi.hoisted(() => vi.fn(() => '/'));
 
@@ -10,48 +11,128 @@ vi.mock('@/context/AuthContext', () => ({
   useAuth: vi.fn(),
 }));
 
+// Mock the public theme provider (no DOM side effects in tests)
+vi.mock('@/components/public/PublicThemeProvider', () => ({
+  usePublicTheme: vi.fn(() => ({ theme: 'dark', toggleTheme: vi.fn() })),
+}));
+
 vi.mock('next/navigation', () => ({
   usePathname: () => mockUsePathname(),
 }));
+
+const defaultAuth = {
+  user: null as null | Record<string, unknown>,
+  isAuthenticated: false,
+  serverValidated: false,
+  canQueueOfflineWrites: false,
+  loading: false,
+  loggingOut: false,
+  login: vi.fn(),
+  logout: vi.fn(),
+  refreshSession: vi.fn(),
+};
+
+const staffUser = (role: string) => ({
+  ...defaultAuth,
+  user: { id: '1', email: `${role.toLowerCase()}@test.com`, role, assignedRegionId: null },
+  isAuthenticated: true,
+  serverValidated: true,
+  canQueueOfflineWrites: true,
+});
+
+const civilianUser = {
+  ...defaultAuth,
+  user: {
+    id: '123',
+    email: 'civilian@test.com',
+    preferred_username: 'civilian_user',
+    sub: 'sub-123',
+    role: 'CIVILIAN_REPORTER',
+    assignedRegionId: null,
+  },
+  isAuthenticated: true,
+  serverValidated: true,
+  canQueueOfflineWrites: true,
+};
 
 describe('PublicHeader', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockUsePathname.mockReturnValue('/');
+    vi.mocked(PublicThemeProvider.usePublicTheme).mockReturnValue({
+      theme: 'dark',
+      toggleTheme: vi.fn(),
+    });
+    vi.mocked(AuthContext.useAuth).mockReturnValue(defaultAuth);
+  });
+
+  describe('Staff roles', () => {
+    it('does not render for REGIONAL_ENCODER', () => {
+      vi.mocked(AuthContext.useAuth).mockReturnValue(staffUser('REGIONAL_ENCODER'));
+      const { container } = render(<PublicHeader />);
+      expect(screen.queryByRole('banner')).not.toBeInTheDocument();
+      expect(container.querySelector('.landing-header')).not.toBeInTheDocument();
+    });
+
+    it('does not render for NATIONAL_VALIDATOR', () => {
+      vi.mocked(AuthContext.useAuth).mockReturnValue(staffUser('NATIONAL_VALIDATOR'));
+      const { container } = render(<PublicHeader />);
+      expect(screen.queryByRole('banner')).not.toBeInTheDocument();
+      expect(container.querySelector('.landing-header')).not.toBeInTheDocument();
+    });
+
+    it('does not render for NATIONAL_ANALYST', () => {
+      vi.mocked(AuthContext.useAuth).mockReturnValue(staffUser('NATIONAL_ANALYST'));
+      const { container } = render(<PublicHeader />);
+      expect(screen.queryByRole('banner')).not.toBeInTheDocument();
+      expect(container.querySelector('.landing-header')).not.toBeInTheDocument();
+    });
+
+    it('does not render for SYSTEM_ADMIN', () => {
+      vi.mocked(AuthContext.useAuth).mockReturnValue(staffUser('SYSTEM_ADMIN'));
+      const { container } = render(<PublicHeader />);
+      expect(screen.queryByRole('banner')).not.toBeInTheDocument();
+      expect(container.querySelector('.landing-header')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('Loading state', () => {
+    it('does not render during auth loading', () => {
+      vi.mocked(AuthContext.useAuth).mockReturnValue({ ...defaultAuth, loading: true });
+      const { container } = render(<PublicHeader />);
+      expect(screen.queryByRole('banner')).not.toBeInTheDocument();
+      expect(container.querySelector('.landing-header')).not.toBeInTheDocument();
+    });
   });
 
   describe('Anonymous state', () => {
     beforeEach(() => {
-      vi.mocked(AuthContext.useAuth).mockReturnValue({
-        user: null,
-        isAuthenticated: false,
-        serverValidated: false,
-        canQueueOfflineWrites: false,
-        loading: false,
-        loggingOut: false,
-        login: vi.fn(),
-        logout: vi.fn(),
-        refreshSession: vi.fn(),
-      });
+      vi.mocked(AuthContext.useAuth).mockReturnValue(defaultAuth);
     });
 
-    it('renders the WIMS-BFP logo', () => {
+    it('renders .landing-header', () => {
+      const { container } = render(<PublicHeader />);
+      expect(container.querySelector('.landing-header')).toBeInTheDocument();
+      expect(screen.getByRole('banner')).toBeInTheDocument();
+    });
+
+    it('renders the WIMS-BFP title', () => {
       render(<PublicHeader />);
       expect(screen.getByText('WIMS-BFP')).toBeInTheDocument();
     });
 
-    it('renders Register and Sign In buttons', () => {
+    it('renders header-register, header-signin, header-report links', () => {
       render(<PublicHeader />);
-      expect(screen.getByText('Register')).toBeInTheDocument();
-      expect(screen.getByText('Sign In')).toBeInTheDocument();
+      expect(screen.getByTestId('header-register')).toHaveAttribute('href', '/register');
+      expect(screen.getByTestId('header-signin')).toHaveAttribute('href', '/login');
+      expect(screen.getByTestId('header-report')).toHaveAttribute('href', '/report');
     });
 
-    it('renders Report a Fire button for desktop', () => {
+    it('renders theme-toggle button', () => {
       render(<PublicHeader />);
-      const reportButtons = screen.getAllByText('Report a Fire');
-      expect(reportButtons.length).toBeGreaterThan(0);
-      const reportLinks = screen.getAllByRole('link', { name: /Report a Fire/i });
-      reportLinks.forEach((link) => expect(link).toHaveAttribute('href', '/report'));
+      const toggle = screen.getByTestId('theme-toggle');
+      expect(toggle).toBeInTheDocument();
+      expect(toggle.tagName).toBe('BUTTON');
     });
 
     it('does not render nav links for anonymous users', () => {
@@ -63,228 +144,79 @@ describe('PublicHeader', () => {
 
     it('does not render avatar for anonymous users', () => {
       const { container } = render(<PublicHeader />);
-      expect(container.querySelector('.public-header-avatar')).not.toBeInTheDocument();
+      expect(container.querySelector('.landing-header-avatar')).not.toBeInTheDocument();
     });
   });
 
   describe('Logged-in civilian state', () => {
     beforeEach(() => {
-      vi.mocked(AuthContext.useAuth).mockReturnValue({
-        user: {
-          id: '123',
-          email: 'civilian@test.com',
-          preferred_username: 'civilian_user',
-          role: 'CIVILIAN_REPORTER',
-          assignedRegionId: null,
-        },
-        isAuthenticated: true,
-        serverValidated: true,
-        canQueueOfflineWrites: true,
-        loading: false,
-        loggingOut: false,
-        login: vi.fn(),
-        logout: vi.fn(),
-        refreshSession: vi.fn(),
-      });
+      vi.mocked(AuthContext.useAuth).mockReturnValue(civilianUser);
     });
 
-    it('renders the WIMS-BFP logo', () => {
-      render(<PublicHeader />);
-      expect(screen.getByText('WIMS-BFP')).toBeInTheDocument();
+    it('renders .landing-header', () => {
+      const { container } = render(<PublicHeader />);
+      expect(container.querySelector('.landing-header')).toBeInTheDocument();
+      expect(screen.getByRole('banner')).toBeInTheDocument();
     });
 
     it('renders nav links: Home, Dashboard, Information', () => {
       render(<PublicHeader />);
-      expect(screen.getByText('Home')).toBeInTheDocument();
-      expect(screen.getByText('Dashboard')).toBeInTheDocument();
-      expect(screen.getByText('Information')).toBeInTheDocument();
+      const nav = screen.getByRole('navigation', { name: 'Primary navigation' });
+      expect(nav).toBeInTheDocument();
+      expect(screen.getByText('Home')).toHaveAttribute('href', '/');
+      expect(screen.getByText('Dashboard')).toHaveAttribute('href', '/contributor');
+      expect(screen.getByText('Information')).toHaveAttribute('href', '/information');
     });
 
-    it('renders profile avatar with initial', () => {
+    it('renders profile avatar with aria-label = email or username', () => {
       render(<PublicHeader />);
-      const avatar = screen.getByText('C'); // 'C' from 'civilian_user'
-      expect(avatar).toBeInTheDocument();
-      expect(avatar.className).toContain('public-header-avatar');
+      const avatar = screen.getByRole('img', { name: 'civilian_user' });
+      expect(avatar.className).toContain('landing-header-avatar');
+      expect(avatar).toHaveTextContent('C');
     });
 
-    it('renders Report a Fire button', () => {
+    it('renders Report a Fire link', () => {
       render(<PublicHeader />);
-      const reportButtons = screen.getAllByText('Report a Fire');
-      expect(reportButtons.length).toBeGreaterThan(0);
-      const reportLinks = screen.getAllByRole('link', { name: /Report a Fire/i });
-      reportLinks.forEach((link) => expect(link).toHaveAttribute('href', '/report'));
+      const report = screen.getByTestId('header-report');
+      expect(report).toHaveAttribute('href', '/report');
     });
 
     it('does not render Register or Sign In buttons', () => {
       render(<PublicHeader />);
-      expect(screen.queryByText('Register')).not.toBeInTheDocument();
-      expect(screen.queryByText('Sign In')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('header-register')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('header-signin')).not.toBeInTheDocument();
     });
   });
 
-  describe('Report page', () => {
+  describe('Report page (hide CTA)', () => {
     beforeEach(() => {
-      vi.mocked(AuthContext.useAuth).mockReturnValue({
-        user: null,
-        isAuthenticated: false,
-        serverValidated: false,
-        canQueueOfflineWrites: false,
-        loading: false,
-        loggingOut: false,
-        login: vi.fn(),
-        logout: vi.fn(),
-        refreshSession: vi.fn(),
-      });
+      vi.mocked(AuthContext.useAuth).mockReturnValue(civilianUser);
       mockUsePathname.mockReturnValue('/report');
     });
 
-    it('does not render redundant Report a Fire actions', () => {
-      const { container } = render(<PublicHeader />);
-      expect(screen.queryByRole('link', { name: /Report a Fire/i })).not.toBeInTheDocument();
-      expect(container.querySelector('.public-fab')).not.toBeInTheDocument();
+    it('hides the Report a Fire link on /report', () => {
+      render(<PublicHeader />);
+      expect(screen.queryByTestId('header-report')).not.toBeInTheDocument();
     });
   });
 
-  describe('FAB (Floating Action Button)', () => {
-    beforeEach(() => {
-      vi.mocked(AuthContext.useAuth).mockReturnValue({
-        user: null,
-        isAuthenticated: false,
-        serverValidated: false,
-        canQueueOfflineWrites: false,
-        loading: false,
-        loggingOut: false,
-        login: vi.fn(),
-        logout: vi.fn(),
-        refreshSession: vi.fn(),
+  describe('Theme toggle label', () => {
+    it('shows Dark label when theme is dark', () => {
+      vi.mocked(PublicThemeProvider.usePublicTheme).mockReturnValue({
+        theme: 'dark',
+        toggleTheme: vi.fn(),
       });
+      render(<PublicHeader />);
+      expect(screen.getByTestId('theme-toggle')).toHaveTextContent('🌙 Dark');
     });
 
-    it('renders the mobile FAB', () => {
-      const { container } = render(<PublicHeader />);
-      const fab = container.querySelector('.public-fab');
-      expect(fab).toBeInTheDocument();
-    });
-
-    it('FAB links to /report', () => {
-      const { container } = render(<PublicHeader />);
-      const fab = container.querySelector('.public-fab');
-      expect(fab).toHaveAttribute('href', '/report');
-    });
-
-    it('FAB has accessible label', () => {
-      const { container } = render(<PublicHeader />);
-      const fab = container.querySelector('.public-fab');
-      expect(fab).toHaveAttribute('aria-label', 'Report a Fire');
-    });
-  });
-
-  describe('Staff roles', () => {
-    it('does not render for REGIONAL_ENCODER', () => {
-      vi.mocked(AuthContext.useAuth).mockReturnValue({
-        user: {
-          id: '456',
-          email: 'encoder@test.com',
-          role: 'REGIONAL_ENCODER',
-          assignedRegionId: 1,
-        },
-        isAuthenticated: true,
-        serverValidated: true,
-        canQueueOfflineWrites: true,
-        loading: false,
-        loggingOut: false,
-        login: vi.fn(),
-        logout: vi.fn(),
-        refreshSession: vi.fn(),
+    it('shows Light label when theme is light', () => {
+      vi.mocked(PublicThemeProvider.usePublicTheme).mockReturnValue({
+        theme: 'light',
+        toggleTheme: vi.fn(),
       });
-
-      const { container } = render(<PublicHeader />);
-      expect(container.querySelector('.public-header')).not.toBeInTheDocument();
-    });
-
-    it('does not render for NATIONAL_VALIDATOR', () => {
-      vi.mocked(AuthContext.useAuth).mockReturnValue({
-        user: {
-          id: '789',
-          email: 'validator@test.com',
-          role: 'NATIONAL_VALIDATOR',
-          assignedRegionId: null,
-        },
-        isAuthenticated: true,
-        serverValidated: true,
-        canQueueOfflineWrites: true,
-        loading: false,
-        loggingOut: false,
-        login: vi.fn(),
-        logout: vi.fn(),
-        refreshSession: vi.fn(),
-      });
-
-      const { container } = render(<PublicHeader />);
-      expect(container.querySelector('.public-header')).not.toBeInTheDocument();
-    });
-
-    it('does not render for NATIONAL_ANALYST', () => {
-      vi.mocked(AuthContext.useAuth).mockReturnValue({
-        user: {
-          id: 'abc',
-          email: 'analyst@test.com',
-          role: 'NATIONAL_ANALYST',
-          assignedRegionId: null,
-        },
-        isAuthenticated: true,
-        serverValidated: true,
-        canQueueOfflineWrites: true,
-        loading: false,
-        loggingOut: false,
-        login: vi.fn(),
-        logout: vi.fn(),
-        refreshSession: vi.fn(),
-      });
-
-      const { container } = render(<PublicHeader />);
-      expect(container.querySelector('.public-header')).not.toBeInTheDocument();
-    });
-
-    it('does not render for SYSTEM_ADMIN', () => {
-      vi.mocked(AuthContext.useAuth).mockReturnValue({
-        user: {
-          id: 'def',
-          email: 'admin@test.com',
-          role: 'SYSTEM_ADMIN',
-          assignedRegionId: null,
-        },
-        isAuthenticated: true,
-        serverValidated: true,
-        canQueueOfflineWrites: true,
-        loading: false,
-        loggingOut: false,
-        login: vi.fn(),
-        logout: vi.fn(),
-        refreshSession: vi.fn(),
-      });
-
-      const { container } = render(<PublicHeader />);
-      expect(container.querySelector('.public-header')).not.toBeInTheDocument();
-    });
-  });
-
-  describe('Loading state', () => {
-    it('does not render during auth loading', () => {
-      vi.mocked(AuthContext.useAuth).mockReturnValue({
-        user: null,
-        isAuthenticated: false,
-        serverValidated: false,
-        canQueueOfflineWrites: false,
-        loading: true,
-        loggingOut: false,
-        login: vi.fn(),
-        logout: vi.fn(),
-        refreshSession: vi.fn(),
-      });
-
-      const { container } = render(<PublicHeader />);
-      expect(container.querySelector('.public-header')).not.toBeInTheDocument();
+      render(<PublicHeader />);
+      expect(screen.getByTestId('theme-toggle')).toHaveTextContent('☀️ Light');
     });
   });
 });

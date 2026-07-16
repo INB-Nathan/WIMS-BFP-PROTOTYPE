@@ -6,8 +6,6 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { AlertTriangle, ChevronRight, Link2 } from 'lucide-react';
 import { EmergencyReferenceCard } from '@/components/EmergencyReferenceCard';
-import { PublicThemeProvider } from '@/components/public/PublicThemeProvider';
-import '@/styles/public-surface.css';
 
 type LastReportRecord = {
   id?: unknown;
@@ -49,8 +47,7 @@ export default function ReportTrackerCompatibilityPage() {
   const [trackingUrl] = useState<string | null>(() => readStoredTrackingUrl(reportId));
 
   return (
-    <PublicThemeProvider>
-      <div className="ps-has-mesh ps-tracking-page">
+    <div className="ps-has-mesh ps-tracking-page">
         <div className="ps-tracking-hero">
           <div className="ps-intent-bg" aria-hidden />
           <div className="relative z-10 flex flex-col items-center text-center py-8 px-4">
@@ -105,6 +102,5 @@ export default function ReportTrackerCompatibilityPage() {
           </div>
         </div>
       </div>
-    </PublicThemeProvider>
   );
 }

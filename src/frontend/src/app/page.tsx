@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { IntentModal } from '@/components/IntentModal';
 import { LandingSidebar } from '@/components/LandingSidebar';
+import { usePublicTheme } from '@/components/public/PublicThemeProvider';
 import { IconMapPinFilled, IconLayoutSidebar, IconShieldCheckFilled, IconFlameFilled } from '@tabler/icons-react';
 
 const PublicFireMap = dynamic(
@@ -57,19 +58,10 @@ export default function LandingPage() {
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [sidebarOpen, closeSidebar]);
 
-  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
-    if (typeof window === 'undefined') return 'dark';
-    const saved = window.localStorage.getItem('landing-theme');
-    return saved === 'light' || saved === 'dark' ? saved : 'dark';
-  });
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') window.localStorage.setItem('landing-theme', theme);
-  }, [theme]);
-
-  const toggleTheme = useCallback(() => {
-    setTheme((t) => (t === 'dark' ? 'light' : 'dark'));
-  }, []);
+  // Theme now comes from the shared PublicThemeProvider (T2) — the landing
+  // page is rendered inside it via LayoutShell, so the same persisted
+  // 'landing-theme' key and toggle behavior are reused.
+  const { theme, toggleTheme } = usePublicTheme();
 
   return (
     <div className="scene-landing" data-theme={theme}>
@@ -318,107 +310,19 @@ export default function LandingPage() {
             radial-gradient(ellipse at 70% 30%, rgba(234,88,12,0.04) 0%, transparent 45%);
         }
 
-        /* ── Floating header ───────────────────────────────────────────── */
-        .landing-header {
+        /* ── Floating header (immersive overlay) ────────────────────────
+           The landing header chrome (.landing-header, btn-ghost/outline/
+           primary, etc.) now lives in the global public-header.css (T3).
+           Only the landing-unique absolute overlay is retained here so the
+           floating header keeps its position over the full-screen map,
+           overriding the global sticky base. */
+        .scene-landing .landing-header {
           position: absolute;
           top: 0;
           left: 0;
           right: 0;
           z-index: 100;
-          display: flex;
-          align-items: center;
           justify-content: space-between;
-          height: 52px;
-          padding: 0 20px;
-          background: var(--bg-deep, #0a0a0e);
-          border-bottom: 1px solid var(--border-strong, rgba(255,255,255,0.12));
-        }
-        .landing-header-left {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-        }
-        .landing-header-logo {
-          width: 28px;
-          height: 28px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          flex-shrink: 0;
-        }
-        .landing-header-bfp-logo {
-          object-fit: contain;
-        }
-        .landing-header-title {
-          font-size: 0.82rem;
-          font-weight: 700;
-          color: var(--text-primary, #e8e8ed);
-        }
-        .landing-header-right {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-        }
-        .landing-header-right .btn-ghost {
-          padding: 6px 12px;
-          border-radius: 6px;
-          font-size: 0.74rem;
-          font-weight: 600;
-          text-decoration: none;
-          background: transparent;
-          color: var(--text-secondary, rgba(232,232,237,0.65));
-          border: none;
-          cursor: pointer;
-          font-family: inherit;
-          transition: color 180ms ease;
-        }
-        .landing-header-right .btn-ghost:hover {
-          color: var(--text-primary, #e8e8ed);
-        }
-        .landing-header-right .btn-ghost:focus-visible {
-          outline: 2px solid #3b82f6;
-          outline-offset: 2px;
-          border-radius: 4px;
-        }
-        .landing-header-right .btn-outline {
-          padding: 6px 14px;
-          border-radius: 6px;
-          font-size: 0.74rem;
-          font-weight: 600;
-          text-decoration: none;
-          background: transparent;
-          color: var(--text-primary, #e8e8ed);
-          border: 1px solid rgba(255,255,255,0.2);
-          cursor: pointer;
-          font-family: inherit;
-          transition: border-color 180ms ease;
-        }
-        .landing-header-right .btn-outline:hover {
-          border-color: rgba(255,255,255,0.4);
-        }
-        .landing-header-right .btn-outline:focus-visible {
-          outline: 2px solid #3b82f6;
-          outline-offset: 2px;
-        }
-        .landing-header-right .btn-primary {
-          padding: 6px 14px;
-          border-radius: 6px;
-          font-size: 0.74rem;
-          font-weight: 700;
-          text-decoration: none;
-          background: var(--red, #dc2626);
-          color: #fff;
-          border: none;
-          cursor: pointer;
-          font-family: inherit;
-          transition: background 180ms ease;
-        }
-        .landing-header-right .btn-primary:hover {
-          background: var(--red-deep, #b91c1c);
-        }
-        .landing-header-right .btn-primary:focus-visible {
-          outline: 2px solid #fbbf24;
-          outline-offset: 2px;
         }
 
         /* ── Map overlay controls ──────────────────────────────────────── */
@@ -723,26 +627,12 @@ export default function LandingPage() {
           outline: 2px solid #3b82f6;
           outline-offset: 2px;
         }
-        .scene-landing[data-theme="light"] .landing-header,
+        /* Landing header chrome light overrides now live in global
+           public-header.css (T3); only the landing footer light overrides
+           remain here (footer is landing-specific). */
         .scene-landing[data-theme="light"] .landing-footer {
           background: var(--bg-base, #faf8f4);
           border-color: var(--border-strong, rgba(0,0,0,0.14));
-        }
-        .scene-landing[data-theme="light"] .landing-header-right .btn-ghost,
-        .scene-landing[data-theme="light"] .landing-header-right .btn-outline {
-          color: var(--text-primary, #1a1815);
-          border-color: var(--border-strong, rgba(0,0,0,0.18));
-          background: transparent;
-        }
-        .scene-landing[data-theme="light"] .landing-header-right .btn-ghost:hover,
-        .scene-landing[data-theme="light"] .landing-header-right .btn-outline:hover {
-          border-color: var(--primary, #2563eb);
-          background: var(--primary-bg, rgba(37,99,235,0.08));
-        }
-        .scene-landing[data-theme="light"] .landing-header-right .btn-primary {
-          background: var(--primary, #2563eb);
-          border-color: var(--primary, #2563eb);
-          color: #fff;
         }
         .scene-landing[data-theme="light"] .landing-footer strong {
           color: var(--text-secondary, rgba(26,24,21,0.62));
@@ -889,8 +779,8 @@ export default function LandingPage() {
           .landing-sidebar-toggle {
             display: flex;
           }
-          .landing-header-right .btn-ghost { display: none; }
-          .landing-header-right .btn-outline { display: none; }
+          .scene-landing .landing-header-right .btn-ghost { display: none; }
+          .scene-landing .landing-header-right .btn-outline { display: none; }
           .sidebar-mobile-extra { display: block; }
           .landing-trust-panel {
             bottom: 56px;
