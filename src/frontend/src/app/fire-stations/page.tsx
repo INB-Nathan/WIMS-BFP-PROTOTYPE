@@ -19,7 +19,6 @@ export default function FireStationsPage() {
     const [query, setQuery] = useState('');
     const [failed, setFailed] = useState(false);
     const [mapFailed, setMapFailed] = useState(false);
-    const [showMap, setShowMap] = useState(false);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
@@ -55,15 +54,6 @@ export default function FireStationsPage() {
         : null;
 
     const selectStation = (station: EmergencyServiceStation) => setSelectedStationId(station.station_id);
-    const toggleMap = () => {
-        setShowMap((visible) => {
-            const nextVisible = !visible;
-            if (nextVisible) {
-                setMapFailed(false);
-            }
-            return nextVisible;
-        });
-    };
 
     return (
         <div className="min-h-screen" style={{ background: 'var(--content-bg)' }}>
@@ -97,35 +87,56 @@ export default function FireStationsPage() {
             </div>
 
             <main className="max-w-5xl mx-auto px-4 pb-8">
-                <section className="rounded-xl border overflow-hidden" style={{ borderColor: 'var(--border-color)', backgroundColor: 'var(--card-bg)' }}>
-                    <div className="px-5 py-4 border-b flex items-center gap-2" style={{ borderColor: 'var(--border-color)' }}>
-                        <Navigation className="w-4 h-4" style={{ color: 'var(--bfp-maroon)' }} />
-                        <h2 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Station Directory</h2>
-                        {stations && <span className="text-xs ml-auto">{filteredStations.length} of {stations.length} stations</span>}
+                <section
+                    className="rounded-xl border overflow-hidden flex flex-col xl:flex-row xl:h-[600px]"
+                    style={{ borderColor: 'var(--border-color)', backgroundColor: 'var(--card-bg)' }}
+                    data-testid="station-split-view"
+                >
+                    {/* Map side — collapses to a fixed-height panel on top for mobile, expands to
+                        fill the remaining width side-by-side with the directory on xl+ screens. */}
+                    <div
+                        className="relative h-64 xl:h-full xl:flex-1 border-b xl:border-b-0 xl:border-r"
+                        style={{ borderColor: 'var(--border-color)' }}
+                        id="station-map"
+                    >
+                        {loading ? (
+                            <p className="p-5 text-sm" role="status">Loading fire stations…</p>
+                        ) : failed || stations === null ? (
+                            <p className="p-5 text-sm text-red-600" role="alert">Failed to load fire stations. Please try again when online.</p>
+                        ) : mapFailed ? (
+                            <div className="p-6 text-sm" role="status"><AlertTriangle className="w-5 h-5 text-amber-600 inline mr-2" />Map tiles are unavailable. The complete searchable station list remains available in the directory.</div>
+                        ) : filteredStations.length > 0 ? (
+                            <div className="h-full">
+                                <FireStationsMapInner stations={filteredStations} userLocation={userLocation} selectedStationId={visibleSelectedStationId} onSelectStation={selectStation} onMapError={() => setMapFailed(true)} />
+                            </div>
+                        ) : (
+                            <p className="p-5 text-sm">No map pins available for the current search.</p>
+                        )}
                     </div>
-                    <div className="p-4">
-                        <label htmlFor="station-search" className="sr-only">Search fire stations</label>
-                        <input id="station-search" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search stations by name or coordinates" className="w-full rounded-lg border px-3 py-2 text-sm" />
-                    </div>
-                    {loading && <p className="px-5 pb-5 text-sm" role="status">Loading fire stations…</p>}
-                    {failed && <p className="px-5 pb-5 text-sm text-red-600" role="alert">Failed to load fire stations. Please try again when online.</p>}
-                    {!loading && !failed && stations && filteredStations.length === 0 && <p className="px-5 pb-5 text-sm" role="status">No fire stations match your search.</p>}
-                    {filteredStations.length > 0 && <div className="divide-y max-h-[400px] overflow-y-auto">
-                        {filteredStations.map((station) => <button key={station.station_id} type="button" aria-pressed={visibleSelectedStationId === station.station_id} onClick={() => selectStation(station)} className="w-full text-left px-5 py-3 flex items-start gap-3 hover:bg-gray-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-red-600">
-                            <MapPin className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: 'var(--bfp-maroon)' }} />
-                            <span className="min-w-0 flex-1"><span className="block text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{station.station_name}</span><span className="block text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>{station.latitude.toFixed(4)}, {station.longitude.toFixed(4)}</span></span>
-                            {station.distance_m !== null && <span className="text-xs font-semibold text-blue-600">{(station.distance_m / 1000).toFixed(1)} km</span>}
-                        </button>)}
-                    </div>}
-                </section>
 
-                <section className="mt-4">
-                    <button type="button" aria-expanded={showMap} aria-controls="station-map" onClick={toggleMap} className="w-full rounded-xl border px-5 py-3 flex items-center gap-2 text-left" style={{ borderColor: 'var(--border-color)', backgroundColor: 'var(--card-bg)' }}>
-                        <MapPin className="w-4 h-4" style={{ color: 'var(--bfp-maroon)' }} /><span className="text-sm font-semibold">{showMap ? 'Hide map' : 'Show map'}</span>{stations && <span className="text-xs ml-auto">{stations.length} pins</span>}
-                    </button>
-                    {showMap && <div id="station-map" className="mt-2 rounded-xl border overflow-hidden" style={{ borderColor: 'var(--border-color)' }}>
-                        {loading ? <p className="p-5 text-sm" role="status">Loading fire stations…</p> : failed || stations === null ? <p className="p-5 text-sm text-red-600" role="alert">Failed to load fire stations. Please try again when online.</p> : mapFailed ? <div className="p-6 text-sm" role="status"><AlertTriangle className="w-5 h-5 text-amber-600 inline mr-2" />Map tiles are unavailable. The complete searchable station list remains available above.</div> : filteredStations.length > 0 ? <div className="h-[450px]"><FireStationsMapInner stations={filteredStations} userLocation={userLocation} selectedStationId={visibleSelectedStationId} onSelectStation={selectStation} onMapError={() => setMapFailed(true)} /></div> : <p className="p-5 text-sm">No map pins available for the current search.</p>}
-                    </div>}
+                    {/* Directory side — scrolls independently on xl+ screens (fixed panel height);
+                        on mobile it flows below the map and scrolls with the page. */}
+                    <div className="xl:w-[380px] xl:flex-shrink-0 xl:h-full xl:overflow-y-auto flex flex-col min-h-0">
+                        <div className="px-5 py-4 border-b flex items-center gap-2 flex-shrink-0" style={{ borderColor: 'var(--border-color)' }}>
+                            <Navigation className="w-4 h-4" style={{ color: 'var(--bfp-maroon)' }} />
+                            <h2 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Station Directory</h2>
+                            {stations && <span className="text-xs ml-auto">{filteredStations.length} of {stations.length} stations</span>}
+                        </div>
+                        <div className="p-4 flex-shrink-0">
+                            <label htmlFor="station-search" className="sr-only">Search fire stations</label>
+                            <input id="station-search" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search stations by name or coordinates" className="w-full rounded-lg border px-3 py-2 text-sm" />
+                        </div>
+                        {loading && <p className="px-5 pb-5 text-sm" role="status">Loading fire stations…</p>}
+                        {failed && <p className="px-5 pb-5 text-sm text-red-600" role="alert">Failed to load fire stations. Please try again when online.</p>}
+                        {!loading && !failed && stations && filteredStations.length === 0 && <p className="px-5 pb-5 text-sm" role="status">No fire stations match your search.</p>}
+                        {filteredStations.length > 0 && <div className="divide-y max-h-[400px] xl:max-h-none overflow-y-auto xl:overflow-visible">
+                            {filteredStations.map((station) => <button key={station.station_id} type="button" aria-pressed={visibleSelectedStationId === station.station_id} onClick={() => selectStation(station)} className="w-full text-left px-5 py-3 flex items-start gap-3 hover:bg-gray-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-red-600">
+                                <MapPin className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: 'var(--bfp-maroon)' }} />
+                                <span className="min-w-0 flex-1"><span className="block text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{station.station_name}</span><span className="block text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>{station.latitude.toFixed(4)}, {station.longitude.toFixed(4)}</span></span>
+                                {station.distance_m !== null && <span className="text-xs font-semibold text-blue-600">{(station.distance_m / 1000).toFixed(1)} km</span>}
+                            </button>)}
+                        </div>}
+                    </div>
                 </section>
             </main>
             <div className="text-center pb-8 px-4"><Link href="/" className="inline-flex items-center gap-1.5 text-sm font-medium" style={{ color: 'var(--bfp-red, #dc2626)' }}><ChevronLeft className="w-4 h-4" />Back to Report Emergency</Link></div>
