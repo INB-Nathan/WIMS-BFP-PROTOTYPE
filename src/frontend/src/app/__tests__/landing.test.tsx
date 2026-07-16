@@ -30,12 +30,6 @@ vi.mock('@/components/IntentModal', () => ({
   IntentModal: () => <div data-testid="intent-modal" />,
 }));
 
-// Mock the client data-fetching sections
-vi.mock('@/components/LandingSections', () => ({
-  EmergenciesSection: () => <div data-testid="emergencies-section" />,
-  AnnouncementsSection: () => <div data-testid="announcements-section" />,
-}));
-
 // Mock PublicFireMap (SSR-unsafe)
 vi.mock('@/components/PublicFireMap', () => ({
   PublicFireMap: ({ showStations }: { showStations?: boolean }) => (
@@ -79,11 +73,12 @@ describe('LandingPage (public landing /)', () => {
     expect(screen.getByTestId('public-fire-map')).toBeInTheDocument();
   });
 
-  it('renders emergencies and announcements sections in the sidebar mobile extra', async () => {
+  it('renders a stylish link to /information in the sidebar mobile extra', async () => {
     const { default: LandingPage } = await import('../page');
     render(<LandingPage />);
-    expect(screen.getByTestId('emergencies-section')).toBeInTheDocument();
-    expect(screen.getByTestId('announcements-section')).toBeInTheDocument();
+    const link = screen.getByTestId('sidebar-info-link') as HTMLAnchorElement;
+    expect(link).toBeInTheDocument();
+    expect(link.getAttribute('href')).toBe('/information');
   });
 
   it('does NOT export LiveTicker from LandingSections', async () => {

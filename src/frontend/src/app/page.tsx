@@ -5,9 +5,8 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { IntentModal } from '@/components/IntentModal';
-import { EmergenciesSection, AnnouncementsSection } from '@/components/LandingSections';
 import { LandingSidebar } from '@/components/LandingSidebar';
-import { IconMapPinFilled, IconLayoutSidebar, IconShieldCheckFilled } from '@tabler/icons-react';
+import { IconMapPinFilled, IconLayoutSidebar, IconShieldCheckFilled, IconFlameFilled } from '@tabler/icons-react';
 
 const PublicFireMap = dynamic(
   () => import('@/components/PublicFireMap').then((m) => m.PublicFireMap),
@@ -114,7 +113,8 @@ export default function LandingPage() {
           <PublicFireMap
             height="100%"
             className="landing-public-map"
-            zoom={6}
+            zoom={15}
+            locateOnLoad
             showStations={showStations}
           />
         </div>
@@ -156,10 +156,23 @@ export default function LandingPage() {
             sidebarTitleId="landing-sidebar-title"
           />
 
-          {/* Mobile-only: Emergencies + Announcements inside sidebar overlay */}
+          {/* Mobile-only: stylish link to the full information screen
+              (replaces the inline Emergencies + Announcements sections) */}
           <div className="sidebar-mobile-extra" data-testid="sidebar-mobile-extra">
-            <EmergenciesSection />
-            <AnnouncementsSection />
+            <Link
+              href="/information"
+              className="sidebar-info-link"
+              data-testid="sidebar-info-link"
+            >
+              <span className="sidebar-info-link-icon">
+                <IconFlameFilled size={16} aria-hidden />
+              </span>
+              <span className="sidebar-info-link-text">
+                <span className="sidebar-info-link-title">Active fires &amp; BFP announcements</span>
+                <span className="sidebar-info-link-sub">View emergencies, advisories and reporting guide</span>
+              </span>
+              <span className="sidebar-info-link-arrow" aria-hidden>&rarr;</span>
+            </Link>
           </div>
         </aside>
 
@@ -688,10 +701,8 @@ export default function LandingPage() {
           align-items: center;
           justify-content: center;
           gap: 2px;
-          background: rgba(10,10,14,0.82);
-          backdrop-filter: blur(10px);
-          -webkit-backdrop-filter: blur(10px);
-          border-top: 1px solid var(--border, rgba(255,255,255,0.06));
+          background: var(--bg-deep, #0a0a0e);
+          border-top: 1px solid var(--border-strong, rgba(255,255,255,0.12));
           padding: 0 20px;
           font-size: 0.65rem;
           color: var(--text-muted, rgba(232,232,237,0.38));
@@ -710,6 +721,20 @@ export default function LandingPage() {
         .landing-footer a:focus-visible {
           outline: 2px solid #3b82f6;
           outline-offset: 2px;
+        }
+        .scene-landing[data-theme="light"] .landing-header,
+        .scene-landing[data-theme="light"] .landing-footer {
+          background: var(--bg-base, #faf8f4);
+          border-color: var(--border-strong, rgba(0,0,0,0.14));
+        }
+        .scene-landing[data-theme="light"] .landing-footer strong {
+          color: var(--text-secondary, rgba(26,24,21,0.62));
+        }
+        .scene-landing[data-theme="light"] .landing-footer a {
+          color: var(--text-muted, rgba(26,24,21,0.38));
+        }
+        .scene-landing[data-theme="light"] .landing-footer a:hover {
+          color: var(--text-secondary, rgba(26,24,21,0.62));
         }
 
         /* ── Mobile sidebar toggle button ──────────────────────────────── */
@@ -741,6 +766,66 @@ export default function LandingPage() {
         .sidebar-mobile-extra {
           display: none;
           padding: 8px 12px 20px;
+        }
+        .sidebar-info-link {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          padding: 14px 14px;
+          border-radius: 12px;
+          background: linear-gradient(135deg, var(--red-bg, rgba(220,38,38,0.15)) 0%, var(--bg-surface, #202026) 60%);
+          border: 1px solid var(--border-strong, rgba(255,255,255,0.12));
+          color: var(--text-primary, #e8e8ed);
+          text-decoration: none;
+          box-shadow: var(--shadow, 0 2px 12px rgba(0,0,0,0.5));
+          transition: transform var(--transition, 180ms ease), border-color var(--transition, 180ms ease), background var(--transition, 180ms ease);
+        }
+        .sidebar-info-link:hover {
+          transform: translateY(-2px);
+          border-color: var(--red, #dc2626);
+          background: linear-gradient(135deg, rgba(220,38,38,0.25) 0%, var(--bg-surface, #202026) 70%);
+        }
+        .sidebar-info-link:focus-visible {
+          outline: 2px solid var(--primary, #3b82f6);
+          outline-offset: 2px;
+        }
+        .sidebar-info-link-icon {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 34px;
+          height: 34px;
+          flex-shrink: 0;
+          border-radius: 9px;
+          background: var(--red, #dc2626);
+          color: #fff;
+        }
+        .sidebar-info-link-text {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+          min-width: 0;
+        }
+        .sidebar-info-link-title {
+          font-size: 0.82rem;
+          font-weight: 700;
+        }
+        .sidebar-info-link-sub {
+          font-size: 0.68rem;
+          color: var(--text-secondary, rgba(232,232,237,0.65));
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .sidebar-info-link-arrow {
+          margin-left: auto;
+          font-size: 1.1rem;
+          color: var(--text-secondary, rgba(232,232,237,0.65));
+          transition: transform var(--transition, 180ms ease);
+        }
+        .sidebar-info-link:hover .sidebar-info-link-arrow {
+          transform: translateX(3px);
+          color: var(--red-light, #ef4444);
         }
 
         /* ── Responsive: desktop sidebar inset the map ─────────────────── */
