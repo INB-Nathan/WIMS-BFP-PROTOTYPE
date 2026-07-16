@@ -11,6 +11,27 @@ export const API_BASE = typeof window !== 'undefined'
 import { ApiRequestError } from './errors';
 export { ApiRequestError };
 
+// ── Response header observer mechanism ────────────────────────────────────
+// Lets callers observe response headers without breaking the existing API.
+// Used by deviceTokenHash.ts to capture X-Device-Token-Hash for offline
+// continuity (Wayfinder issue #571).
+
+type ResponseHeaderObserver = (headers: Headers) => void;
+const responseHeaderObservers: ResponseHeaderObserver[] = [];
+
+/**
+ * Register a callback that receives the full response Headers object after
+ * every successful or failed fetch response (before body parsing).
+ * Returns an unsubscribe function.
+ */
+export function onResponseHeader(cb: ResponseHeaderObserver): () => void {
+  responseHeaderObservers.push(cb);
+  return () => {
+    const idx = responseHeaderObservers.indexOf(cb);
+    if (idx >= 0) responseHeaderObservers.splice(idx, 1);
+  };
+}
+
 export function errorMessageFromJson(json: unknown, fallback: string): string {
   if (!json || typeof json !== 'object') return fallback;
   const asObj = json as { message?: unknown; detail?: unknown };
@@ -61,6 +82,13 @@ export async function apiFetch<T>(
     credentials: 'include',
     headers,
   });
+
+  // Notify response header observers (e.g. device token hash capture).
+  // This runs before body parsing so headers are always observable.
+  for (const observer of responseHeaderObservers) {
+    try { observer(res.headers); } catch { /* observer must not break transport */ }
+  }
+
   if (res.status === 401 && !_retried) {
     try {
       const refreshed = await refreshToken();

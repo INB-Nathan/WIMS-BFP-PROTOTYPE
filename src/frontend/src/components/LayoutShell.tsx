@@ -5,7 +5,9 @@ import { WifiOff } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { Header } from './Header';
 import { Sidebar } from './Sidebar';
+import { PublicHeader } from './PublicHeader';
 import { usePathname } from 'next/navigation';
+import { isPublicRoute, isCivilianRoute } from '@/lib/routeUtils';
 import { registerServiceWorker } from '@/lib/swRegistration';
 import { useNetworkStatus } from '@/lib/useNetworkStatus';
 import { maybePruneCaches } from '@/lib/offlineStore';
@@ -42,9 +44,7 @@ export function LayoutShell({ children }: { children: ReactNode }) {
 
     useEffect(() => {
         if (!loading && !user && !loggingOut) {
-            const isPublic = pathname === '/' || pathname === '/login' || pathname === '/register' || pathname === '/report' || pathname === '/callback' || pathname === '/verify-sent' || pathname === '/verify' || pathname.startsWith('/tracking') || pathname.startsWith('/fire-stations') || pathname.startsWith('/privacy');
-
-            if (!isPublic) {
+            if (!isPublicRoute(pathname)) {
                 // Don't redirect to Keycloak when offline — it's unreachable too.
                 // The session cache in AuthContext restores the user offline, so
                 // reaching here with user=null while offline means no cached session
@@ -82,12 +82,17 @@ export function LayoutShell({ children }: { children: ReactNode }) {
         );
     }
 
-    const isPublicRoute = pathname === '/' || pathname === '/login' || pathname === '/register' || pathname === '/report' || pathname === '/callback' || pathname === '/verify-sent' || pathname === '/verify' || pathname.startsWith('/tracking') || pathname.startsWith('/fire-stations') || pathname.startsWith('/privacy');
-
-    if (isPublicRoute) {
-        return <>{children}</>;
+    // Public surface (anonymous or civilian) — uses PublicHeader
+    if (isPublicRoute(pathname) || isCivilianRoute(pathname)) {
+        return (
+            <>
+                <PublicHeader />
+                {children}
+            </>
+        );
     }
 
+    // Staff surface (encoder, validator, analyst, admin) — uses Sidebar + Header
     return (
         <div className="flex h-screen overflow-hidden bg-theme-surface-subtle">
             {/* Sidebar */}
