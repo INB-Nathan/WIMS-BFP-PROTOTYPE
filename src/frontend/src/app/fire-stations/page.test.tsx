@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import FireStationsPage from './page';
 import { fetchEmergencyServices } from '@/lib/api';
@@ -45,12 +45,34 @@ beforeEach(() => {
 });
 
 describe('FireStationsPage', () => {
+  it('renders the map and directory side-by-side simultaneously — no toggle required', async () => {
+    render(<FireStationsPage />);
+
+    // The map is visible immediately, without clicking any "show map" control.
+    expect(await screen.findByTestId('mock-map')).toBeInTheDocument();
+    expect(screen.getByText('Map stations: Central Station, North Station')).toBeInTheDocument();
+    // The directory list is visible at the same time.
+    expect(screen.getByRole('button', { name: /Central Station/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /North Station/i })).toBeInTheDocument();
+    // There is no collapsible "show/hide map" toggle button anymore.
+    expect(screen.queryByRole('button', { name: /show map/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /hide map/i })).not.toBeInTheDocument();
+  });
+
+  it('applies split-view responsive layout classes (stacked on mobile, side-by-side on xl+)', async () => {
+    render(<FireStationsPage />);
+    await screen.findByTestId('mock-map');
+
+    const splitView = screen.getByTestId('station-split-view');
+    expect(splitView.className).toContain('flex-col');
+    expect(splitView.className).toContain('xl:flex-row');
+  });
+
   it('supports keyboard selection and keeps map filters synchronized with the directory', async () => {
     const user = userEvent.setup();
     render(<FireStationsPage />);
 
-    const showMap = await screen.findByRole('button', { name: /show map/i });
-    fireEvent.click(showMap);
+    await screen.findByTestId('mock-map');
     expect(screen.getByText('Map stations: Central Station, North Station')).toBeInTheDocument();
 
     const search = screen.getByRole('searchbox', { name: /search fire stations/i });
@@ -78,21 +100,19 @@ describe('FireStationsPage', () => {
     expect(screen.getByText('No fire stations match your search.')).toBeInTheDocument();
   });
 
-  it('shows degraded map guidance while keeping the list usable', async () => {
+  it('shows degraded map guidance while keeping the directory list usable', async () => {
     render(<FireStationsPage />);
 
-    fireEvent.click(await screen.findByRole('button', { name: /show map/i }));
-    fireEvent.click(screen.getByRole('button', { name: 'Trigger map failure' }));
+    await screen.findByTestId('mock-map');
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Trigger map failure' }));
 
     expect(screen.getByText(/Map tiles are unavailable/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Central Station/i })).toBeInTheDocument();
   });
 
-  it('shows the same fetch failure guidance in the map panel', async () => {
+  it('shows the same fetch failure guidance in both the map panel and the directory panel', async () => {
     vi.mocked(fetchEmergencyServices).mockRejectedValueOnce(new Error('offline'));
     render(<FireStationsPage />);
-
-    fireEvent.click(await screen.findByRole('button', { name: /show map/i }));
 
     const alerts = await screen.findAllByRole('alert');
     expect(alerts).toHaveLength(2);
@@ -103,8 +123,8 @@ describe('FireStationsPage', () => {
   it('preserves mobile-friendly full-width controls and responsive hotline layout classes', async () => {
     const { container } = render(<FireStationsPage />);
 
-    const showMap = await screen.findByRole('button', { name: /show map/i });
-    expect(showMap.className).toContain('w-full');
+    const search = await screen.findByRole('searchbox', { name: /search fire stations/i });
+    expect(search.className).toContain('w-full');
     expect(container.querySelector('div[class*="grid-cols-1"][class*="sm:grid-cols-2"]')).not.toBeNull();
   });
 });
