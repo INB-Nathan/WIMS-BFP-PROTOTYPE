@@ -56,14 +56,11 @@ vi.mock('@/lib/api/offlineCivilian', () => ({
 
 vi.mock('@/lib/api', () => ({
   fetchCivilianDuplicateSuggestions: vi.fn().mockResolvedValue([]),
+  fetchNearbyStations: vi.fn().mockResolvedValue([
+    { station_id: 1, station_name: 'Station A', address: null, latitude: 14.51, longitude: 121.01, distance_m: 1500 },
+  ]),
   uploadCivilianReportPhoto: vi.fn().mockResolvedValue({}),
   submitCivilianReportV2: vi.fn(),
-}));
-
-vi.mock('@/lib/api/map', () => ({
-  fetchStations: vi.fn().mockResolvedValue([
-    { station_id: 1, station_name: 'Station A', address: null, region_name: null, latitude: 14.51, longitude: 121.01 },
-  ]),
 }));
 
 const trackingMocks = vi.hoisted(() => ({

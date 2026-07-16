@@ -57,42 +57,19 @@ export interface EmergencyServicesResponse {
   cached_at: string | null;
 }
 
-/**
- * Fetch BFP fire stations nearest to a coordinate. Public (zero-trust, no
- * auth) GET /ref/fire-stations?lat=...&lon=... returns stations sorted by
- * distance. The receipt uses the nearest station as the straight-line
- * routing target. Returns StationItem[] (id, name, address, region, lat, lng).
- */
-export async function fetchStations(
-  lat: number,
-  lon: number,
-): Promise<StationItem[]> {
-  const params = new URLSearchParams({
-    lat: lat.toFixed(6),
-    lon: lon.toFixed(6),
-  });
-  // Public backend route serves stations nearest to the given coordinates.
-  const data = await publicApiFetch<{
-    stations?: Array<{
-      station_id: number;
-      station_name: string;
-      address: string | null;
-      region_name: string | null;
-      latitude: number;
-      longitude: number;
-    }>;
-  }>(`/ref/fire-stations?${params}`);
-  return (data.stations ?? []).map((s) => ({
-    station_id: s.station_id,
-    station_name: s.station_name,
-    address: s.address,
-    region_name: s.region_name,
-    latitude: s.latitude,
-    longitude: s.longitude,
-  }));
-}
-
 // ── API calls ───────────────────────────────────────────────────────────────
+
+/**
+ * Fetch all BFP fire stations (public, no auth).
+ * Returns all stations sorted by name. This endpoint is called from the
+ * public civilian portal (/fire-stations and the landing-page map layer).
+ *
+ * Path discovered: ref.py @router.get("/fire-stations") registered
+ * under the `/api/ref` prefix in main.py.
+ */
+export async function fetchStations(): Promise<StationItem[]> {
+  return publicApiFetch<StationItem[]>('/api/ref/fire-stations');
+}
 
 /**
  * Fetch clustered fire incident markers within a bounding box.

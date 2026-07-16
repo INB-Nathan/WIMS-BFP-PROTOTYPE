@@ -25,8 +25,7 @@ import {
   submitCivilianReportOfflineAware,
   checkReviewEligibility,
 } from '@/lib/api/offlineCivilian';
-import { fetchCivilianDuplicateSuggestions } from '@/lib/api';
-import { fetchStations } from '@/lib/api/map';
+import { fetchCivilianDuplicateSuggestions, fetchNearbyStations } from '@/lib/api';
 import { fetchPublicTracking, type PublicTrackingData } from '@/lib/api/tracking';
 import { usePublicAutoSync } from '@/lib/usePublicAutoSync';
 
@@ -191,7 +190,7 @@ export function ReportWizard() {
 
     // Nearest station line target (public stations endpoint).
     if (latitude !== null && longitude !== null) {
-      fetchStations(latitude, longitude)
+      fetchNearbyStations(latitude, longitude)
         .then((stations) => {
           if (stations.length > 0) {
             const nearest = stations[0];
