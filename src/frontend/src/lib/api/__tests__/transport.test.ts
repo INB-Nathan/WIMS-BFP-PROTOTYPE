@@ -6,7 +6,7 @@
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { publicApiFetch } from '../public-transport';
-import { apiFetch } from '../transport';
+import { apiFetch, onResponseHeader } from '../transport';
 import { ApiParseError } from '@/lib/validation';
 import { refreshToken } from '../../auth-refresh';
 
@@ -135,5 +135,113 @@ describe('apiFetch parse errors', () => {
     const [, options] = fetchSpy.mock.calls[0];
     const headers = new Headers(options?.headers as HeadersInit | undefined);
     expect(headers.get('Content-Type')).toBe('application/json');
+  });
+
+  // ── Response header observer (Wayfinder #571) ─────────────────────────
+
+  it('onResponseHeader observer receives response headers after fetch', async () => {
+    vi.mocked(refreshToken).mockResolvedValue({ ok: true });
+    const responseHeaders = new Headers({
+      'X-Device-Token-Hash': 'test-device-hash-123',
+      'Content-Type': 'application/json',
+    });
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: responseHeaders,
+      text: () => Promise.resolve(JSON.stringify({ data: 'ok' })),
+    });
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const observer = vi.fn();
+    const unsubscribe = onResponseHeader(observer);
+
+    try {
+      await apiFetch<{ data: string }>('/test', { skipAuthRedirect: true });
+
+      expect(observer).toHaveBeenCalledTimes(1);
+      const headers = observer.mock.calls[0][0] as Headers;
+      expect(headers.get('X-Device-Token-Hash')).toBe('test-device-hash-123');
+      expect(headers.get('Content-Type')).toBe('application/json');
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it('calls all registered observers on each apiFetch call', async () => {
+    vi.mocked(refreshToken).mockResolvedValue({ ok: true });
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'X-Device-Token-Hash': 'hash1' }),
+      text: () => Promise.resolve('{}'),
+    });
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const obs1 = vi.fn();
+    const obs2 = vi.fn();
+    const unsub1 = onResponseHeader(obs1);
+    const unsub2 = onResponseHeader(obs2);
+
+    try {
+      await apiFetch('/test', { skipAuthRedirect: true });
+      expect(obs1).toHaveBeenCalledTimes(1);
+      expect(obs2).toHaveBeenCalledTimes(1);
+    } finally {
+      unsub1();
+      unsub2();
+    }
+  });
+
+  it('observer does not break apiFetch when it throws', async () => {
+    vi.mocked(refreshToken).mockResolvedValue({ ok: true });
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'X-Device-Token-Hash': 'hash2' }),
+      text: () => Promise.resolve(JSON.stringify({ data: 'ok' })),
+    });
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const badObs = vi.fn(() => { throw new Error('observer crashed'); });
+    const goodObs = vi.fn();
+    const unsubBad = onResponseHeader(badObs);
+    const unsubGood = onResponseHeader(goodObs);
+
+    try {
+      const result = await apiFetch<{ data: string }>('/test', { skipAuthRedirect: true });
+      // The bad observer should not prevent the good one from being called
+      expect(goodObs).toHaveBeenCalledTimes(1);
+      // The response should still be returned
+      expect(result).toEqual({ data: 'ok' });
+    } finally {
+      unsubBad();
+      unsubGood();
+    }
+  });
+
+  it('unsubscribed observer is not called on subsequent requests', async () => {
+    vi.mocked(refreshToken).mockResolvedValue({ ok: true });
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({}),
+      text: () => Promise.resolve('{}'),
+    });
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const obs = vi.fn();
+    const unsubscribe = onResponseHeader(obs);
+
+    // First call — observer should fire
+    await apiFetch('/test1', { skipAuthRedirect: true });
+    expect(obs).toHaveBeenCalledTimes(1);
+
+    // Unsubscribe
+    unsubscribe();
+
+    // Second call — observer should NOT fire
+    await apiFetch('/test2', { skipAuthRedirect: true });
+    expect(obs).toHaveBeenCalledTimes(1);
   });
 });
