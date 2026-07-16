@@ -1,6 +1,7 @@
 'use client';
 
 import { AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { Turnstile } from '@marsidev/react-turnstile';
 import type { CivilianDuplicateSuggestion } from '@/lib/api';
 import type { ReportDraft } from './DraftManager';
 import { OBSERVABLES } from './StepCategory';
@@ -12,6 +13,12 @@ export interface StepReviewProps {
   submitError: string | null;
   queuedOffline: boolean;
   queuedLocalId: string | null;
+  turnstileEnabled: boolean;
+  turnstileExpired: boolean;
+  siteKey: string;
+  onTurnstileSuccess: (token: string) => void;
+  onTurnstileExpire: () => void;
+  onTurnstileError: () => void;
   onBack: () => void;
   onSubmit: () => void;
   onQueueOffline: () => void;
@@ -29,6 +36,12 @@ export function StepReview({
   submitError,
   queuedOffline,
   queuedLocalId,
+  turnstileEnabled,
+  turnstileExpired,
+  siteKey,
+  onTurnstileSuccess,
+  onTurnstileExpire,
+  onTurnstileError,
   onBack,
   onSubmit,
   onQueueOffline,
@@ -89,6 +102,22 @@ export function StepReview({
         <div className="flex items-start gap-2 p-3 rounded-lg bg-red-50 text-red-700 text-sm" role="alert">
           <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
           <span>{submitError}</span>
+        </div>
+      )}
+
+      {turnstileEnabled && (
+        <div data-testid="turnstile-wrapper">
+          <Turnstile
+            siteKey={siteKey}
+            onSuccess={onTurnstileSuccess}
+            onExpire={onTurnstileExpire}
+            onError={onTurnstileError}
+          />
+          {turnstileExpired && (
+            <p className="text-xs text-amber-600 mt-1">
+              ⚠ Security check expired. Please complete it again.
+            </p>
+          )}
         </div>
       )}
 
