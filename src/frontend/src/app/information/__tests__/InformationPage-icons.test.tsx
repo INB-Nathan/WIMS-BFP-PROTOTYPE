@@ -166,7 +166,7 @@ describe('InformationPage - Icon System', () => {
     });
   });
 
-  it('only allows location pin emoji (📍) in emergency list items, not as UI icons', () => {
+  it('replaces the location pin emoji (📍) with a Tabler icon in emergency list items (#614)', async () => {
     vi.mocked(useAuth).mockReturnValue({
       user: { id: '1', preferred_username: 'Test User', role: 'CIVILIAN_REPORTER' },
       loading: false,
@@ -179,17 +179,12 @@ describe('InformationPage - Icon System', () => {
       loggingOut: false,
     });
 
-    const { container } = render(<InformationPage />);
+    const { container, findByText } = render(<InformationPage />);
 
-    // The 📍 emoji is allowed in the location display (content, not UI icon)
-    // This test just verifies the pattern — we're swapping UI icons, not content emoji
-    const locationPinPattern = /📍/;
-    const htmlContent = container.innerHTML;
+    // Wait for the (mocked) emergencies fetch to resolve and render the list.
+    await findByText(/Emergencies/);
 
-    // If present, it should be in a specific location context, not as standalone UI icon
-    if (locationPinPattern.test(htmlContent)) {
-      // Just verify we're not regressing — location pin is content, not a UI icon replacement target
-      expect(htmlContent).toContain('📍');
-    }
+    // The stray 📍 glyph must be gone — location is now conveyed by an SVG icon.
+    expect(container.innerHTML).not.toMatch(/📍/);
   });
 });
