@@ -75,7 +75,7 @@ def _ivh_has_client_id_column(db: Session) -> bool:
 
 
 # Import route sub-modules and register their routers
-from . import afor, duplicates, stats, encoder, encoder_crud, validator  # noqa: E402
+from . import afor, duplicates, stats, encoder, encoder_crud, validator, perimeters  # noqa: E402
 
 router.include_router(afor.router)
 router.include_router(duplicates.router)
@@ -83,3 +83,4 @@ router.include_router(stats.router)
 router.include_router(encoder.router)
 router.include_router(encoder_crud.router)
 router.include_router(validator.router)
+router.include_router(perimeters.router)

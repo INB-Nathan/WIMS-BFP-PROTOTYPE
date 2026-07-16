@@ -305,3 +305,69 @@ class CorrectionRequest(BaseModel):
 class BulkApproveRequest(BaseModel):
     incident_ids: list[int]
     notes: str | None = None
+
+
+# ─── Fire incident perimeters (#635) ────────────────────────────────────────
+
+# Accept either a raw GeoJSON Polygon ({"type": "Polygon", "coordinates": [...]]})
+# or a GeoJSON Feature wrapping a Polygon geometry.
+PerimeterGeoJSON = Annotated[dict[str, Any], Field(description="GeoJSON Polygon or Feature")]
+
+
+class PerimeterCreateRequest(BaseModel):
+    """POST body for creating a fire incident perimeter.
+
+    Accepts a GeoJSON Polygon, a GeoJSON Feature whose geometry is a Polygon,
+    or a raw Polygon coordinates array. Exactly one perimeter source is allowed.
+    """
+
+    geometry: PerimeterGeoJSON
+    map_method: str = Field(
+        ...,
+        max_length=25,
+        description="One of the permitted map_method vocabulary values.",
+    )
+
+
+class PerimeterUpdateRequest(BaseModel):
+    """PUT body for replacing an existing perimeter."""
+
+    geometry: PerimeterGeoJSON
+    map_method: str = Field(..., max_length=25)
+
+
+class LinkReportsRequest(BaseModel):
+    """Body for linking / unlinking civilian reports to an incident."""
+
+    report_ids: list[int] = Field(..., min_length=1)
+
+
+class LinkedCivilianReport(BaseModel):
+    """Public-safe minimal projection of a linked citizen report."""
+
+    report_id: int
+    category: str | None = None
+    status: str | None = None
+    created_at: str | None = None
+
+
+class PerimeterResponse(BaseModel):
+    """GeoJSON Feature for the perimeter + metadata + linked civilian reports."""
+
+    type: str = "Feature"
+    geometry: dict[str, Any]
+    properties: dict[str, Any]
+    perimeter_id: int
+    incident_id: int
+    gis_acres: float | None = None
+    map_method: str | None = None
+    created_by: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+    linked_reports: list[LinkedCivilianReport] = Field(default_factory=list)
+
+
+class LinkReportsResponse(BaseModel):
+    incident_id: int
+    linked_count: int
+    removed_count: int

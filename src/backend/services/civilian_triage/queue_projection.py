@@ -349,9 +349,22 @@ def get_queue(
                     cr.report_id,
                     fs.station_name,
                     ST_Distance(cr.location::geography, fs.location::geography) AS distance_m,
-                    fs.phone
+                    fs.phone,
+                    pr.province_name
                 FROM wims.citizen_reports cr
                 LEFT JOIN wims.ref_fire_stations fs ON fs.station_id = cr.nearest_station_id
+                LEFT JOIN wims.ref_regions rg ON rg.region_id = fs.region_id
+                -- A region maps to MULTIPLE provinces (ref_provinces has
+                -- UNIQUE(region_id, province_name)), so a plain JOIN would
+                -- multiply rows per report. Use a scalar subquery to return
+                -- exactly ONE province_name per region (deterministic pick).
+                CROSS JOIN LATERAL (
+                    SELECT pr.province_name
+                    FROM wims.ref_provinces pr
+                    WHERE pr.region_id = rg.region_id
+                    ORDER BY pr.province_name
+                    LIMIT 1
+                ) pr
             ),
             dup_counts AS (
                 -- Duplicate device signals within 30 min for each report
@@ -416,6 +429,7 @@ def get_queue(
                 si.station_name,
                 si.distance_m,
                 si.phone,
+                si.province_name,
 
                 -- Duplicate count
                 COALESCE(dc.dup_count_30m, 0) AS dup_count_30m{followup_select}
@@ -448,7 +462,6 @@ def get_queue(
     ] = {}  # report_id → (cluster_id, cluster_status, assigned_to, review_started_at, anchor_report_id)
 
     for row in rows:
-        # Column indices:
         #  0: report_id          14: created_at          26: cluster_id
         #  1: lat                15: reported_at          27: cluster_status
         #  2: lon                16: previous_report_id   28: assigned_to
@@ -458,11 +471,18 @@ def get_queue(
         #  6: safety_status       20: has_device_id        32: station_name
         #  7: status             21: has_witness_name     33: distance_m
         #  8: status_explanation 22: has_witness_phone     34: phone
-        #  9: description        23: nearest_500m          35: dup_count_30m
-        # 10: linked_to_report_id 24: nearest_2km          36: followup_count
-        # 11: trust_score        25: nearest_5km           37: followups_json
-        # 12: gps_distance_m
+        #  9: description        23: nearest_500m          35: province_name
+        # 10: linked_to_report_id 24: nearest_2km          36: dup_count_30m
+        # 11: trust_score        25: nearest_5km           37: followup_count
+        # 12: gps_distance_m     26: cluster_id            38: followups_json
         # 13: link_count
+        #
+        # NOTE on jurisdiction: citizen_reports has NO municipality/province
+        # column and there is NO ref_municipalities table. The only geography
+        # link is nearest_station_id -> ref_fire_stations.region_id. We expose
+        # province_name via station region -> province. A true municipality_name
+        # would require a future ref_municipalities table OR point-in-polygon
+        # against ref_barangays; it is intentionally NOT added (no data source).
         cluster_id = row[26]
         cluster_status = row[27]
         assigned_to_uuid = row[28]
@@ -471,7 +491,7 @@ def get_queue(
 
         # Parse follow-up JSON
         followups = []
-        followups_json = row[37]
+        followups_json = row[38]
         if followups_json is not None:
             try:
                 if isinstance(followups_json, str):
@@ -517,7 +537,7 @@ def get_queue(
             nearest_2km,
             nearest_5km,
         )
-        tb.duplicate_device_count_30m = int(row[35] or 0)
+        tb.duplicate_device_count_30m = int(row[36] or 0)
         gps_distance_m = row[12]
         tb.gps_mismatch = bool(gps_distance_m is not None and float(gps_distance_m) > 200)
         tb.score = int(row[11] or 0)
@@ -541,6 +561,7 @@ def get_queue(
             name=row[32],
             distance_m=float(row[33]) if row[33] is not None else None,
             phone_available=bool(row[34] and str(row[34]).strip()),
+            phone=row[34],
         )
 
         entry = TriageReportEntry(
@@ -571,6 +592,9 @@ def get_queue(
             previous_report_id=row[16],
             station=station,
             followups=followups,
+            # province_name is derived from station region -> province (see CTE).
+            # municipality_name has no data source and is intentionally omitted.
+            province_name=row[35],
         )
         entries.append(entry)
 

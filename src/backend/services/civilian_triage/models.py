@@ -113,6 +113,9 @@ class StationContext(BaseModel):
     name: str | None
     distance_m: float | None
     phone_available: bool
+    # Actual phone number from ref_fire_stations.phone; kept separate from the
+    # derived phone_available bool for backward compatibility.
+    phone: str | None = None
 
 
 class FollowupSummary(BaseModel):
@@ -145,6 +148,12 @@ class TriageReportEntry(BaseModel):
     previous_report_id: int | None
     station: StationContext
     followups: list[FollowupSummary] = []
+    # Jurisdiction derived from nearest station's region -> province.
+    # NOTE: municipality_name is intentionally absent — citizen_reports has no
+    # municipality/province column and no ref_municipalities table exists; a
+    # true municipality requires future point-in-polygon or a ref_municipalities
+    # table. Only province (via station region) is exposed for now.
+    province_name: str | None = None
 
 
 class TriageClusterEntry(BaseModel):

@@ -13,3 +13,6 @@ from services.civilian_triage.workflow import (
     refresh_cluster_activity_command as refresh_cluster_activity_command,
     split_cluster_command as split_cluster_command,
 )
+from services.civilian_triage.status_update import (
+    apply_status_update_command as apply_status_update_command,
+)
