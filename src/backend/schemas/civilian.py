@@ -385,3 +385,27 @@ class PhotoUploadResponse(BaseModel):
     browser_gps_status: str
     gps_consensus: str | None = None
     photo_reported_distance_m: float | None = None
+
+
+class StatusUpdateRequest(BaseModel):
+    """Request body for POST /api/triage/reports/{report_id}/update-status.
+
+    Drives the validator-to-civilian status timeline. ``stage`` must be one of
+    the lifecycle stages; ``metadata`` shape is validated per-stage by the service.
+    """
+
+    stage: str = Field(..., description="Lifecycle stage for the status update")
+    metadata: dict | None = Field(
+        default=None, description="Stage-specific structured metadata (JSONB)"
+    )
+
+
+class StatusUpdateResponse(BaseModel):
+    """Response body for a created report status update (201)."""
+
+    update_id: int
+    report_id: int
+    stage: str
+    metadata: dict | None = None
+    actor_user_id: str | None = None
+    created_at: datetime
