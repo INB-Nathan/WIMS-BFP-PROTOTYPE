@@ -83,7 +83,6 @@ class CivilianReportResponse(BaseModel):
     routing_distance_m: float | None = None
     routing_duration_s: float | None = None
     routing_data_source: str | None = None
-    routing_geometry: dict | None = None
     photo_count: int = 0
     submitter_type: str = "anonymous"
     tracking_token: str | None = None

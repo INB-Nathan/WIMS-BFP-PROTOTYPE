@@ -79,7 +79,13 @@ def compute_routing_task(report_id: int) -> dict:
 
         # Use asyncio.run to call the async routing service
         async def _evaluate_all():
-            nonlocal best_distance, best_duration, best_source, best_path, best_geometry, candidates_evaluated
+            nonlocal \
+                best_distance, \
+                best_duration, \
+                best_source, \
+                best_path, \
+                best_geometry, \
+                candidates_evaluated
             best = None  # (duration_s, distance_m, source, path, geometry)
 
             for station in stations:
@@ -108,7 +114,57 @@ def compute_routing_task(report_id: int) -> dict:
             logger.warning("compute_routing_task: all routing failed for report_id=%s", report_id)
             return {"report_id": report_id, "status": "all_routing_failed"}
 
-        # Store results — convert GeoJSON geometry to PostGIS geometry if present
+        # ── Validate geometry shape before storage ───────────────────────
+        # If best_geometry is malformed (not a proper LineString), log a
+        # warning and set it to None so the valid routing metrics are still
+        # persisted without discarding geometry-dependent data.
+        if best_geometry is not None:
+            if not isinstance(best_geometry, dict):
+                logger.warning(
+                    "Malformed routing geometry for report_id=%s: not a dict",
+                    report_id,
+                )
+                best_geometry = None
+            elif not isinstance(best_geometry.get("coordinates"), list):
+                logger.warning(
+                    "Malformed routing geometry for report_id=%s: coordinates not a list",
+                    report_id,
+                )
+                best_geometry = None
+            elif best_geometry.get("type") != "LineString":
+                logger.warning(
+                    "Malformed routing geometry for report_id=%s: type=%s, expected LineString",
+                    report_id,
+                    best_geometry.get("type"),
+                )
+                best_geometry = None
+            else:
+                coords = best_geometry["coordinates"]
+                if len(coords) == 0:
+                    logger.warning(
+                        "Malformed routing geometry for report_id=%s: empty coordinate list",
+                        report_id,
+                    )
+                    best_geometry = None
+                else:
+                    # Validate each coordinate is a [lon, lat] pair of numbers
+                    for i, coord in enumerate(coords):
+                        if (
+                            not isinstance(coord, (list, tuple))
+                            or len(coord) != 2
+                            or not isinstance(coord[0], (int, float))
+                            or not isinstance(coord[1], (int, float))
+                        ):
+                            logger.warning(
+                                "Malformed routing geometry for report_id=%s: invalid coordinate at index %s",
+                                report_id,
+                                i,
+                            )
+                            best_geometry = None
+                            break
+
+        # Store results — single UPDATE with CASE WHEN for geometry
+        geojson_str = json.dumps(best_geometry) if best_geometry is not None else None
         params = {
             "rid": report_id,
             "distance": best_distance,
@@ -116,36 +172,23 @@ def compute_routing_task(report_id: int) -> dict:
             "source": best_source,
             "path": best_path,
             "candidates": candidates_evaluated,
+            "geometry_json": geojson_str,
         }
 
-        if best_geometry is not None:
-            # Convert GeoJSON dict to JSON string for ST_GeomFromGeoJSON
-            geojson_str = json.dumps(best_geometry)
-            params["geometry_json"] = geojson_str
-            sql = """
-                UPDATE wims.citizen_reports SET
-                    routing_distance_m = :distance,
-                    routing_duration_s = :duration,
-                    routing_data_source = :source,
-                    routing_execution_path = :path,
-                    routing_candidate_count = :candidates,
-                    routing_geometry = ST_GeomFromGeoJSON(:geometry_json),
-                    routing_updated_at = now()
-                WHERE report_id = :rid
-            """
-        else:
-            # No geometry available (fallback or OSRM failure)
-            sql = """
-                UPDATE wims.citizen_reports SET
-                    routing_distance_m = :distance,
-                    routing_duration_s = :duration,
-                    routing_data_source = :source,
-                    routing_execution_path = :path,
-                    routing_candidate_count = :candidates,
-                    routing_geometry = NULL,
-                    routing_updated_at = now()
-                WHERE report_id = :rid
-            """
+        sql = """
+            UPDATE wims.citizen_reports SET
+                routing_distance_m = :distance,
+                routing_duration_s = :duration,
+                routing_data_source = :source,
+                routing_execution_path = :path,
+                routing_candidate_count = :candidates,
+                routing_geometry = CASE
+                    WHEN :geometry_json IS NOT NULL THEN ST_GeomFromGeoJSON(:geometry_json)
+                    ELSE NULL
+                END,
+                routing_updated_at = now()
+            WHERE report_id = :rid
+        """
 
         db.execute(text(sql), params)
         db.commit()

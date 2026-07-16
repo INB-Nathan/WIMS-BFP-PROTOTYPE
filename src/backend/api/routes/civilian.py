@@ -328,7 +328,6 @@ def _response_from_row(row) -> CivilianReportResponse:
         routing_duration_s=getattr(row, "routing_duration_s", None),
         routing_data_source=getattr(row, "routing_data_source", None),
         photo_count=getattr(row, "photo_count", 0) or 0,
-        routing_geometry=getattr(row, "routing_geometry", None),
         submitter_type=submitter_type,
         link_count=row.link_count or 0,
         created_at=row.created_at,
@@ -394,7 +393,6 @@ def _fetch_report_response(
                    cr.routing_distance_m,
                    cr.routing_duration_s,
                    cr.routing_data_source,
-                   ST_AsGeoJSON(cr.routing_geometry)::jsonb AS routing_geometry,
                    (SELECT COUNT(*) FROM wims.report_photos rp WHERE rp.report_id = cr.report_id) AS photo_count
             FROM wims.citizen_reports cr
             LEFT JOIN wims.ref_fire_stations fs ON fs.station_id = cr.nearest_station_id
@@ -1014,7 +1012,7 @@ async def append_civilian_report(
     db.commit()
     if not result:
         raise HTTPException(status_code=500, detail="Failed to append report")
-    return _fetch_report_response(db, append_report_id)
+    return _fetch_report_response(db, append_report_id, device_id=body.device_id)
 
 
 @router.post(
