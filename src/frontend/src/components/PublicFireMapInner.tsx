@@ -109,7 +109,10 @@ function MapRecenter({ target, zoom }: { target: [number, number] | null; zoom: 
       return;
     }
     lastTarget.current = target;
-    map.setView(target, zoom, { animate: true });
+    const reduceMotion =
+      typeof window !== 'undefined' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    map.setView(target, zoom, { animate: !reduceMotion });
   }, [target, zoom, map]);
 
   return null;

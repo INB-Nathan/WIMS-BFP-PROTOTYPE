@@ -292,11 +292,12 @@ export default function LandingPage() {
           content: '';
           position: absolute;
           inset: 0;
-          z-index: 0;
+          z-index: 2;
           pointer-events: none;
+          mix-blend-mode: screen;
           background:
-            radial-gradient(ellipse at 30% 70%, rgba(198,40,40,0.15) 0%, transparent 60%),
-            radial-gradient(ellipse at 70% 30%, rgba(234,88,12,0.08) 0%, transparent 50%);
+            radial-gradient(ellipse at 30% 70%, rgba(198,40,40,0.18) 0%, transparent 55%),
+            radial-gradient(ellipse at 70% 30%, rgba(234,88,12,0.10) 0%, transparent 45%);
         }
         /* Keep the live Leaflet map above the gradient glow overlay. */
         .landing-map .leaflet-container,
@@ -310,9 +311,11 @@ export default function LandingPage() {
             repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.015) 2px, rgba(0,0,0,0.015) 4px);
         }
         .scene-landing[data-theme="light"] .landing-map::after {
+          z-index: 2;
+          mix-blend-mode: multiply;
           background:
-            radial-gradient(ellipse at 30% 70%, rgba(198,40,40,0.05) 0%, transparent 60%),
-            radial-gradient(ellipse at 70% 30%, rgba(234,88,12,0.03) 0%, transparent 50%);
+            radial-gradient(ellipse at 30% 70%, rgba(198,40,40,0.06) 0%, transparent 55%),
+            radial-gradient(ellipse at 70% 30%, rgba(234,88,12,0.04) 0%, transparent 45%);
         }
 
         /* ── Floating header ───────────────────────────────────────────── */
@@ -327,10 +330,8 @@ export default function LandingPage() {
           justify-content: space-between;
           height: 52px;
           padding: 0 20px;
-          background: rgba(10,10,14,0.82);
-          backdrop-filter: blur(10px);
-          -webkit-backdrop-filter: blur(10px);
-          border-bottom: 1px solid var(--border, rgba(255,255,255,0.06));
+          background: var(--bg-deep, #0a0a0e);
+          border-bottom: 1px solid var(--border-strong, rgba(255,255,255,0.12));
         }
         .landing-header-left {
           display: flex;
@@ -727,6 +728,22 @@ export default function LandingPage() {
           background: var(--bg-base, #faf8f4);
           border-color: var(--border-strong, rgba(0,0,0,0.14));
         }
+        .scene-landing[data-theme="light"] .landing-header-right .btn-ghost,
+        .scene-landing[data-theme="light"] .landing-header-right .btn-outline {
+          color: var(--text-primary, #1a1815);
+          border-color: var(--border-strong, rgba(0,0,0,0.18));
+          background: transparent;
+        }
+        .scene-landing[data-theme="light"] .landing-header-right .btn-ghost:hover,
+        .scene-landing[data-theme="light"] .landing-header-right .btn-outline:hover {
+          border-color: var(--primary, #2563eb);
+          background: var(--primary-bg, rgba(37,99,235,0.08));
+        }
+        .scene-landing[data-theme="light"] .landing-header-right .btn-primary {
+          background: var(--primary, #2563eb);
+          border-color: var(--primary, #2563eb);
+          color: #fff;
+        }
         .scene-landing[data-theme="light"] .landing-footer strong {
           color: var(--text-secondary, rgba(26,24,21,0.62));
         }
@@ -826,6 +843,18 @@ export default function LandingPage() {
         .sidebar-info-link:hover .sidebar-info-link-arrow {
           transform: translateX(3px);
           color: var(--red-light, #ef4444);
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .sidebar-info-link,
+          .sidebar-info-link-arrow {
+            transition: none;
+          }
+          .sidebar-info-link:hover {
+            transform: none;
+          }
+          .sidebar-info-link:hover .sidebar-info-link-arrow {
+            transform: none;
+          }
         }
 
         /* ── Responsive: desktop sidebar inset the map ─────────────────── */
