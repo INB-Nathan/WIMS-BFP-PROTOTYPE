@@ -125,6 +125,11 @@ function RegisterInner() {
 
   const pwChecks = useMemo(() => checkPassword(password), [password]);
   const showPwRequirements = password.length > 0 && !passwordValid(pwChecks);
+  const passwordStrength: 'weak' | 'medium' | 'strong' = passwordValid(pwChecks)
+    ? 'strong'
+    : password.length >= 8
+      ? 'medium'
+      : 'weak';
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -179,7 +184,7 @@ function RegisterInner() {
   }
 
   return (
-    <main className="ps-auth-page">
+    <div className="ps-auth-page">
       <div className="ps-auth-grid">
         {/* Left: benefits */}
         <section className="ps-auth-benefits" aria-label="Why become a reporter">
@@ -290,10 +295,12 @@ function RegisterInner() {
                   className="ps-input"
                 />
                 <div
-                  className="ps-password-strength"
+                  className={`ps-password-strength ps-pw-${passwordStrength}`}
                   data-testid="password-strength"
-                  data-strength={passwordValid(pwChecks) ? 'strong' : password.length >= 8 ? 'medium' : 'weak'}
-                  aria-hidden
+                  data-strength={passwordStrength}
+                  role="status"
+                  aria-live="polite"
+                  aria-label={`Password strength: ${passwordStrength}`}
                 >
                   <span className="ps-pw-bar" />
                   <span className="ps-pw-bar" />
@@ -411,7 +418,7 @@ function RegisterInner() {
           </div>
         </section>
       </div>
-    </main>
+    </div>
   );
 }
 
