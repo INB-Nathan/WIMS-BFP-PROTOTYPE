@@ -6,6 +6,8 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { AlertTriangle, ChevronRight, Link2 } from 'lucide-react';
 import { EmergencyReferenceCard } from '@/components/EmergencyReferenceCard';
+import { PublicThemeProvider } from '@/components/public/PublicThemeProvider';
+import '@/styles/public-surface.css';
 
 type LastReportRecord = {
   id?: unknown;
@@ -47,58 +49,47 @@ export default function ReportTrackerCompatibilityPage() {
   const [trackingUrl] = useState<string | null>(() => readStoredTrackingUrl(reportId));
 
   return (
-    <div className="min-h-screen" style={{ background: 'var(--content-bg)' }}>
-      <div className="text-center py-8 px-4" style={{ background: 'var(--bfp-gradient)' }}>
-        <div className="relative w-16 h-16 mx-auto mb-3">
-          <Image src="/bfp-logo.svg" alt="BFP Logo" fill className="object-contain" />
+    <PublicThemeProvider>
+      <div className="ps-has-mesh ps-tracking-page">
+        <div className="ps-tracking-hero">
+          <div className="ps-intent-bg" aria-hidden />
+          <div className="relative z-10 flex flex-col items-center text-center py-8 px-4">
+            <div className="relative w-16 h-16 mb-3">
+              <Image src="/bfp-logo.svg" alt="BFP Logo" fill className="object-contain" />
+            </div>
+            <h1 className="text-xl font-bold text-[var(--text-primary)]">Track Emergency Report</h1>
+            <p className="text-xs ps-secondary mt-1">Use the secure tracking link for your report</p>
+          </div>
         </div>
-        <h1 className="text-xl font-bold text-white">Track Emergency Report</h1>
-        <p className="text-xs text-white/60 mt-1">Use the secure tracking link for your report</p>
-      </div>
 
-      <div className="max-w-lg mx-auto px-4 -mt-4">
-        <EmergencyReferenceCard compact />
-      </div>
+        <div className="max-w-lg mx-auto px-4 -mt-4">
+          <EmergencyReferenceCard compact />
+        </div>
 
-      <div className="max-w-lg mx-auto px-4 mt-4 pb-8">
-        <div className="card overflow-hidden">
-          <div className="card-body p-6 space-y-5">
-            <div className="rounded-xl border p-4 bg-amber-50 border-amber-200">
-              <div className="flex items-start gap-3">
-                <AlertTriangle className="w-5 h-5 text-amber-700 flex-shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-sm font-semibold text-amber-900">
-                    Legacy tracking by report ID is no longer supported.
-                  </p>
-                  <p className="text-xs text-amber-800 mt-1">
-                    Use the secure tracking link issued when the report was submitted. Invalid,
-                    expired, revoked, or mismatched links all fail the same way.
-                  </p>
-                </div>
+        <div className="max-w-lg mx-auto px-4 mt-4 pb-12">
+          <div className="ps-card space-y-5">
+            <div className="ps-warning">
+              <AlertTriangle className="w-5 h-5 ps-warning-icon" />
+              <div>
+                <p className="font-semibold">Legacy tracking by report ID is no longer supported.</p>
+                <p className="ps-secondary">
+                  Use the secure tracking link issued when the report was submitted. Invalid,
+                  expired, revoked, or mismatched links all fail the same way.
+                </p>
               </div>
             </div>
 
             {trackingUrl ? (
               <Link
                 href={trackingUrl}
-                className="w-full inline-flex items-center justify-center gap-2 py-3 rounded-xl text-white text-sm font-bold"
-                style={{
-                  background: 'var(--bfp-gradient)',
-                  boxShadow: '0 2px 8px rgba(153,27,34,0.3)',
-                }}
+                className="ps-btn ps-btn-primary w-full justify-center"
+                data-testid="open-tracking-link"
               >
                 <Link2 className="w-4 h-4" />
                 Open my latest secure tracking link
               </Link>
             ) : (
-              <div
-                className="rounded-xl border p-4 text-sm"
-                style={{
-                  borderColor: 'var(--border-color)',
-                  color: 'var(--text-secondary)',
-                  backgroundColor: 'var(--content-bg)',
-                }}
-              >
+              <div className="ps-card-section ps-muted text-sm">
                 No stored secure tracking link was found on this device. Submit a new report or
                 reopen the exact tracking link you received earlier.
               </div>
@@ -106,8 +97,7 @@ export default function ReportTrackerCompatibilityPage() {
 
             <Link
               href="/"
-              className="w-full inline-flex items-center justify-center gap-2 py-3 rounded-xl border text-sm font-semibold"
-              style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
+              className="ps-btn ps-btn-outline w-full justify-center"
             >
               Return to report page
               <ChevronRight className="w-4 h-4" />
@@ -115,6 +105,6 @@ export default function ReportTrackerCompatibilityPage() {
           </div>
         </div>
       </div>
-    </div>
+    </PublicThemeProvider>
   );
 }

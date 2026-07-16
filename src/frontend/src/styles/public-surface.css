@@ -1,0 +1,310 @@
+/*
+ * public-surface.css — shared design system for the WIMS-BFP public/civilian surface.
+ *
+ * Ports the prototype (prototypes/public-surface/index.html, Wayfinder #607) design
+ * language into the Next.js app. Scoped under `.public-surface` so it does NOT leak
+ * into the authenticated internal dashboards (analyst / regional / validator / triage),
+ * which keep their own established design language.
+ *
+ * Usage:
+ *   import '@/styles/public-surface.css';
+ *   <PublicThemeProvider> <div className="public-surface"> ...page... </div> </PublicThemeProvider>
+ *
+ * Theme: default dark (prototype), light via [data-theme="light"] on the .public-surface
+ * wrapper. Tokens match the prototype exactly (dark = :root, light = [data-theme="light"]).
+ */
+
+.public-surface {
+  /* ── Dark tokens (prototype default) ─────────────────────────── */
+  --bg-deep: #0a0a0e;
+  --bg-base: #111116;
+  --bg-elevated: #18181d;
+  --bg-surface: #202026;
+  --bg-hover: rgba(255, 255, 255, 0.06);
+  --text-primary: #e8e8ed;
+  --text-secondary: rgba(232, 232, 237, 0.65);
+  --text-muted: rgba(232, 232, 237, 0.38);
+  --border: rgba(255, 255, 255, 0.06);
+  --border-strong: rgba(255, 255, 255, 0.12);
+
+  /* Blue — UI chrome: nav, links, form focus, icons */
+  --primary: #3b82f6;
+  --primary-hover: #2563eb;
+  --primary-bg: rgba(59, 130, 246, 0.12);
+
+  /* Red — emergency only: Report CTA, FAB, severity critical, warnings */
+  --red: #dc2626;
+  --red-light: #ef4444;
+  --red-deep: #b91c1c;
+  --red-bg: rgba(220, 38, 38, 0.15);
+
+  /* Severity palette */
+  --orange: #ea580c;
+  --orange-light: #ff8a65;
+  --orange-bg: rgba(234, 88, 12, 0.15);
+  --yellow: #d97706;
+  --yellow-light: #fbbf24;
+  --yellow-bg: rgba(217, 119, 6, 0.12);
+  --green: #059669;
+  --green-light: #34d399;
+  --green-bg: rgba(5, 150, 105, 0.12);
+  --blue: #3b82f6;
+  --blue-bg: rgba(59, 130, 246, 0.12);
+
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-lg: 16px;
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --shadow: 0 2px 12px rgba(0, 0, 0, 0.5);
+  --shadow-soft: 0 4px 24px rgba(0, 0, 0, 0.25);
+  --transition: 180ms ease;
+
+  color: var(--text-primary);
+  background: var(--bg-deep);
+}
+
+.public-surface[data-theme='light'] {
+  /* ── Light tokens — "Cream Paper" (prototype) ────────────────── */
+  --bg-deep: #f0eee9;
+  --bg-base: #faf8f4;
+  --bg-elevated: #f5f3ee;
+  --bg-surface: #eeebe5;
+  --bg-hover: rgba(0, 0, 0, 0.04);
+  --text-primary: #1a1815;
+  --text-secondary: rgba(26, 24, 21, 0.62);
+  --text-muted: rgba(26, 24, 21, 0.38);
+  --border: rgba(0, 0, 0, 0.07);
+  --border-strong: rgba(0, 0, 0, 0.14);
+
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
+  --primary-bg: rgba(37, 99, 235, 0.08);
+
+  --red: #dc2626;
+  --red-light: #ef4444;
+  --red-deep: #b91c1c;
+  --red-bg: rgba(220, 38, 38, 0.08);
+
+  --orange: #ea580c;
+  --orange-light: #ea580c;
+  --orange-bg: rgba(234, 88, 12, 0.08);
+  --yellow: #d97706;
+  --yellow-light: #d97706;
+  --yellow-bg: rgba(217, 119, 6, 0.08);
+  --green: #059669;
+  --green-light: #059669;
+  --green-bg: rgba(5, 150, 105, 0.08);
+  --blue: #2563eb;
+  --blue-bg: rgba(37, 99, 235, 0.06);
+
+  --shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+  --shadow-soft: 0 4px 24px rgba(0, 0, 0, 0.1);
+}
+
+/* ── Signature gradient backgrounds (prototype .intent-bg / .has-mesh) ── */
+
+/* Hero / map / modal backdrop gradient (dark) */
+.public-surface .ps-intent-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background:
+    linear-gradient(160deg, rgba(10, 10, 14, 0.95) 0%, rgba(10, 10, 14, 0.9) 40%, rgba(59, 130, 246, 0.2) 100%),
+    repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255, 255, 255, 0.012) 2px, rgba(255, 255, 255, 0.012) 4px);
+}
+.public-surface .ps-intent-bg::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at 30% 70%, rgba(198, 40, 40, 0.15) 0%, transparent 60%),
+    radial-gradient(ellipse at 70% 30%, rgba(234, 88, 12, 0.08) 0%, transparent 50%);
+}
+.public-surface[data-theme='light'] .ps-intent-bg {
+  background:
+    linear-gradient(160deg, rgba(240, 238, 233, 0.96) 0%, rgba(238, 240, 248, 0.92) 50%, rgba(37, 99, 235, 0.06) 100%),
+    repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0, 0, 0, 0.015) 2px, rgba(0, 0, 0, 0.015) 4px);
+}
+.public-surface[data-theme='light'] .ps-intent-bg::after {
+  background:
+    radial-gradient(ellipse at 30% 70%, rgba(198, 40, 40, 0.05) 0%, transparent 60%),
+    radial-gradient(ellipse at 70% 30%, rgba(234, 88, 12, 0.03) 0%, transparent 50%);
+}
+
+/* Content-page red-black mesh (dark) */
+.public-surface .ps-has-mesh {
+  position: relative;
+  background:
+    linear-gradient(160deg, rgba(10, 10, 14, 0.96) 0%, rgba(10, 10, 14, 0.88) 40%, rgba(220, 38, 38, 0.1) 100%),
+    repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(255, 255, 255, 0.008) 3px, rgba(255, 255, 255, 0.008) 4px);
+}
+.public-surface .ps-has-mesh::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: radial-gradient(ellipse at 25% 30%, rgba(220, 38, 38, 0.06) 0%, transparent 60%);
+}
+.public-surface[data-theme='light'] .ps-has-mesh {
+  background:
+    linear-gradient(160deg, rgba(250, 248, 244, 0.96) 0%, rgba(250, 248, 244, 0.9) 40%, rgba(220, 38, 38, 0.04) 100%),
+    repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(0, 0, 0, 0.006) 3px, rgba(0, 0, 0, 0.006) 4px);
+}
+.public-surface[data-theme='light'] .ps-has-mesh::after {
+  background: radial-gradient(ellipse at 25% 30%, rgba(220, 38, 38, 0.03) 0%, transparent 60%);
+}
+
+/* ── Buttons (prototype .btn / .btn-ghost / .btn-primary / .btn-outline) ── */
+.public-surface .ps-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 16px;
+  border-radius: var(--radius-sm);
+  font-size: 0.76rem;
+  font-weight: 600;
+  font-family: var(--font);
+  cursor: pointer;
+  border: none;
+  text-decoration: none;
+  transition: all var(--transition);
+}
+.public-surface .ps-btn-ghost {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid transparent;
+}
+.public-surface .ps-btn-ghost:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+.public-surface .ps-btn-outline {
+  background: transparent;
+  color: var(--text-primary);
+  border: 1px solid var(--border-strong);
+}
+.public-surface .ps-btn-outline:hover {
+  border-color: var(--border-strong);
+  background: var(--bg-hover);
+}
+.public-surface .ps-btn-primary {
+  background: var(--red);
+  color: #fff;
+}
+.public-surface .ps-btn-primary:hover {
+  background: var(--red-deep);
+  box-shadow: 0 0 16px rgba(198, 40, 40, 0.3);
+}
+.public-surface .ps-btn:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* ── Card surface (content pages) ── */
+.public-surface .ps-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+}
+.public-surface .ps-card-section {
+  margin-bottom: 16px;
+}
+.public-surface .ps-muted {
+  color: var(--text-muted);
+}
+.public-surface .ps-secondary {
+  color: var(--text-secondary);
+}
+.public-surface .ps-warning {
+  border-radius: var(--radius);
+  border: 1px solid var(--orange-bg);
+  background: var(--orange-bg);
+  padding: 16px;
+  display: flex;
+  gap: 12px;
+}
+.public-surface .ps-warning .ps-warning-icon {
+  color: var(--orange);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.public-surface .ps-warning p {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--text-primary);
+}
+.public-surface .ps-warning p + p {
+  margin-top: 4px;
+}
+
+/* ── Shared chrome: header / footer (prototype .landing-header / .landing-footer) ── */
+.public-surface .ps-header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 52px;
+  padding: 0 20px;
+  background: color-mix(in srgb, var(--bg-base) 82%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border);
+}
+.public-surface[data-theme='light'] .ps-header {
+  border-bottom-color: var(--border-strong);
+}
+.public-surface .ps-footer {
+  position: relative;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 52px;
+  padding: 8px 20px;
+  font-size: 0.65rem;
+  line-height: 1.6;
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--bg-base) 82%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-top: 1px solid var(--border);
+}
+.public-surface[data-theme='light'] .ps-footer {
+  background: rgba(248, 246, 242, 0.9);
+  border-top-color: var(--border-strong);
+}
+.public-surface .ps-footer a {
+  color: var(--text-muted);
+  text-decoration: underline;
+}
+.public-surface .ps-footer a:hover {
+  color: var(--text-secondary);
+}
+
+/* ── Theme toggle button (prototype #nav-theme) ── */
+.public-surface .ps-theme-toggle {
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 0.74rem;
+  font-weight: 600;
+  font-family: var(--font);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: border-color var(--transition), background var(--transition);
+}
+.public-surface .ps-theme-toggle:hover {
+  border-color: var(--border-strong);
+  background: var(--bg-hover);
+}
+.public-surface .ps-theme-toggle:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}

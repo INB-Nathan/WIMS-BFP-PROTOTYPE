@@ -631,3 +631,32 @@ Removed the AI incident narrative feature (PR #104 / #69) — backend-only featu
 - **Scope:** `src/frontend/src/components/PublicHeader.tsx` now provides the prototype-matched sticky translucent/frosted treatment (`rgba(10, 10, 14, 0.82)` plus blur) to public and civilian routes other than `/`. The shared brand label is `WIMS-BFP`, matching the page-owned landing header. On `/report`, the redundant desktop Report a Fire CTA and mobile FAB are both omitted; the CTA/FAB remain available on other routes.
 - **Tests:** `src/frontend/src/components/PublicHeader.test.tsx` explicitly mocks the pathname, verifies the WIMS-BFP label, and verifies `/report` has neither report-action link nor FAB.
 - **Validation:** `npx vitest run` — 137 files / 1480 tests passed. `npm run lint` — 0 errors, 36 pre-existing warnings. Production `npm run build` passed with the CI placeholder public variables. Full `npx tsc --noEmit` remains blocked by pre-existing test-source errors outside this change.
+
+## [2026-07-16] feat(public-surface): shared design-system foundation + /tracking migration
+
+- **Why:** Individual public-surface PRs (#612–#642) built screens but each re-implemented
+  chrome/tokens independently, so they diverged from the prototype (`prototypes/public-surface/index.html`,
+  Wayfinder #607) and "look out of place." Scope is **public/civilian surface only** (per user):
+  landing, report wizard, tracking, register, login, incidents, information, fire-stations,
+  contributor, profile, receipt. Authenticated internal dashboards (analyst/regional/validator/
+  triage) are explicitly out of scope and keep their own design language.
+- **Foundation added:**
+  - `src/frontend/src/styles/public-surface.css` — ports the prototype's token system, scoped
+    under `.public-surface` (dark default + `[data-theme="light"]` Cream Paper) so it does NOT
+    leak into dashboards. Includes `.ps-intent-bg` (hero/map gradient) and `.ps-has-mesh`
+    (content-page red-black mesh) gradients (both themes), `.ps-btn`/`.ps-btn-primary`/
+    `.ps-btn-outline`/`.ps-btn-ghost` primitives, `.ps-card`/`.ps-warning` surfaces, and shared
+    `.ps-header`/`.ps-footer`/`.ps-theme-toggle` chrome.
+  - `src/frontend/src/components/public/PublicThemeProvider.tsx` — client wrapper that applies
+    `.public-surface` + `data-theme`, renders shared header/footer, and provides the persisted
+    day/night toggle (localStorage `landing-theme`, default dark, SSR-safe via lazy init +
+    suppressHydrationWarning). Exposes `usePublicTheme()`.
+- **First migrated screen:** `/tracking` (`src/frontend/src/app/tracking/page.tsx`) rewritten to
+  consume `PublicThemeProvider` + `ps-*` classes + prototype gradient, replacing the old
+  `globals.css` light tokens (`var(--content-bg)`, maroon `var(--bfp-gradient)`). Existing
+  tracking test (3 tests) still passes.
+- **Next screens (follow-up PRs, same pattern):** report wizard → register/login → information/
+  incidents → fire-stations/contributor/profile → receipt. Each page wraps in PublicThemeProvider
+  and swaps bespoke classes for `ps-*` tokens.
+- **Validation:** `npx vitest run src/app/tracking/page.test.tsx` — 3/3 passed. `npm run lint` on
+  new files — 0 errors. `npm run build` — passed.
