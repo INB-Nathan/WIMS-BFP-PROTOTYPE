@@ -578,6 +578,22 @@ export async function createIncident(payload: {
 export type TriageSeverity = 'HIGH' | 'MEDIUM' | 'LOW';
 export type TerminalCitizenStatus = 'ACTIONED' | 'REJECTED_BOGUS' | 'REJECTED_DUPLICATE' | 'REJECTED_INSUFFICIENT';
 
+/** Fixed forward-only lifecycle stages for validator-to-civilian status updates.
+ * Drives the "Send Update" tab in the triage inspection modal (#636). */
+export type StatusUpdateStage =
+  | 'RECEIVED'
+  | 'UNDER_REVIEW'
+  | 'HELP_DISPATCHED'
+  | 'ON_SCENE'
+  | 'RESOLVED'
+  | 'CLOSED_DUPLICATE'
+  | 'CLOSED_INSUFFICIENT';
+
+export interface StatusUpdateRequestPayload {
+  stage: StatusUpdateStage;
+  metadata: Record<string, unknown> | null;
+}
+
 export interface TriageReportEntry {
   report_id: number;
   latitude: number;
@@ -606,7 +622,9 @@ export interface TriageReportEntry {
   is_timeout_risk: boolean;
   previous_report_id: number | null;
   followups?: CivilianFollowupItem[];
-  station: { name: string | null; distance_m: number | null; phone_available: boolean };
+  station: { name: string | null; distance_m: number | null; phone_available: boolean; phone?: string | null };
+  /** Jurisdiction derived from nearest station's region -> province. */
+  province_name?: string | null;
 }
 
 export interface TriageClusterEntry {
@@ -625,7 +643,9 @@ export interface TriageClusterEntry {
   is_danger: boolean;
   related_count: number;
   reports: TriageReportEntry[];
-  station: { name: string | null; distance_m: number | null; phone_available: boolean };
+  station: { name: string | null; distance_m: number | null; phone_available: boolean; phone?: string | null };
+  /** Jurisdiction derived from nearest station's region -> province. */
+  province_name?: string | null;
 }
 
 export interface TriageQueueResponse {
@@ -720,6 +740,18 @@ export async function fetchMergeCandidates(clusterId: number): Promise<MergeCand
     `/triage/clusters/${clusterId}/merge-candidates`,
   );
   return result.candidates ?? [];
+}
+
+/** Send a validator-to-civilian status update for a single civilian report.
+ * POST /api/triage/reports/{reportId}/update-status (NATIONAL_VALIDATOR / REGIONAL_ENCODER). */
+export async function applyReportStatusUpdate(
+  reportId: number,
+  payload: StatusUpdateRequestPayload,
+): Promise<{ update_id: number; report_id: number; stage: string; created_at: string }> {
+  return apiFetch(`/triage/reports/${reportId}/update-status`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
 }
 
 export type CivilianCategory = 'STRUCTURAL' | 'NON_STRUCTURAL' | 'TRANSPORTATION' | 'UNSURE';

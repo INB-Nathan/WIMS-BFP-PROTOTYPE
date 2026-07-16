@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import {
+  applyReportStatusUpdate,
   applyTriageTerminalAction,
   claimTriageCluster,
   correctTriageReport,
@@ -10,6 +11,7 @@ import {
   mergeTriageClusters,
   splitTriageCluster,
   type MergeCandidateEntry,
+  type StatusUpdateStage,
   type TerminalCitizenStatus,
   type TriageClusterActivityEntry,
   type TriageClusterEntry,
@@ -68,7 +70,7 @@ export function stripHtml(input: string | null | undefined): string {
   return input.replace(/<[^>]*>/g, '');
 }
 
-export type TriageActionTab = 'terminal' | 'correct' | 'split' | 'merge' | 'activity';
+export type TriageActionTab = 'terminal' | 'correct' | 'split' | 'merge' | 'activity' | 'update';
 
 export interface TriageModalCallbacks {
   onClose: () => void;
@@ -109,7 +111,25 @@ export interface TriageModalState {
   setMergeNote: (s: string) => void;
   pickMergeCandidate: (candidate: MergeCandidateEntry) => void;
 
-  // Side data
+  // Status-update (Send Update) form
+  updateStage: StatusUpdateStage;
+  setUpdateStage: (s: StatusUpdateStage) => void;
+  updateStationName: string;
+  setUpdateStationName: (s: string) => void;
+  updateJurisdiction: string;
+  setUpdateJurisdiction: (s: string) => void;
+  updateEta: string;
+  setUpdateEta: (s: string) => void;
+  updateArrivedAt: string;
+  setUpdateArrivedAt: (s: string) => void;
+  updateOutcomeSummary: string;
+  setUpdateOutcomeSummary: (s: string) => void;
+  updateDuplicateOf: string;
+  setUpdateDuplicateOf: (s: string) => void;
+  updateReason: string;
+  setUpdateReason: (s: string) => void;
+
+  // Action handlers
   mergeCandidates: MergeCandidateEntry[];
   activity: TriageClusterActivityEntry[];
 
@@ -118,6 +138,7 @@ export interface TriageModalState {
   applyCorrection: () => Promise<void>;
   applySplit: () => Promise<void>;
   applyMerge: () => Promise<void>;
+  applyStatusUpdate: () => Promise<void>;
   claimCluster: (clusterId: number | null, reason?: string) => Promise<void>;
 
   // Busy
@@ -145,6 +166,16 @@ export function useTriageModalState({ openCluster, inspectionMode, callbacks }: 
   const [activity, setActivity] = useState<TriageClusterActivityEntry[]>([]);
   const [busy, setBusy] = useState(false);
 
+  // Status-update (Send Update) form state
+  const [updateStage, setUpdateStage] = useState<StatusUpdateStage>('UNDER_REVIEW');
+  const [updateStationName, setUpdateStationName] = useState('');
+  const [updateJurisdiction, setUpdateJurisdiction] = useState('');
+  const [updateEta, setUpdateEta] = useState('');
+  const [updateArrivedAt, setUpdateArrivedAt] = useState('');
+  const [updateOutcomeSummary, setUpdateOutcomeSummary] = useState('');
+  const [updateDuplicateOf, setUpdateDuplicateOf] = useState('');
+  const [updateReason, setUpdateReason] = useState('');
+
   // Reset and pre-select on cluster open
   useEffect(() => {
     if (!openCluster) return;
@@ -160,6 +191,14 @@ export function useTriageModalState({ openCluster, inspectionMode, callbacks }: 
     setMergeNote('');
     setActivity([]);
     setMergeCandidates([]);
+    setUpdateStage('UNDER_REVIEW');
+    setUpdateStationName(openCluster.station?.name ?? '');
+    setUpdateJurisdiction(openCluster.province_name ?? '');
+    setUpdateEta('');
+    setUpdateArrivedAt('');
+    setUpdateOutcomeSummary('');
+    setUpdateDuplicateOf('');
+    setUpdateReason('');
 
     if (openCluster.cluster_id) {
       Promise.all([
@@ -304,6 +343,73 @@ export function useTriageModalState({ openCluster, inspectionMode, callbacks }: 
     }
   }, [openCluster, mergeSourceClusterId, mergeNote, callbacks]);
 
+  const applyStatusUpdate = useCallback(async () => {
+    if (!openCluster) return;
+    const reportId = openCluster.anchor_report_id ?? openCluster.reports[0]?.report_id;
+    if (!reportId) {
+      callbacks.onError('No report available to update.');
+      return;
+    }
+    const metadata: Record<string, unknown> = {};
+    switch (updateStage) {
+      case 'HELP_DISPATCHED':
+        if (!updateStationName.trim() || !updateJurisdiction.trim()) {
+          callbacks.onError('Help Dispatched requires station name and jurisdiction.');
+          return;
+        }
+        metadata.station_name = updateStationName.trim();
+        metadata.jurisdiction = updateJurisdiction.trim();
+        if (updateEta.trim()) metadata.eta = updateEta.trim();
+        break;
+      case 'ON_SCENE':
+        if (!updateArrivedAt.trim()) {
+          callbacks.onError('On Scene requires an arrival time.');
+          return;
+        }
+        metadata.arrived_at = updateArrivedAt.trim();
+        break;
+      case 'RESOLVED':
+        if (!updateOutcomeSummary.trim()) {
+          callbacks.onError('Resolved requires an outcome summary.');
+          return;
+        }
+        metadata.outcome_summary = updateOutcomeSummary.trim();
+        break;
+      case 'CLOSED_DUPLICATE': {
+        const dupId = Number(updateDuplicateOf);
+        if (!Number.isInteger(dupId) || dupId <= 0) {
+          callbacks.onError('Duplicate-of report id must be a positive integer.');
+          return;
+        }
+        metadata.duplicate_of_report_id = dupId;
+        break;
+      }
+      case 'CLOSED_INSUFFICIENT':
+        if (!updateReason.trim()) {
+          callbacks.onError('Insufficient closure requires a reason.');
+          return;
+        }
+        metadata.reason = updateReason.trim();
+        break;
+      default:
+        break;
+    }
+    setBusy(true);
+    try {
+      await applyReportStatusUpdate(reportId, {
+        stage: updateStage,
+        metadata: Object.keys(metadata).length ? metadata : null,
+      });
+      callbacks.onMessage(`Sent status update (${updateStage}) to report #${reportId}.`);
+      callbacks.onClose();
+      await callbacks.onReloadQueue();
+    } catch (err) {
+      callbacks.onError(err instanceof Error ? err.message : 'Failed to send status update.');
+    } finally {
+      setBusy(false);
+    }
+  }, [openCluster, updateStage, updateStationName, updateJurisdiction, updateEta, updateArrivedAt, updateOutcomeSummary, updateDuplicateOf, updateReason, callbacks]);
+
   const claimCluster = useCallback(
     async (clusterId: number | null, reason?: string) => {
       if (!clusterId) return;
@@ -350,10 +456,27 @@ export function useTriageModalState({ openCluster, inspectionMode, callbacks }: 
     pickMergeCandidate,
     mergeCandidates,
     activity,
+    updateStage,
+    setUpdateStage,
+    updateStationName,
+    setUpdateStationName,
+    updateJurisdiction,
+    setUpdateJurisdiction,
+    updateEta,
+    setUpdateEta,
+    updateArrivedAt,
+    setUpdateArrivedAt,
+    updateOutcomeSummary,
+    setUpdateOutcomeSummary,
+    updateDuplicateOf,
+    setUpdateDuplicateOf,
+    updateReason,
+    setUpdateReason,
     applyTerminalAction,
     applyCorrection,
     applySplit,
     applyMerge,
+    applyStatusUpdate,
     claimCluster,
     busy,
   };

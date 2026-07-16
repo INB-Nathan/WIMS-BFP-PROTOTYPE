@@ -1,6 +1,6 @@
 'use client';
 
-import { Activity, GitMerge, GitPullRequestArrow, RotateCcw, Terminal } from 'lucide-react';
+import { Activity, GitMerge, GitPullRequestArrow, RotateCcw, Send, Terminal } from 'lucide-react';
 import type { TriageActionTab } from './useTriageModalState';
 
 export interface TriageActionTabsProps {
@@ -31,6 +31,7 @@ const TABS: TabSpec[] = [
   { key: 'merge', label: 'Merge', shortcut: '4', Icon: GitMerge, clusterOnly: true,
     badge: (p) => (p.mergeCandidateCount > 0 ? `${p.mergeCandidateCount}` : null) },
   { key: 'activity', label: 'Activity', shortcut: '5', Icon: Activity },
+  { key: 'update', label: 'Send Update', shortcut: '6', Icon: Send },
 ];
 
 /**

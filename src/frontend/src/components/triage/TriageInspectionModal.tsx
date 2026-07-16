@@ -6,9 +6,11 @@ import { ActivityPanel } from './ActivityPanel';
 import { ClusterSummaryHeader } from './ClusterSummaryHeader';
 import { ConfirmActionDialog, type ConfirmTone } from './ConfirmActionDialog';
 import { CorrectionActionPanel } from './CorrectionActionPanel';
+import { JurisdictionContext } from './JurisdictionContext';
 import { MergeActionPanel } from './MergeActionPanel';
 import { ReportsListPanel } from './ReportsListPanel';
 import { SplitActionPanel } from './SplitActionPanel';
+import { StatusUpdatePanel } from './StatusUpdatePanel';
 import { TerminalActionPanel } from './TerminalActionPanel';
 import { TriageActionTabs } from './TriageActionTabs';
 import { TriageSpatialPanel } from './TriageSpatialPanel';
@@ -32,7 +34,7 @@ export interface TriageInspectionModalProps {
 }
 
 interface PendingConfirm {
-  kind: 'terminal' | 'split' | 'merge' | 'correct' | 'snatch';
+  kind: 'terminal' | 'split' | 'merge' | 'correct' | 'snatch' | 'update';
   title: string;
   body: string;
   confirmLabel: string;
@@ -88,6 +90,7 @@ export function TriageInspectionModal({
       else if (key === '3' && inspectionMode === 'cluster') state.setTab('split');
       else if (key === '4' && inspectionMode === 'cluster') state.setTab('merge');
       else if (key === '5') state.setTab('activity');
+      else if (key === '6') state.setTab('update');
     }
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
@@ -194,6 +197,36 @@ export function TriageInspectionModal({
     });
   }
 
+  async function requestApplyStatusUpdate() {
+    if (!openCluster) return;
+    const reportId = openCluster.anchor_report_id ?? openCluster.reports[0]?.report_id;
+    if (!reportId) {
+      onError('No report available to update.');
+      return;
+    }
+    const stageLabel = state.updateStage.replaceAll('_', ' ');
+    setPending({
+      kind: 'update',
+      title: `Send status update: ${stageLabel}`,
+      body: `The civilian who filed report #${reportId} will see this lifecycle update on their tracking page. This action is recorded in the audit log and published as a live event.`,
+      confirmLabel: 'Send update',
+      confirmTone: 'standard',
+      preview: (
+        <div className="triage-confirm__mini">
+          <div className="triage-confirm__mini-row">
+            <span className="triage-confirm__mini-label">Report</span>
+            <span className="triage-confirm__mini-value">#{reportId}</span>
+          </div>
+          <div className="triage-confirm__mini-row">
+            <span className="triage-confirm__mini-label">Stage</span>
+            <span className="triage-confirm__mini-value">{stageLabel}</span>
+          </div>
+        </div>
+      ),
+      run: state.applyStatusUpdate,
+    });
+  }
+
   async function runPending() {
     if (!pending) return;
     const run = pending.run;
@@ -241,6 +274,8 @@ export function TriageInspectionModal({
           inspectionMode={inspectionMode}
           onClose={onClose}
         />
+
+        <JurisdictionContext cluster={openCluster} />
 
         {canClaim && (
           <div className="triage-claim-bar">
@@ -416,6 +451,28 @@ export function TriageInspectionModal({
               />
             )}
             {state.tab === 'activity' && <ActivityPanel activity={state.activity} />}
+            {state.tab === 'update' && (
+              <StatusUpdatePanel
+                stage={state.updateStage}
+                setStage={state.setUpdateStage}
+                stationName={state.updateStationName}
+                setStationName={state.setUpdateStationName}
+                jurisdiction={state.updateJurisdiction}
+                setJurisdiction={state.setUpdateJurisdiction}
+                eta={state.updateEta}
+                setEta={state.setUpdateEta}
+                arrivedAt={state.updateArrivedAt}
+                setArrivedAt={state.setUpdateArrivedAt}
+                outcomeSummary={state.updateOutcomeSummary}
+                setOutcomeSummary={state.setUpdateOutcomeSummary}
+                duplicateOf={state.updateDuplicateOf}
+                setDuplicateOf={state.setUpdateDuplicateOf}
+                reason={state.updateReason}
+                setReason={state.setUpdateReason}
+                onRequestConfirm={() => void requestApplyStatusUpdate()}
+                busy={state.busy}
+              />
+            )}
           </aside>
         </div>
       </div>
