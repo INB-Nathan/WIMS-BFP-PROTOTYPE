@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import React from 'react';
 import { ArrowLeft, AlertTriangle, RefreshCw } from 'lucide-react';
+import { Turnstile, type TurnstileInstance } from '@marsidev/react-turnstile';
 import { SafetyBanner } from './SafetyBanner';
 import { StepLocation } from './StepLocation';
 import { StepPhoto } from './StepPhoto';
@@ -70,6 +71,32 @@ export function ReportWizard() {
   const [notes, setNotes] = useState('');
 
   const [duplicates, setDuplicates] = useState<CivilianDuplicateSuggestion[]>([]);
+
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const [turnstileExpired, setTurnstileExpired] = useState(false);
+  const turnstileRef = useRef<TurnstileInstance | undefined>(undefined);
+  const turnstileEnabled = (process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? '') !== '';
+  const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? '';
+
+  const onTurnstileSuccess = useCallback((token: string) => {
+    setTurnstileToken(token);
+    setTurnstileExpired(false);
+  }, []);
+
+  // Do NOT remount the widget on expiry. With refresh-expired: auto (default)
+  // Turnstile auto-renews the token and re-invokes onSuccess, so the widget
+  // never needs to be recreated. Remounting via a React key calls
+  // turnstile.remove() on the old widget, which can fire the expired callback
+  // again and create a solved -> expired loop that blocks every submit.
+  const onTurnstileExpire = useCallback(() => {
+    setTurnstileToken(null);
+    setTurnstileExpired(true);
+  }, []);
+
+  const onTurnstileError = useCallback(() => {
+    setTurnstileToken(null);
+    setTurnstileExpired(true);
+  }, []);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [queuedLocalId, setQueuedLocalId] = useState<string | null>(null);
@@ -179,6 +206,7 @@ export function ReportWizard() {
       gps_warning_confirmed: false,
       device_id: getDeviceId(),
       client_report_id: parentLocalIdRef.current,
+      turnstile_token: turnstileToken || undefined,
     };
   }
 
@@ -225,6 +253,14 @@ export function ReportWizard() {
   }, [latitude, longitude]);
 
   async function handleSubmit() {
+    if (turnstileEnabled && !turnstileToken) {
+      setSubmitError(
+        turnstileExpired
+          ? 'Security check expired. Please complete it again.'
+          : 'Please complete the security check.',
+      );
+      return;
+    }
     const payload = buildPayload();
     if (!payload) {
       setSubmitError('A description and a location are required to submit.');
@@ -249,7 +285,17 @@ export function ReportWizard() {
       setSubmitting(false);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Submission failed. Please try again.';
-      setSubmitError(msg);
+      // Turnstile tokens are single-use — consumed by this attempt regardless
+      // of outcome. Reset the widget in place (no remount) so the user gets a
+      // fresh token without triggering the remove()/expired loop.
+      setTurnstileToken(null);
+      setTurnstileExpired(true);
+      turnstileRef.current?.reset();
+      if (msg.toLowerCase().includes('captcha')) {
+        setSubmitError('Security check failed. Please complete the CAPTCHA again.');
+      } else {
+        setSubmitError(msg);
+      }
       setSubmitting(false);
     }
   }
@@ -489,6 +535,12 @@ export function ReportWizard() {
                 submitError={submitError}
                 queuedOffline={false}
                 queuedLocalId={queuedLocalId}
+                turnstileEnabled={turnstileEnabled}
+                turnstileExpired={turnstileExpired}
+                siteKey={siteKey}
+                onTurnstileSuccess={onTurnstileSuccess}
+                onTurnstileExpire={onTurnstileExpire}
+                onTurnstileError={onTurnstileError}
                 onBack={goBack}
                 onSubmit={handleSubmit}
                 onQueueOffline={handleQueueOffline}
