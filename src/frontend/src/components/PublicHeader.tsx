@@ -2,26 +2,25 @@
 
 import { useAuth } from '@/context/AuthContext';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { AlertCircle } from 'lucide-react';
 
 /**
- * PublicHeader — shared auth-aware header for the public/contributor surface.
- * Issue #609 (PR feat/609-shared-header-nav)
+ * PublicHeader — shared auth-aware floating header for the public/contributor surface.
+ * Issue #609 (PR feat/609-shared-header-nav). Refined to match prototype style.
  *
  * Two states per IA spec (docs/superpowers/specs/2026-07-15-public-surface-ia-design.md):
- * - Anonymous: BFP logo, [Register] [Sign In] [Report a Fire] (right-aligned desktop; FAB mobile)
- * - Logged-in civilian: BFP logo, [Home] [Dashboard] [Information], profile avatar, [Report a Fire]
+ * - Anonymous: WIMS-BFP logo, [Register] [Sign In] [Report a Fire] (right-aligned desktop; FAB mobile)
+ * - Logged-in civilian: WIMS-BFP logo, [Home] [Dashboard] [Information], profile avatar, [Report a Fire]
  *
  * Staff roles (encoder/validator/analyst/admin) keep their existing sidebar — this
  * header is NOT shown for them.
  *
- * Locked color tokens:
- * - Base: #111116
- * - Red (Report CTA only): #dc2626
- * - Blue (chrome): #3b82f6
+ * The "Report a Fire" CTA is hidden in the nav when already on /report to avoid redundancy.
  */
 export function PublicHeader() {
   const { user, loading } = useAuth();
+  const pathname = usePathname();
 
   // Staff roles do not use this header — they keep their sidebar
   const isStaff =
@@ -33,6 +32,7 @@ export function PublicHeader() {
   }
 
   const isCivilian = user?.role === 'CIVILIAN_REPORTER';
+  const isReportPage = pathname === '/report';
 
   return (
     <>
@@ -46,7 +46,7 @@ export function PublicHeader() {
                   <path d="M12 2L4 5v6.09c0 5.05 3.41 9.76 8 10.91 4.59-1.15 8-5.86 8-10.91V5l-8-3z" />
                 </svg>
               </div>
-              <span className="public-header-title">BFP</span>
+              <span className="public-header-title">WIMS-BFP</span>
             </Link>
           </div>
 
@@ -84,26 +84,32 @@ export function PublicHeader() {
               </div>
             )}
 
-            {/* Desktop Report button (hidden on mobile, FAB replaces it) */}
-            <Link href="/report" className="public-header-btn public-header-btn-report public-header-btn-report-desktop">
-              <AlertCircle size={16} aria-hidden />
-              Report a Fire
-            </Link>
+            {/* Desktop Report button — hidden on /report to avoid redundancy */}
+            {!isReportPage && (
+              <Link href="/report" className="public-header-btn public-header-btn-report public-header-btn-report-desktop">
+                <AlertCircle size={16} aria-hidden />
+                Report a Fire
+              </Link>
+            )}
           </div>
         </div>
       </header>
 
-      {/* Mobile FAB (hidden on desktop) */}
-      <Link href="/report" className="public-fab" aria-label="Report a Fire">
-        <AlertCircle size={24} aria-hidden />
-      </Link>
+      {/* Mobile FAB — hidden on /report (redundant) and on desktop */}
+      {!isReportPage && (
+        <Link href="/report" className="public-fab" aria-label="Report a Fire">
+          <AlertCircle size={24} aria-hidden />
+        </Link>
+      )}
 
       <style jsx>{`
         .public-header {
           position: sticky;
           top: 0;
           z-index: 100;
-          background: #111116;
+          background: rgba(10, 10, 14, 0.82);
+          backdrop-filter: blur(10px);
+          -webkit-backdrop-filter: blur(10px);
           border-bottom: 1px solid rgba(255, 255, 255, 0.06);
           padding: 0 1.25rem;
           height: 52px;
@@ -138,6 +144,7 @@ export function PublicHeader() {
           align-items: center;
           justify-content: center;
           color: #fff;
+          flex-shrink: 0;
         }
         .public-header-logo svg {
           width: 18px;
@@ -147,6 +154,7 @@ export function PublicHeader() {
           font-size: 0.82rem;
           font-weight: 700;
           color: #e8e8ed;
+          white-space: nowrap;
         }
         .public-header-nav {
           display: none;
@@ -164,6 +172,7 @@ export function PublicHeader() {
           color: rgba(232, 232, 237, 0.65);
           text-decoration: none;
           transition: color 180ms ease;
+          white-space: nowrap;
         }
         .public-header-nav-link:hover {
           color: #e8e8ed;
@@ -171,12 +180,13 @@ export function PublicHeader() {
         .public-header-right {
           display: flex;
           align-items: center;
-          gap: 0.625rem;
+          gap: 0.5rem;
+          flex-shrink: 0;
         }
         .public-header-btn {
-          padding: 7px 16px;
+          padding: 6px 14px;
           border-radius: 6px;
-          font-size: 0.76rem;
+          font-size: 0.74rem;
           font-weight: 600;
           cursor: pointer;
           border: none;
@@ -186,6 +196,7 @@ export function PublicHeader() {
           align-items: center;
           gap: 6px;
           white-space: nowrap;
+          font-family: inherit;
         }
         .public-header-btn-ghost {
           background: transparent;
@@ -199,10 +210,10 @@ export function PublicHeader() {
         .public-header-btn-outline {
           background: transparent;
           color: #e8e8ed;
-          border: 1px solid rgba(255, 255, 255, 0.12);
+          border: 1px solid rgba(255, 255, 255, 0.15);
         }
         .public-header-btn-outline:hover {
-          border-color: rgba(255, 255, 255, 0.3);
+          border-color: rgba(255, 255, 255, 0.35);
           background: rgba(255, 255, 255, 0.06);
         }
         .public-header-btn-report {
