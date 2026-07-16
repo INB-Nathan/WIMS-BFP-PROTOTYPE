@@ -58,14 +58,11 @@ export default function LandingPage() {
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [sidebarOpen, closeSidebar]);
 
-  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
-
-  // Restore the visitor's last theme choice (client-only; default dark).
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
+    if (typeof window === 'undefined') return 'dark';
     const saved = window.localStorage.getItem('landing-theme');
-    if (saved === 'light' || saved === 'dark') setTheme(saved);
-  }, []);
+    return saved === 'light' || saved === 'dark' ? saved : 'dark';
+  });
 
   useEffect(() => {
     if (typeof window !== 'undefined') window.localStorage.setItem('landing-theme', theme);
