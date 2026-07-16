@@ -30,8 +30,6 @@ import {
     SlidersHorizontal,
     Activity,
     Timer,
-    Megaphone,
-    Newspaper,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -323,25 +321,14 @@ function getNavSections(role: string | null, badgeCount: number = 0): NavSection
         return sections;
     }
 
-    // Civilian reporters get the Contributor dashboard (their main hub)
-    // and the public Information page (announcements, emergencies, reporting guide).
-    // /dashboard redirects to /contributor for this role, so we omit the
-    // redundant "Dashboard" nav item to avoid confusion.
+    // Civilian reporters use the shared public/contributor navbar (PublicHeader,
+    // see #609 + #615) instead of this sidebar — LayoutShell renders PublicHeader
+    // for isCivilianRoute() paths (/contributor, /information). This branch
+    // intentionally returns no sidebar items for this role; the Sidebar component
+    // is not mounted for civilian routes, but we keep the branch defined so
+    // getNavSections() never falls through to the generic "add Incidents" logic
+    // below for this role.
     if (role === 'CIVILIAN_REPORTER') {
-        sections.push({
-            label: 'Navigation',
-            items: [
-                { label: 'Operations', href: '/home', icon: Home },
-            ],
-        });
-        sections.push({
-            label: 'Civilian',
-            items: [
-                { label: 'Contributor', href: '/contributor', icon: Megaphone },
-                { label: 'Information', href: '/information', icon: Newspaper },
-            ],
-        });
-        sections.push({ label: 'Account', items: [{ label: 'My Profile', href: '/profile', icon: UserCircle }] });
         return sections;
     }
 
