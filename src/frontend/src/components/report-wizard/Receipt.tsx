@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { CheckCircle2, Copy, PhoneCall, ChevronDown, UserPlus, MapPin, Clock } from 'lucide-react';
+import { CheckCircle2, Copy, PhoneCall, ChevronDown, UserPlus, MapPin, Clock, AlertTriangle } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { RouteFeedback } from './RouteFeedback';
 import type { RouteState } from './RouteFeedback';
@@ -67,30 +67,32 @@ export function Receipt({ data, tracking, trackingLoading, trackingState }: Rece
   const when = formatTimestamp(data.createdAt);
 
   return (
-    <div className="min-h-screen" style={{ background: 'var(--content-bg)' }}>
+    <div className="ps-has-mesh min-h-screen">
       <SafetyBanner />
       {/* Hero */}
-      <div className="text-center py-6 px-4" style={{ background: 'var(--bfp-gradient)' }}>
-        <div className="relative w-14 h-14 mx-auto mb-3">
-          <Image src="/bfp-logo.svg" alt="BFP Logo" fill className="object-contain" />
+      <div className="relative overflow-hidden">
+        <div className="ps-intent-bg" aria-hidden />
+        <div className="relative z-10 text-center py-6 px-4" style={{ background: 'linear-gradient(135deg, var(--red-deep) 0%, var(--red) 100%)' }}>
+          <div className="relative w-14 h-14 mx-auto mb-3">
+            <Image src="/bfp-logo.svg" alt="BFP Logo" fill className="object-contain" />
+          </div>
+          <p className="text-xs text-white/50 uppercase tracking-widest mb-1">
+            Bureau of Fire Protection
+          </p>
+          <h1 className="text-xl font-bold text-white">Report Received</h1>
+          <p className="text-xs text-white/60 mt-0.5">
+            Natanggap ang iyong report
+          </p>
         </div>
-        <p className="text-xs text-white/50 uppercase tracking-widest mb-1">
-          Bureau of Fire Protection
-        </p>
-        <h1 className="text-xl font-bold text-white">Report Received</h1>
-        <p className="text-xs text-white/60 mt-0.5">
-          Natanggap ang iyong report
-        </p>
       </div>
 
-      <div className="max-w-lg mx-auto px-4 mt-4 pb-8">
+      <div className="relative z-10 max-w-lg mx-auto px-4 mt-4 pb-8">
         <div
-          className="rounded-xl border overflow-hidden"
-          style={{ borderColor: 'var(--border-color)', backgroundColor: 'var(--card-bg)' }}
+          className="ps-card"
         >
           {/* Official receipt header */}
-          <div className="px-5 py-4 border-b" style={{ borderColor: 'var(--border-color)' }}>
-            <div className="flex items-center gap-2" style={{ color: 'var(--bfp-red, #dc2626)' }}>
+          <div className="px-5 py-4 border-b" style={{ borderColor: 'var(--border)' }}>
+            <div className="flex items-center gap-2" style={{ color: 'var(--red)' }}>
               <CheckCircle2 className="w-5 h-5" />
               <span className="text-sm font-bold">Official Acknowledgment</span>
             </div>
@@ -100,13 +102,16 @@ export function Receipt({ data, tracking, trackingLoading, trackingState }: Rece
           </div>
 
           {/* 911 boundary — required on all submissions */}
-          <div className="px-5 py-3 bg-red-50 border-b border-red-200">
-            <p className="text-xs font-semibold text-red-700">
-              For immediate danger, call 911 now. This report does not replace an emergency call.
-            </p>
-            <p className="text-[11px] text-red-600 mt-0.5">
-              Kung may agarang peligro, tumawag sa 911 ngayon. Ang report na ito ay hindi kapalit ng agarang tawag sa 911.
-            </p>
+          <div className="px-5 py-3 ps-warning">
+            <AlertTriangle className="w-5 h-5 ps-warning-icon" />
+            <div>
+              <p className="text-xs font-semibold">
+                For immediate danger, call 911 now. This report does not replace an emergency call.
+              </p>
+              <p className="text-[11px] mt-0.5">
+                Kung may agarang peligro, tumawag sa 911 ngayon. Ang report na ito ay hindi kapalit ng agarang tawag sa 911.
+              </p>
+            </div>
           </div>
 
           {/* Summary: what / where / when */}
@@ -134,7 +139,7 @@ export function Receipt({ data, tracking, trackingLoading, trackingState }: Rece
                 <p className="text-sm mt-0.5 flex items-center gap-1.5" style={{ color: 'var(--text-primary)' }}>
                   {data.nearestStation.name}
                   {data.nearestStation.phone && (
-                    <a href={`tel:${data.nearestStation.phone}`} className="inline-flex items-center gap-1" style={{ color: 'var(--bfp-red, #dc2626)' }}>
+                    <a href={`tel:${data.nearestStation.phone}`} className="inline-flex items-center gap-1" style={{ color: 'var(--red)' }}>
                       <PhoneCall className="w-3.5 h-3.5" /> {data.nearestStation.phone}
                     </a>
                   )}
@@ -157,7 +162,7 @@ export function Receipt({ data, tracking, trackingLoading, trackingState }: Rece
 
           {/* QR + token */}
           <div className="px-5 pb-4 flex gap-4 items-center">
-            <div className="p-2 bg-white rounded-lg border" style={{ borderColor: 'var(--border-color)' }}>
+            <div className="p-2 bg-white rounded-lg border" style={{ borderColor: 'var(--border)' }}>
               <QRCodeSVG value={absoluteTrackingUrl} size={120} title={`Track report ${data.reportId}`} aria-label={`Track report QR code for ${data.reportId}`} data-testid="qr-code" />
             </div>
             <div className="flex-1 min-w-0">
@@ -177,8 +182,8 @@ export function Receipt({ data, tracking, trackingLoading, trackingState }: Rece
                   onClick={() => void copyToken()}
                   data-testid="copy-token"
                   aria-label="Copy tracking token"
-                  className="flex-shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded border text-xs transition-colors"
-                  style={{ borderColor: 'var(--border-color)', color: 'var(--bfp-red, #dc2626)' }}
+                  className="ps-btn ps-btn-outline flex-shrink-0"
+                  style={{ color: 'var(--red)' }}
                 >
                   {copied ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
                   {copied ? 'Copied' : 'Copy'}
@@ -188,7 +193,7 @@ export function Receipt({ data, tracking, trackingLoading, trackingState }: Rece
                 href={data.trackingUrl}
                 data-testid="tracking-link"
                 className="inline-block mt-2 text-xs font-semibold underline break-all"
-                style={{ color: 'var(--bfp-red, #dc2626)' }}
+                style={{ color: 'var(--red)' }}
               >
                 {absoluteTrackingUrl}
               </Link>
@@ -222,7 +227,7 @@ export function Receipt({ data, tracking, trackingLoading, trackingState }: Rece
               <div
                 data-testid="registration-incentive"
                 className="mt-2 rounded-lg p-3 text-xs"
-                style={{ backgroundColor: 'var(--content-bg)', color: 'var(--text-secondary)' }}
+                style={{ backgroundColor: 'var(--bg-base)', color: 'var(--text-secondary)' }}
               >
                 <ul className="space-y-1 mb-2">
                   <li>• Track all your reports in one place</li>
@@ -232,8 +237,7 @@ export function Receipt({ data, tracking, trackingLoading, trackingState }: Rece
                 <p className="mb-2">Your token keeps working even without an account — registering is optional.</p>
                 <Link
                   href="/register"
-                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-white text-xs font-semibold"
-                  style={{ background: 'var(--bfp-gradient)' }}
+                  className="ps-btn ps-btn-primary inline-flex items-center gap-1.5"
                 >
                   <UserPlus className="w-3.5 h-3.5" /> Register to unlock full tracking
                 </Link>
@@ -244,8 +248,7 @@ export function Receipt({ data, tracking, trackingLoading, trackingState }: Rece
 
         <Link
           href="/"
-          className="w-full inline-flex items-center justify-center gap-2 py-3 mt-4 rounded-xl text-white text-sm font-bold"
-          style={{ background: 'var(--bfp-gradient)', boxShadow: '0 2px 8px rgba(153,27,34,0.3)' }}
+          className="ps-btn ps-btn-primary w-full justify-center mt-4"
         >
           Done
         </Link>
