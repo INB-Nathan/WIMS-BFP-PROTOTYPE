@@ -74,18 +74,18 @@ export function StepCategory({ observables, onChange }: StepCategoryProps) {
               aria-pressed={selected}
               className="flex items-center gap-3 w-full text-left rounded-xl p-3 border-2 transition-all"
               style={{
-                borderColor: selected ? '#991B1B' : 'var(--border-color)',
-                backgroundColor: selected ? 'rgba(153,27,27,0.04)' : 'var(--card-bg)',
+                borderColor: selected ? 'var(--red)' : 'var(--border)',
+                backgroundColor: selected ? 'var(--red-bg)' : 'var(--bg-surface)',
               }}
             >
-              <span style={{ color: selected ? '#991B1B' : 'var(--text-secondary)' }}>{obs.icon}</span>
+              <span style={{ color: selected ? 'var(--red)' : 'var(--text-secondary)' }}>{obs.icon}</span>
               <span className="flex-1">
                 <span className="block text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{obs.label}</span>
                 <span className="block text-xs" style={{ color: 'var(--bilingual-color)' }}>{obs.labelFil}</span>
               </span>
               <span
                 className="w-5 h-5 rounded border flex items-center justify-center text-white text-xs"
-                style={{ borderColor: selected ? '#991B1B' : 'var(--border-color)', backgroundColor: selected ? '#991B1B' : 'transparent' }}
+                style={{ borderColor: selected ? 'var(--red)' : 'var(--border)', backgroundColor: selected ? 'var(--red)' : 'transparent' }}
                 aria-hidden
               >
                 {selected ? '✓' : ''}

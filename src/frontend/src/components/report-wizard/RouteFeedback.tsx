@@ -77,7 +77,7 @@ export function RouteFeedback({ reportLat, reportLng, station, tracking, loading
       data-testid="route-feedback"
       data-state={state}
       className="rounded-lg border p-3"
-      style={{ borderColor: 'var(--border-color)', backgroundColor: 'var(--content-bg)' }}
+      style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-base)' }}
     >
       <div className="flex items-center justify-between mb-2">
         <p className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>

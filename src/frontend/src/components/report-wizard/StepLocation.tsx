@@ -61,7 +61,7 @@ export function StepLocation({ latitude, longitude, landmark, onChange }: StepLo
           Drop a pin on the map, use your location, or describe a nearby landmark.
         </p>
 
-        <div className="rounded-lg overflow-hidden border" style={{ borderColor: 'var(--border-color)' }}>
+        <div className="rounded-lg overflow-hidden border" style={{ borderColor: 'var(--border)' }}>
           <MapPicker
             value={latitude !== null && longitude !== null ? { lat: latitude, lng: longitude } : null}
             onChange={(lat, lng) => onChange({ latitude: lat, longitude: lng, landmark })}
@@ -74,7 +74,7 @@ export function StepLocation({ latitude, longitude, landmark, onChange }: StepLo
             onClick={requestGps}
             data-testid="gps-button"
             className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded border transition-colors"
-            style={{ borderColor: 'var(--border-color)', color: 'var(--text-secondary)' }}
+            style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}
           >
             <Locate className="w-3.5 h-3.5" /> Use my location
           </button>

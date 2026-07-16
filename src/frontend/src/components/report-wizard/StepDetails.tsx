@@ -34,7 +34,7 @@ export function StepDetails({ description, contactName, contactPhone, notes, onC
           rows={5}
           data-testid="description-input"
           className="w-full rounded-xl border px-4 py-3 text-sm resize-none focus:outline-none focus:ring-2"
-          style={{ backgroundColor: 'var(--input-bg)', borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
+          style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
         />
         {description.trim().length === 0 && (
           <p className="text-xs mt-1 flex items-center gap-1" style={{ color: '#b91c1c' }}>
@@ -49,7 +49,7 @@ export function StepDetails({ description, contactName, contactPhone, notes, onC
         data-testid="add-more-detail"
         aria-expanded={showMore}
         className="flex items-center gap-1.5 text-sm font-medium"
-        style={{ color: 'var(--bfp-red, #dc2626)' }}
+        style={{ color: 'var(--red)' }}
       >
         <ChevronDown className="w-4 h-4 transition-transform" style={{ transform: showMore ? 'rotate(180deg)' : 'none' }} />
         Add more detail

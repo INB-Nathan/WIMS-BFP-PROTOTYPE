@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import React from 'react';
 import { ArrowLeft, AlertTriangle, RefreshCw } from 'lucide-react';
-import { Turnstile, type TurnstileInstance } from '@marsidev/react-turnstile';
+import { TurnstileInstance } from '@marsidev/react-turnstile';
 import { SafetyBanner } from './SafetyBanner';
 import { StepLocation } from './StepLocation';
 import { StepPhoto } from './StepPhoto';
@@ -368,13 +368,14 @@ export function ReportWizard() {
 
   if (mode === 'queued') {
     return (
-      <div className="min-h-screen" style={{ background: 'var(--content-bg)' }}>
+      <div className="ps-has-mesh min-h-screen">
+        <div className="ps-intent-bg" aria-hidden />
         <SafetyBanner />
-        <div className="max-w-lg mx-auto px-4 mt-6 pb-8">
-          <div className="card overflow-hidden">
+        <div className="relative z-10 max-w-lg mx-auto px-4 mt-6 pb-8">
+          <div className="ps-card">
             <div className="p-6 text-center">
-              <div className="mx-auto w-14 h-14 rounded-full flex items-center justify-center mb-3" style={{ backgroundColor: 'rgba(34,197,94,0.1)' }}>
-                <RefreshCw className="w-8 h-8 text-green-600" />
+              <div className="mx-auto w-14 h-14 rounded-full flex items-center justify-center mb-3" style={{ backgroundColor: 'var(--green-bg)' }}>
+                <RefreshCw className="w-8 h-8" style={{ color: 'var(--green)' }} />
               </div>
               <h1 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>Report saved offline</h1>
               <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
@@ -385,8 +386,9 @@ export function ReportWizard() {
                   {queuedLocalId}
                 </code>
               )}
-              <div className="bg-red-50 border border-red-200 rounded-lg p-3 mt-4 text-left">
-                <p className="text-sm font-semibold text-red-700">For immediate danger, call 911 now.</p>
+              <div className="ps-warning mt-4">
+                <AlertTriangle className="w-5 h-5 ps-warning-icon" />
+                <p className="font-semibold">For immediate danger, call 911 now.</p>
               </div>
             </div>
           </div>
@@ -399,12 +401,13 @@ export function ReportWizard() {
     const draft = loadDraft();
     if (draft) {
       return (
-        <div className="min-h-screen" style={{ background: 'var(--content-bg)' }}>
+        <div className="ps-has-mesh min-h-screen">
+          <div className="ps-intent-bg" aria-hidden />
           <SafetyBanner />
-          <div className="max-w-lg mx-auto px-4 mt-10 pb-8">
-            <div className="card overflow-hidden">
+          <div className="relative z-10 max-w-lg mx-auto px-4 mt-10 pb-8">
+            <div className="ps-card">
               <div className="p-6 text-center space-y-4">
-                <AlertTriangle className="w-10 h-10 mx-auto text-amber-500" />
+                <AlertTriangle className="w-10 h-10 mx-auto" style={{ color: 'var(--orange)' }} />
                 <h1 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>
                   You have an unfinished report
                 </h1>
@@ -416,8 +419,7 @@ export function ReportWizard() {
                     type="button"
                     onClick={continueDraft}
                     data-testid="continue-draft"
-                    className="w-full py-3 rounded-xl text-white text-sm font-bold"
-                    style={{ background: 'var(--bfp-gradient)' }}
+                    className="ps-btn ps-btn-primary w-full justify-center"
                   >
                     Continue draft
                   </button>
@@ -425,8 +427,7 @@ export function ReportWizard() {
                     type="button"
                     onClick={startFresh}
                     data-testid="start-fresh"
-                    className="w-full py-3 rounded-xl border text-sm font-medium"
-                    style={{ borderColor: 'var(--border-color)', color: 'var(--text-secondary)' }}
+                    className="ps-btn ps-btn-outline w-full justify-center"
                   >
                     Start fresh
                   </button>
@@ -441,19 +442,20 @@ export function ReportWizard() {
 
   // ── Wizard steps ───────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen" style={{ background: 'var(--content-bg)' }}>
+    <div className="ps-has-mesh min-h-screen">
+      <div className="ps-intent-bg" aria-hidden />
       <SafetyBanner />
 
-      <div className="max-w-lg mx-auto px-4 mt-4 pb-8">
-        <div className="card overflow-hidden">
-          <div className="card-body p-6 space-y-5">
+      <div className="relative z-10 max-w-lg mx-auto px-4 mt-4 pb-8">
+        <div className="ps-card">
+          <div className="p-6 space-y-5">
             {/* Progress */}
             <div className="flex items-center gap-1" data-testid="wizard-progress">
               {STEPS.map((label, i) => (
                 <div key={label} className="flex-1 flex items-center">
                   <div
                     className="flex-1 h-1.5 rounded-full"
-                    style={{ backgroundColor: i <= stepIndex ? '#991B1B' : 'var(--border-color)' }}
+                    style={{ backgroundColor: i <= stepIndex ? 'var(--red)' : 'var(--border)' }}
                     data-testid={`step-dot-${i}`}
                   />
                 </div>
@@ -554,8 +556,7 @@ export function ReportWizard() {
                   <button
                     type="button"
                     onClick={goBack}
-                    className="flex items-center gap-1 px-4 py-3 rounded-xl border text-sm font-medium transition-colors"
-                    style={{ borderColor: 'var(--border-color)', color: 'var(--text-secondary)', backgroundColor: 'var(--card-bg)' }}
+                    className="ps-btn ps-btn-outline"
                   >
                     <ArrowLeft className="w-4 h-4" /> Back
                   </button>
@@ -564,8 +565,7 @@ export function ReportWizard() {
                   type="button"
                   onClick={stepIndex === 3 ? handleReviewEnterThenNext : goNext}
                   disabled={stepIndex === 3 && description.trim().length === 0}
-                  className="flex-1 py-3.5 rounded-xl text-white text-sm font-bold disabled:opacity-40 transition-all"
-                  style={{ background: 'var(--bfp-gradient)', boxShadow: '0 2px 8px rgba(153,27,34,0.3)' }}
+                  className="ps-btn ps-btn-primary flex-1 justify-center disabled:opacity-40"
                 >
                   {stepIndex === STEPS.length - 2 ? 'Review' : 'Continue'}
                 </button>
