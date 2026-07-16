@@ -11,7 +11,7 @@
  * 7. S2+S3: API failure shows user-visible error banner instead of "No threats found"
  * 8. Q1: Pagination Next button is disabled when total shows no more pages
  */
-import { render, screen, waitFor, cleanup } from '@testing-library/react';
+import { render, screen, waitFor, cleanup, within } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import SecurityMonitoringPage from './page';
 import userEvent from '@testing-library/user-event';
@@ -49,6 +49,7 @@ const mockBlockSecurityLog = vi.fn();
 const mockDeleteSecurityLog = vi.fn();
 const mockBulkActionSecurityLogs = vi.fn();
 const mockBlockByFilter = vi.fn();
+const mockBulkBlockPreview = vi.fn();
 const mockListBlockedIps = vi.fn().mockResolvedValue([]);
 const mockUnblockIp = vi.fn();
 
@@ -72,6 +73,7 @@ vi.mock('@/lib/api/securityActions', () => ({
   deleteSecurityLog: (...args: unknown[]) => mockDeleteSecurityLog(...args),
   bulkActionSecurityLogs: (...args: unknown[]) => mockBulkActionSecurityLogs(...args),
   blockByFilter: (...args: unknown[]) => mockBlockByFilter(...args),
+  bulkBlockPreview: (...args: unknown[]) => mockBulkBlockPreview(...args),
   listBlockedIps: (...args: unknown[]) => mockListBlockedIps(...args),
   unblockIp: (...args: unknown[]) => mockUnblockIp(...args),
 }));
@@ -1030,21 +1032,22 @@ describe('M8: Security Monitoring page — device-vs-IP blocking flow (#571)', (
     vi.useRealTimers();
   });
 
-  it('shows "Block Device / IP" label when the row has a device_token_hash', async () => {
+  it('shows two dedicated buttons — Block Device and Block IP — when the row has a device_token_hash', async () => {
     vi.useRealTimers();
     render(<SecurityMonitoringPage />);
 
     await waitFor(() => {
       expect(screen.getByText('192.168.1.100')).toBeInTheDocument();
     });
-    expect(screen.getByText('Block Device / IP')).toBeInTheDocument();
+    expect(screen.getByText('Block Device')).toBeInTheDocument();
+    expect(screen.getByText('Block IP')).toBeInTheDocument();
     expect(screen.queryByText('Block Source IP')).not.toBeInTheDocument();
   });
 
-  it('blocks the device when the admin confirms the device choice', async () => {
+  it('Block Device button confirms once and blocks the device only', async () => {
     const user = userEvent.setup({ delay: null });
     vi.useRealTimers();
-    vi.spyOn(window, 'confirm').mockReturnValue(true); // first prompt: "OK = Block this device"
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
     mockBlockSecurityLog.mockResolvedValue({
       device_token_hash: 'abcdef0123456789hash',
       is_permanent: false,
@@ -1057,8 +1060,9 @@ describe('M8: Security Monitoring page — device-vs-IP blocking flow (#571)', (
       expect(screen.getByText('192.168.1.100')).toBeInTheDocument();
     });
 
-    await user.click(screen.getByText('Block Device / IP'));
+    await user.click(screen.getByText('Block Device'));
 
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
     expect(mockBlockSecurityLog).toHaveBeenCalledWith(1, { type: 'device', ttl_hours: 24 });
     expect(mockBlockSourceIp).not.toHaveBeenCalled();
 
@@ -1067,12 +1071,31 @@ describe('M8: Security Monitoring page — device-vs-IP blocking flow (#571)', (
     });
   });
 
-  it('falls back to blocking the IP when the admin declines the device choice', async () => {
+  it('declining the Block Device confirm does nothing — no IP block is offered or fired', async () => {
     const user = userEvent.setup({ delay: null });
     vi.useRealTimers();
-    // First confirm (device choice) -> false; second confirm (IP fallback) -> true
-    const confirmSpy = vi.spyOn(window, 'confirm');
-    confirmSpy.mockReturnValueOnce(false).mockReturnValueOnce(true);
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+
+    render(<SecurityMonitoringPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('192.168.1.100')).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByText('Block Device'));
+
+    // Exactly one confirm — declining it is a full abort, not a segue into
+    // a second "block IP instead?" prompt (the bug the two-button redesign
+    // fixes: a reflexive Cancel-then-OK could no longer block an IP by accident).
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    expect(mockBlockSecurityLog).not.toHaveBeenCalled();
+    expect(mockBlockSourceIp).not.toHaveBeenCalled();
+  });
+
+  it('Block IP button confirms once and blocks the IP only, ignoring the device link', async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.useRealTimers();
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
     mockBlockSourceIp.mockResolvedValue({ ip: '192.168.1.100', is_permanent: false, already_active: false });
 
     render(<SecurityMonitoringPage />);
@@ -1081,18 +1104,17 @@ describe('M8: Security Monitoring page — device-vs-IP blocking flow (#571)', (
       expect(screen.getByText('192.168.1.100')).toBeInTheDocument();
     });
 
-    await user.click(screen.getByText('Block Device / IP'));
+    await user.click(screen.getByText('Block IP'));
 
-    expect(confirmSpy).toHaveBeenCalledTimes(2);
-    expect(mockBlockSecurityLog).not.toHaveBeenCalled();
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
     expect(mockBlockSourceIp).toHaveBeenCalledWith(1, { ttl_hours: 24 });
+    expect(mockBlockSecurityLog).not.toHaveBeenCalled();
   });
 
-  it('does nothing when the admin declines both prompts', async () => {
+  it('declining the Block IP confirm does nothing', async () => {
     const user = userEvent.setup({ delay: null });
     vi.useRealTimers();
-    const confirmSpy = vi.spyOn(window, 'confirm');
-    confirmSpy.mockReturnValueOnce(false).mockReturnValueOnce(false);
+    vi.spyOn(window, 'confirm').mockReturnValue(false);
 
     render(<SecurityMonitoringPage />);
 
@@ -1100,7 +1122,7 @@ describe('M8: Security Monitoring page — device-vs-IP blocking flow (#571)', (
       expect(screen.getByText('192.168.1.100')).toBeInTheDocument();
     });
 
-    await user.click(screen.getByText('Block Device / IP'));
+    await user.click(screen.getByText('Block IP'));
 
     expect(mockBlockSecurityLog).not.toHaveBeenCalled();
     expect(mockBlockSourceIp).not.toHaveBeenCalled();
@@ -1151,6 +1173,10 @@ describe('M8: Security Monitoring page — bulk actions + S3 (Task 12)', () => {
       response: await mockFetchAdminSecurityLogs(params),
       fromCache: false,
     }));
+    // Default: no device_token_hash on these fixture rows, so a bulk block
+    // preview finds no device groups — "Block Selected" falls straight
+    // through to the existing flat IP-block flow, matching the fixtures.
+    mockBulkBlockPreview.mockResolvedValue({ device_groups: [], ip_only_log_ids: [1, 2] });
   });
 
   afterEach(() => {
@@ -1197,7 +1223,7 @@ describe('M8: Security Monitoring page — bulk actions + S3 (Task 12)', () => {
 
     expect(screen.getByTestId('bulk-action-bar')).toBeInTheDocument();
     expect(screen.getByText(/1 selected/i)).toBeInTheDocument();
-    expect(screen.getByText(/Block Selected IPs/i)).toBeInTheDocument();
+    expect(screen.getByText(/Block Selected$/i)).toBeInTheDocument();
     expect(screen.getByText(/Dismiss Selected/i)).toBeInTheDocument();
     expect(screen.getByText(/Mark False Positive/i)).toBeInTheDocument();
   });
@@ -1240,8 +1266,10 @@ describe('M8: Security Monitoring page — bulk actions + S3 (Task 12)', () => {
     const checkboxes = screen.getAllByRole('checkbox');
     await user.click(checkboxes[0]);
 
-    // Click Block Selected IPs
-    await user.click(screen.getByText(/Block Selected IPs/i));
+    // Click Block Selected — preview finds no device groups (default mock),
+    // so it falls straight through to the existing flat IP-block confirm.
+    await user.click(screen.getByText(/Block Selected$/i));
+    await waitFor(() => expect(mockBulkBlockPreview).toHaveBeenCalledWith([1, 2]));
 
     expect(window.confirm).toHaveBeenCalled();
     expect(mockBulkActionSecurityLogs).toHaveBeenCalledWith({
@@ -1278,6 +1306,340 @@ describe('M8: Security Monitoring page — bulk actions + S3 (Task 12)', () => {
       action: 'dismiss',
       ttl_hours: 24,
     });
+  });
+
+  // ── Wayfinder #571: bulk grouping preview ─────────────────────────────
+
+  it('shows the grouping preview panel when the selection includes device-linked logs', async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.useRealTimers();
+    mockBulkBlockPreview.mockResolvedValue({
+      device_groups: [{ device_token_hash: 'abcdef012345hash', log_ids: [1, 2] }],
+      ip_only_log_ids: [],
+    });
+
+    render(<SecurityMonitoringPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('192.168.1.100')).toBeInTheDocument();
+    });
+
+    const checkboxes = screen.getAllByRole('checkbox');
+    await user.click(checkboxes[0]); // select all
+
+    await user.click(screen.getByText(/Block Selected$/i));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('bulk-block-preview-panel')).toBeInTheDocument();
+    });
+    expect(screen.getByText(/abcdef012345/i)).toBeInTheDocument();
+    const group = screen.getByTestId('bulk-preview-device-group');
+    expect(within(group).getByText('Block Device')).toBeInTheDocument();
+    expect(within(group).getByText('Block IP')).toBeInTheDocument();
+    expect(within(group).getByText('Skip')).toBeInTheDocument();
+    // Defaults to "Block Device" selected for each group.
+    expect(within(group).getByRole('radio', { name: 'Block Device' })).toBeChecked();
+    expect(mockBulkActionSecurityLogs).not.toHaveBeenCalled();
+  });
+
+  it('shows an error toast and never opens the panel when the preview fetch itself fails', async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.useRealTimers();
+    mockBulkBlockPreview.mockRejectedValue({ detail: 'Preview failed' });
+
+    render(<SecurityMonitoringPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('192.168.1.100')).toBeInTheDocument();
+    });
+
+    const checkboxes = screen.getAllByRole('checkbox');
+    await user.click(checkboxes[0]);
+    await user.click(screen.getByText(/Block Selected$/i));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Preview failed/i)).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId('bulk-block-preview-panel')).not.toBeInTheDocument();
+    expect(mockBulkActionSecurityLogs).not.toHaveBeenCalled();
+  });
+
+  it('unchecking the IP-only checkbox excludes it while device groups still block', async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.useRealTimers();
+    mockBulkBlockPreview.mockResolvedValue({
+      device_groups: [{ device_token_hash: 'hash-a', log_ids: [1] }],
+      ip_only_log_ids: [2],
+    });
+    mockBulkActionSecurityLogs.mockResolvedValue({ results: [] });
+
+    render(<SecurityMonitoringPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('192.168.1.100')).toBeInTheDocument();
+    });
+
+    const checkboxes = screen.getAllByRole('checkbox');
+    await user.click(checkboxes[0]);
+    await user.click(screen.getByText(/Block Selected$/i));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('bulk-block-preview-panel')).toBeInTheDocument();
+    });
+
+    const ipOnlyCheckbox = screen.getByTestId('bulk-preview-ip-group').querySelector('input');
+    if (!ipOnlyCheckbox) throw new Error('ip-only checkbox not found');
+    await user.click(ipOnlyCheckbox); // uncheck it (default is checked)
+
+    await user.click(screen.getByText(/Confirm Blocks/i));
+
+    await waitFor(() => {
+      expect(mockBulkActionSecurityLogs).toHaveBeenCalledWith({
+        log_ids: [1],
+        action: 'block_device',
+        ttl_hours: 24,
+      });
+    });
+    expect(mockBulkActionSecurityLogs).not.toHaveBeenCalledWith(
+      expect.objectContaining({ log_ids: [2] })
+    );
+    expect(mockBulkActionSecurityLogs).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports partial failure accurately without silently dropping the successful groups', async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.useRealTimers();
+    mockBulkBlockPreview.mockResolvedValue({
+      device_groups: [
+        { device_token_hash: 'hash-a', log_ids: [1] },
+        { device_token_hash: 'hash-b', log_ids: [2] },
+      ],
+      ip_only_log_ids: [],
+    });
+    mockBulkActionSecurityLogs
+      .mockResolvedValueOnce({ results: [] }) // hash-a succeeds
+      .mockRejectedValueOnce({ detail: 'device already blocked by another admin' }); // hash-b fails
+
+    render(<SecurityMonitoringPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('192.168.1.100')).toBeInTheDocument();
+    });
+
+    const checkboxes = screen.getAllByRole('checkbox');
+    await user.click(checkboxes[0]);
+    await user.click(screen.getByText(/Block Selected$/i));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('bulk-block-preview-panel')).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByText(/Confirm Blocks/i));
+
+    // Both jobs must be attempted — the second group's failure must not
+    // prevent the first group's call from having already gone out.
+    await waitFor(() => {
+      expect(mockBulkActionSecurityLogs).toHaveBeenCalledTimes(2);
+    });
+    // The toast must be honest about the mixed outcome, not a blanket
+    // success or a blanket "failed" that hides the group that DID block.
+    await waitFor(() => {
+      expect(screen.getByText(/Blocked 1 log\(s\) by device/i)).toBeInTheDocument();
+    });
+    expect(screen.getByText(/failed for/i)).toBeInTheDocument();
+    expect(screen.getByText(/hash-b/i)).toBeInTheDocument();
+  });
+
+  it('keeps the preview panel open when every job fails, so the admin can retry', async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.useRealTimers();
+    mockBulkBlockPreview.mockResolvedValue({
+      device_groups: [{ device_token_hash: 'hash-a', log_ids: [1] }],
+      ip_only_log_ids: [],
+    });
+    mockBulkActionSecurityLogs.mockRejectedValue({ detail: 'network error' });
+
+    render(<SecurityMonitoringPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('192.168.1.100')).toBeInTheDocument();
+    });
+
+    const checkboxes = screen.getAllByRole('checkbox');
+    await user.click(checkboxes[0]);
+    await user.click(screen.getByText(/Block Selected$/i));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('bulk-block-preview-panel')).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByText(/Confirm Blocks/i));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Bulk block failed for/i)).toBeInTheDocument();
+    });
+    expect(screen.getByTestId('bulk-block-preview-panel')).toBeInTheDocument();
+  });
+
+  it('confirming the preview blocks each device group and the IP-only group separately', async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.useRealTimers();
+    mockBulkBlockPreview.mockResolvedValue({
+      device_groups: [
+        { device_token_hash: 'hash-a', log_ids: [1] },
+        { device_token_hash: 'hash-b', log_ids: [2] },
+      ],
+      ip_only_log_ids: [3],
+    });
+    mockBulkActionSecurityLogs.mockResolvedValue({ results: [] });
+
+    render(<SecurityMonitoringPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('192.168.1.100')).toBeInTheDocument();
+    });
+
+    const checkboxes = screen.getAllByRole('checkbox');
+    await user.click(checkboxes[0]);
+    await user.click(screen.getByText(/Block Selected$/i));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('bulk-block-preview-panel')).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByText(/Confirm Blocks/i));
+
+    await waitFor(() => {
+      expect(mockBulkActionSecurityLogs).toHaveBeenCalledWith({
+        log_ids: [1],
+        action: 'block_device',
+        ttl_hours: 24,
+      });
+    });
+    expect(mockBulkActionSecurityLogs).toHaveBeenCalledWith({
+      log_ids: [2],
+      action: 'block_device',
+      ttl_hours: 24,
+    });
+    expect(mockBulkActionSecurityLogs).toHaveBeenCalledWith({
+      log_ids: [3],
+      action: 'block_ip',
+      ttl_hours: 24,
+    });
+    expect(mockBulkActionSecurityLogs).toHaveBeenCalledTimes(3);
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('bulk-block-preview-panel')).not.toBeInTheDocument();
+    });
+  });
+
+  it('switching a group to Skip excludes it from the block', async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.useRealTimers();
+    mockBulkBlockPreview.mockResolvedValue({
+      device_groups: [{ device_token_hash: 'hash-a', log_ids: [1] }],
+      ip_only_log_ids: [2],
+    });
+    mockBulkActionSecurityLogs.mockResolvedValue({ results: [] });
+
+    render(<SecurityMonitoringPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('192.168.1.100')).toBeInTheDocument();
+    });
+
+    const checkboxes = screen.getAllByRole('checkbox');
+    await user.click(checkboxes[0]);
+    await user.click(screen.getByText(/Block Selected$/i));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('bulk-block-preview-panel')).toBeInTheDocument();
+    });
+
+    // Switch the device group to "Skip", leaving only the IP-only group checked.
+    const group = screen.getByTestId('bulk-preview-device-group');
+    await user.click(within(group).getByRole('radio', { name: 'Skip' }));
+
+    await user.click(screen.getByText(/Confirm Blocks/i));
+
+    await waitFor(() => {
+      expect(mockBulkActionSecurityLogs).toHaveBeenCalledWith({
+        log_ids: [2],
+        action: 'block_ip',
+        ttl_hours: 24,
+      });
+    });
+    expect(mockBulkActionSecurityLogs).not.toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'block_device' })
+    );
+    expect(mockBulkActionSecurityLogs).toHaveBeenCalledTimes(1);
+  });
+
+  it('switching a group to "Block IP" blocks that group\'s IP instead of its device', async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.useRealTimers();
+    mockBulkBlockPreview.mockResolvedValue({
+      device_groups: [{ device_token_hash: 'hash-a', log_ids: [1, 2] }],
+      ip_only_log_ids: [],
+    });
+    mockBulkActionSecurityLogs.mockResolvedValue({ results: [] });
+
+    render(<SecurityMonitoringPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('192.168.1.100')).toBeInTheDocument();
+    });
+
+    const checkboxes = screen.getAllByRole('checkbox');
+    await user.click(checkboxes[0]);
+    await user.click(screen.getByText(/Block Selected$/i));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('bulk-block-preview-panel')).toBeInTheDocument();
+    });
+
+    const group = screen.getByTestId('bulk-preview-device-group');
+    await user.click(within(group).getByRole('radio', { name: 'Block IP' }));
+    await user.click(screen.getByText(/Confirm Blocks/i));
+
+    await waitFor(() => {
+      expect(mockBulkActionSecurityLogs).toHaveBeenCalledWith({
+        log_ids: [1, 2],
+        action: 'block_ip',
+        ttl_hours: 24,
+      });
+    });
+    expect(mockBulkActionSecurityLogs).not.toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'block_device' })
+    );
+  });
+
+  it('cancel closes the preview panel without blocking anything', async () => {
+    const user = userEvent.setup({ delay: null });
+    vi.useRealTimers();
+    mockBulkBlockPreview.mockResolvedValue({
+      device_groups: [{ device_token_hash: 'hash-a', log_ids: [1] }],
+      ip_only_log_ids: [],
+    });
+
+    render(<SecurityMonitoringPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('192.168.1.100')).toBeInTheDocument();
+    });
+
+    const checkboxes = screen.getAllByRole('checkbox');
+    await user.click(checkboxes[0]);
+    await user.click(screen.getByText(/Block Selected$/i));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('bulk-block-preview-panel')).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByText(/Cancel/i));
+
+    expect(screen.queryByTestId('bulk-block-preview-panel')).not.toBeInTheDocument();
+    expect(mockBulkActionSecurityLogs).not.toHaveBeenCalled();
   });
 
   it('S3 button is hidden when no filter is active', async () => {
