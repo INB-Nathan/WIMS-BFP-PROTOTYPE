@@ -217,3 +217,70 @@ describe('Sidebar — Offline Work badge (Item 10)', () => {
     expect(screen.queryByText('Offline Work')).not.toBeInTheDocument();
   });
 });
+
+describe('Sidebar — CIVILIAN_REPORTER uses navbar, not sidebar nav items (#615)', () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  it('does NOT render the legacy Contributor (Megaphone) nav item for CIVILIAN_REPORTER', () => {
+    mockUseAuth.mockReturnValue({
+      user: { role: 'CIVILIAN_REPORTER' },
+      loading: false,
+      logout: vi.fn(),
+    });
+    render(<Sidebar isOpen={true} onClose={vi.fn()} />);
+    expect(screen.queryByText('Contributor')).not.toBeInTheDocument();
+  });
+
+  it('does NOT render the legacy Information (Newspaper) nav item for CIVILIAN_REPORTER', () => {
+    mockUseAuth.mockReturnValue({
+      user: { role: 'CIVILIAN_REPORTER' },
+      loading: false,
+      logout: vi.fn(),
+    });
+    render(<Sidebar isOpen={true} onClose={vi.fn()} />);
+    expect(screen.queryByText('Information')).not.toBeInTheDocument();
+  });
+
+  it('does NOT render any nav sections for CIVILIAN_REPORTER (PublicHeader owns civilian nav)', () => {
+    mockUseAuth.mockReturnValue({
+      user: { role: 'CIVILIAN_REPORTER' },
+      loading: false,
+      logout: vi.fn(),
+    });
+    render(<Sidebar isOpen={true} onClose={vi.fn()} />);
+    expect(screen.queryByText('My Profile')).not.toBeInTheDocument();
+    expect(screen.queryByText('Operations')).not.toBeInTheDocument();
+  });
+
+  it('leaves SYSTEM_ADMIN nav unaffected (regression guard: shared getNavSections branch)', () => {
+    mockUseAuth.mockReturnValue({
+      user: { role: 'SYSTEM_ADMIN' },
+      loading: false,
+      logout: vi.fn(),
+    });
+    render(<Sidebar isOpen={true} onClose={vi.fn()} />);
+    expect(screen.getByText('Governance')).toBeInTheDocument();
+    expect(screen.getByText('Configuration')).toBeInTheDocument();
+  });
+
+  it('leaves REGIONAL_ENCODER nav unaffected (regression guard: shared getNavSections branch)', () => {
+    mockUseAuth.mockReturnValue({
+      user: { role: 'REGIONAL_ENCODER', id: 'enc-4' },
+      loading: false,
+      logout: vi.fn(),
+    });
+    mockOfflineWorkCounts.mockReturnValue({
+      pendingCount: 0,
+      failedCount: 0,
+      conflictCount: 0,
+      draftCount: 0,
+      totalActionableCount: 0,
+      loading: false,
+    });
+    render(<Sidebar isOpen={true} onClose={vi.fn()} />);
+    expect(screen.getByText('Manual Entry')).toBeInTheDocument();
+    expect(screen.getByText('Import AFOR')).toBeInTheDocument();
+  });
+});

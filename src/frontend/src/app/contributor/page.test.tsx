@@ -26,12 +26,23 @@ const summary = {
 
 const mockProfile = vi.fn();
 const mockReports = vi.fn();
-const mockStats = vi.fn();
 
 vi.mock('@/lib/api/contributor', () => ({
   fetchContributorProfile: (...args: unknown[]) => mockProfile(...args),
   fetchContributorReports: (...args: unknown[]) => mockReports(...args),
-  fetchContributorStats: (...args: unknown[]) => mockStats(...args),
+}));
+
+// Mock PublicFireMap (SSR-unsafe, same landing-page component reused here per #615)
+vi.mock('@/components/PublicFireMap', () => ({
+  PublicFireMap: ({ height, showStations }: { height?: number | string; showStations?: boolean }) => (
+    <div data-testid="public-fire-map" data-height={String(height)} data-show-stations={String(showStations)} />
+  ),
+}));
+
+vi.mock('@tabler/icons-react', () => ({
+  IconPlus: () => <span data-testid="icon-plus" />,
+  IconArrowRight: () => <span data-testid="icon-arrow-right" />,
+  IconInbox: () => <span data-testid="icon-inbox" />,
 }));
 
 import ContributorPage from './page';
@@ -61,7 +72,6 @@ beforeEach(() => {
     limit: 20,
     pages: 1,
   });
-  mockStats.mockResolvedValue({ ...summary, monthly_report_counts: [] });
 });
 
 afterEach(() => {
@@ -69,22 +79,36 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('Contributor dashboard (redesign)', () => {
-  it('reuses the existing contributor API endpoints', async () => {
+describe('Contributor dashboard (#615 restructure)', () => {
+  it('reuses the existing contributor API endpoints and does not call fetchContributorStats', async () => {
     render(<ContributorPage />);
     await waitFor(() => expect(screen.getByText('Contributor dashboard')).toBeTruthy());
     expect(mockProfile).toHaveBeenCalledTimes(1);
     expect(mockReports).toHaveBeenCalledTimes(1);
-    expect(mockStats).toHaveBeenCalledTimes(1);
   });
 
-  it('renders the four-stat grid', async () => {
+  it('renders exactly the two spec stat cards: "Reports you filed" and "Verified reports"', async () => {
     render(<ContributorPage />);
     await waitFor(() => expect(screen.getByText('Contributor dashboard')).toBeTruthy());
-    expect(screen.getByText('Trust score')).toBeTruthy();
-    expect(screen.getByText('Total reports')).toBeTruthy();
-    expect(screen.getByText('Actioned', { selector: 'span' })).toBeTruthy();
-    expect(screen.getByText('Pending')).toBeTruthy();
+    expect(screen.getByText('Reports you filed')).toBeTruthy();
+    expect(screen.getByText('Verified reports')).toBeTruthy();
+    // Verified reports shows count + percentage (9 of 12 -> 75%)
+    expect(screen.getByText(/\(75%\)/)).toBeTruthy();
+  });
+
+  it('does NOT render the old 4-card grid labels (Trust score / Total reports / Actioned / Pending)', async () => {
+    render(<ContributorPage />);
+    await waitFor(() => expect(screen.getByText('Contributor dashboard')).toBeTruthy());
+    expect(screen.queryByText('Trust score')).not.toBeInTheDocument();
+    expect(screen.queryByText('Total reports')).not.toBeInTheDocument();
+    expect(screen.queryByText('Actioned', { selector: 'p' })).not.toBeInTheDocument();
+  });
+
+  it('does NOT render the trust-breakdown bar or monthly-reports grid', async () => {
+    render(<ContributorPage />);
+    await waitFor(() => expect(screen.getByText('Contributor dashboard')).toBeTruthy());
+    expect(screen.queryByText('Trust breakdown')).not.toBeInTheDocument();
+    expect(screen.queryByText('Monthly reports')).not.toBeInTheDocument();
   });
 
   it('renders the BFP-red report CTA linking to /report', async () => {
@@ -93,18 +117,27 @@ describe('Contributor dashboard (redesign)', () => {
     expect(cta.closest('a')?.getAttribute('href')).toBe('/report');
   });
 
-  it('renders report history cards with status pills', async () => {
+  it('renders report history cards with status indicators', async () => {
     render(<ContributorPage />);
     await waitFor(() => expect(screen.getByText('#10')).toBeTruthy());
     expect(screen.getByText(/Fire/)).toBeTruthy();
-    // ACTIONED -> "Actioned" pill
-    expect(screen.getByText('Actioned', { selector: 'span' })).toBeTruthy();
+    // ACTIONED -> "Verified" status label
+    expect(screen.getByText('Verified', { selector: 'span' })).toBeTruthy();
   });
 
-  it('shows the segmented trust breakdown', async () => {
+  it('renders the scrollable report list container', async () => {
     render(<ContributorPage />);
-    await waitFor(() => expect(screen.getByText('Trust breakdown')).toBeTruthy());
-    expect(screen.getByText(/Volume/)).toBeTruthy();
-    expect(screen.getByText(/Consistency/)).toBeTruthy();
+    await waitFor(() => expect(screen.getByText('#10')).toBeTruthy());
+    const list = screen.getByText('#10').closest('ul');
+    expect(list?.className).toMatch(/overflow-y-auto/);
+  });
+
+  it('renders the compact nearby-activity map reusing the landing PublicFireMap component', async () => {
+    render(<ContributorPage />);
+    await waitFor(() => expect(screen.getByText('Nearby activity')).toBeTruthy());
+    const map = screen.getByTestId('public-fire-map');
+    expect(map).toBeInTheDocument();
+    // "Compact" viewport — smaller than the landing page's 55vh full map
+    expect(map.getAttribute('data-height')).toBe('220');
   });
 });

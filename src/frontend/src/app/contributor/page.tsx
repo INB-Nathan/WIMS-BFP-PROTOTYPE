@@ -1,18 +1,26 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
 import { ApiRequestError } from '@/lib/api/errors';
 import {
   fetchContributorProfile,
   fetchContributorReports,
-  fetchContributorStats,
   type ContributorPrivateSummary,
   type ContributorProfile,
   type ContributorReportsResponse,
-  type ContributorStats,
 } from '@/lib/api/contributor';
+import { IconPlus, IconArrowRight, IconInbox } from '@tabler/icons-react';
+
+// SSR guard: react-leaflet breaks without window. Reuses the same map
+// component as the public landing page (#612), just rendered at a
+// smaller/"compact" viewport height for the contributor dashboard (#615).
+const PublicFireMap = dynamic(
+  () => import('@/components/PublicFireMap').then((m) => m.PublicFireMap),
+  { ssr: false },
+);
 
 const PAGE_SIZE = 20;
 
@@ -34,36 +42,25 @@ function formatDate(value: string | null): string {
   return Number.isNaN(date.getTime()) ? 'Not yet available' : date.toLocaleDateString();
 }
 
-function formatMonth(value: string): string {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime())
-    ? value
-    : date.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
-}
-
 const MONO = "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace";
-
-// Trust-score components surfaced as the segmented "Trust breakdown" bar.
-const TRUST_FACTORS: ReadonlyArray<{
-  key: keyof ContributorPrivateSummary;
-  label: string;
-  color: string;
-}> = [
-  { key: 'volume_progress', label: 'Volume', color: '#0891B2' },
-  { key: 'outcome_accuracy', label: 'Accuracy', color: '#06B6D4' },
-  { key: 'evidence_quality', label: 'Evidence', color: '#6366F1' },
-  { key: 'consistency', label: 'Consistency', color: '#8B5CF6' },
-];
 
 type ReportFilter = 'all' | 'pending' | 'resolved';
 
-function reportStatusPill(status: string): { label: string; className: string } {
+function reportStatusIndicator(status: string): { label: string; className: string; dotClassName: string } {
   const s = status.toUpperCase();
-  if (s === 'ACTIONED') return { label: 'Actioned', className: 'bg-green-50 text-green-700' };
-  if (s.startsWith('REJECTED')) return { label: 'Rejected', className: 'bg-slate-100 text-slate-600' };
-  if (s === 'LINKED') return { label: 'Linked', className: 'bg-cyan-50 text-cyan-700' };
-  if (s === 'UNDER_REVIEW') return { label: 'Under review', className: 'bg-amber-50 text-amber-700' };
-  return { label: 'Pending', className: 'bg-amber-50 text-amber-700' };
+  if (s === 'ACTIONED') {
+    return { label: 'Verified', className: 'bg-green-50 text-green-700', dotClassName: 'bg-green-600' };
+  }
+  if (s.startsWith('REJECTED')) {
+    return { label: 'Rejected', className: 'bg-slate-100 text-slate-600', dotClassName: 'bg-slate-500' };
+  }
+  if (s === 'LINKED') {
+    return { label: 'Linked', className: 'bg-cyan-50 text-cyan-700', dotClassName: 'bg-cyan-600' };
+  }
+  if (s === 'UNDER_REVIEW') {
+    return { label: 'Under review', className: 'bg-amber-50 text-amber-700', dotClassName: 'bg-amber-500' };
+  }
+  return { label: 'Pending', className: 'bg-amber-50 text-amber-700', dotClassName: 'bg-amber-500' };
 }
 
 function matchesFilter(status: string, filter: ReportFilter): boolean {
@@ -76,7 +73,6 @@ function matchesFilter(status: string, filter: ReportFilter): boolean {
 export default function ContributorPage() {
   const { user, loading } = useAuth();
   const [profile, setProfile] = useState<ContributorProfile | null>(null);
-  const [stats, setStats] = useState<ContributorStats | null>(null);
   const [reports, setReports] = useState<ContributorReportsResponse | null>(null);
   const [page, setPage] = useState(1);
   const [reportFilter, setReportFilter] = useState<ReportFilter>('all');
@@ -101,14 +97,12 @@ export default function ContributorPage() {
     setBusy(true);
     setError(null);
     try {
-      const [nextProfile, nextReports, nextStats] = await Promise.all([
+      const [nextProfile, nextReports] = await Promise.all([
         fetchContributorProfile(),
         fetchContributorReports(1, PAGE_SIZE),
-        fetchContributorStats(),
       ]);
       setProfile(nextProfile);
       setReports(nextReports);
-      setStats(nextStats);
       setPage(nextReports.page);
     } catch (cause) {
       setError(errorFor(cause));
@@ -122,26 +116,9 @@ export default function ContributorPage() {
     if (!loading && user?.role !== 'CIVILIAN_REPORTER') setBusy(false);
   }, [loading, user, loadDashboard]);
 
-  const summary: ContributorPrivateSummary | null = stats ?? profile;
+  const summary: ContributorPrivateSummary | null = reports ?? profile;
 
-  const trustBreakdown = useMemo(() => {
-    if (!summary) return [];
-    const values = TRUST_FACTORS.map((f) => {
-      const raw = summary[f.key];
-      const v = typeof raw === 'number' && Number.isFinite(raw) ? raw : 0;
-      return { ...f, value: Math.max(0, Math.min(1, v)) };
-    });
-    const total = values.reduce((a, b) => a + b.value, 0);
-    return values.map((v) => ({
-      ...v,
-      widthPct: total > 0 ? Math.round((v.value / total) * 100) : 0,
-      actualPct: Math.round(v.value * 100),
-    }));
-  }, [summary]);
-
-  const hasTrustData = trustBreakdown.some((v) => v.value > 0);
-
-  const actionedPct =
+  const verifiedPct =
     summary && summary.total_reports > 0
       ? Math.round((summary.actioned_reports / summary.total_reports) * 100)
       : null;
@@ -184,7 +161,7 @@ export default function ContributorPage() {
       </main>
     );
   }
-  if (error && !profile && !stats) {
+  if (error && !profile && !reports) {
     return (
       <main className="mx-auto max-w-2xl p-6">
         <section className="rounded border bg-white p-6" role="alert">
@@ -222,23 +199,19 @@ export default function ContributorPage() {
         </span>
       </header>
 
-      {/* BFP red report CTA */}
+      {/* BFP red report CTA — "Report again" flow: location-first, matching Report Wizard order */}
       <Link
         href="/report"
         className="flex items-center gap-4 rounded-lg bg-[#C62828] p-4 text-white no-underline transition-colors hover:bg-[#8E1B1B]"
       >
-        <span className="text-2xl leading-none" aria-hidden>
-          ＋
-        </span>
+        <IconPlus size={24} aria-hidden className="flex-shrink-0" />
         <span className="flex-1">
           <span className="block text-base font-bold">Submit a report</span>
           <span className="block text-sm opacity-80">
             Your observations drive faster emergency response
           </span>
         </span>
-        <span className="text-xl opacity-70" aria-hidden>
-          →
-        </span>
+        <IconArrowRight size={20} aria-hidden className="flex-shrink-0 opacity-70" />
       </Link>
 
       {error && (
@@ -250,22 +223,14 @@ export default function ContributorPage() {
         </div>
       )}
 
-      {/* 4-stat grid */}
+      {/* Two stat cards per IA spec (docs/superpowers/specs/2026-07-15-public-surface-ia-design.md #5) */}
       <section aria-labelledby="summary-heading">
         <h2 id="summary-heading" className="sr-only">
           Contributor summary
         </h2>
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="rounded border bg-white p-4 shadow-sm">
-            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Trust score</p>
-            <p className="mt-2 text-4xl font-semibold" style={{ fontFamily: MONO, color: '#0891B2' }}>
-              {summary?.trust_score ?? '—'}
-              <span className="text-base font-normal text-gray-400">/100</span>
-            </p>
-            <p className="mt-1 text-xs text-gray-500">{summary?.badge ?? 'Unrated'}</p>
-          </div>
-          <div className="rounded border bg-white p-4 shadow-sm">
-            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Total reports</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Reports you filed</p>
             <p className="mt-2 text-4xl font-semibold" style={{ fontFamily: MONO }}>
               {summary?.total_reports ?? '—'}
             </p>
@@ -274,80 +239,27 @@ export default function ContributorPage() {
             </p>
           </div>
           <div className="rounded border bg-white p-4 shadow-sm">
-            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Actioned</p>
-            <p className="mt-2 text-4xl font-semibold" style={{ fontFamily: MONO }}>
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Verified reports</p>
+            <p className="mt-2 text-4xl font-semibold" style={{ fontFamily: MONO, color: '#059669' }}>
               {summary?.actioned_reports ?? '—'}
+              {verifiedPct !== null && (
+                <span className="text-base font-normal text-gray-400"> ({verifiedPct}%)</span>
+              )}
             </p>
             <p className="mt-1 text-xs text-gray-500">
-              {actionedPct !== null ? `${actionedPct}% actioned` : 'Awaiting review'}
-            </p>
-          </div>
-          <div className="rounded border bg-white p-4 shadow-sm">
-            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Pending</p>
-            <p className="mt-2 text-4xl font-semibold" style={{ fontFamily: MONO }}>
-              {summary?.pending_reports ?? '—'}
-            </p>
-            <p className="mt-1 text-xs text-gray-500">
-              {summary && summary.pending_reports > 0 ? 'Awaiting review' : 'All reviewed'}
+              {summary && summary.pending_reports > 0
+                ? `${summary.pending_reports} awaiting review`
+                : 'All reviewed'}
             </p>
           </div>
         </div>
       </section>
 
-      {/* Segmented trust breakdown bar */}
-      {hasTrustData && (
-        <section className="rounded border bg-white p-4 shadow-sm" aria-labelledby="trust-heading">
-          <h2 id="trust-heading" className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-            Trust breakdown
-          </h2>
-          <div className="mt-3 flex h-2 overflow-hidden rounded" role="img" aria-label="Trust score composition">
-            {trustBreakdown.map((seg) => (
-              <div
-                key={seg.key}
-                style={{ width: `${seg.widthPct}%`, backgroundColor: seg.color }}
-                className="h-full"
-              />
-            ))}
-          </div>
-          <div className="mt-2 flex flex-wrap gap-4 text-xs text-gray-600">
-            {trustBreakdown.map((seg) => (
-              <span key={seg.key} className="inline-flex items-center gap-1.5">
-                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: seg.color }} />
-                {seg.label} {seg.actualPct}%
-              </span>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {stats && stats.monthly_report_counts.length > 0 && (
-        <section className="rounded border bg-white p-4 shadow-sm" aria-labelledby="monthly-heading">
-          <h2 id="monthly-heading" className="text-xl font-semibold">
-            Monthly reports
-          </h2>
-          <ul className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {stats.monthly_report_counts.map((item) => (
-              <li className="flex justify-between rounded bg-gray-50 p-3" key={item.month}>
-                <span>{formatMonth(item.month)}</span>
-                <strong>{item.count}</strong>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      {profile && (
-        <p className="text-sm text-gray-600">
-          First report: {formatDate(profile.first_report_at)} · Last report:{' '}
-          {formatDate(profile.last_report_at)}
-        </p>
-      )}
-
-      {/* Report history */}
+      {/* Scrollable report list with status indicators */}
       <section className="rounded border bg-white p-4 shadow-sm" aria-labelledby="reports-heading">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 id="reports-heading" className="text-xl font-semibold">
-            Report history
+            Your reports
           </h2>
           <div className="flex gap-1 rounded border border-gray-200 bg-gray-50 p-1">
             {(['all', 'pending', 'resolved'] as ReportFilter[]).map((f) => (
@@ -367,11 +279,11 @@ export default function ContributorPage() {
 
         {isNewReporter ? (
           <div className="mt-4 rounded-lg border-2 border-dashed border-gray-200 p-10 text-center">
-            <p className="text-2xl">🛰️</p>
+            <IconInbox size={32} className="mx-auto text-gray-300" aria-hidden />
             <h3 className="mt-3 text-base font-semibold">Welcome, civilian reporter</h3>
             <p className="mx-auto mt-2 max-w-sm text-sm text-gray-600">
-              Submit your first field report to activate your dashboard. Your trust score, activity
-              stats, and report history will appear here.
+              Submit your first field report to activate your dashboard. Your report history and
+              verification status will appear here.
             </p>
           </div>
         ) : (
@@ -385,14 +297,18 @@ export default function ContributorPage() {
               <p className="mt-3 text-gray-600">No reports match this filter.</p>
             )}
             {!reportsBusy && visibleReports.length > 0 && (
-              <ul className="mt-3 flex flex-col gap-2">
+              <ul className="mt-3 flex max-h-96 flex-col gap-2 overflow-y-auto pr-1">
                 {visibleReports.map((report) => {
-                  const pill = reportStatusPill(report.status);
+                  const indicator = reportStatusIndicator(report.status);
                   return (
                     <li
                       key={report.report_id}
-                      className="grid grid-cols-[auto_1fr_auto_auto] items-center gap-3 rounded border bg-white p-3 shadow-sm"
+                      className="grid grid-cols-[auto_auto_1fr_auto_auto] items-center gap-3 rounded border bg-white p-3 shadow-sm"
                     >
+                      <span
+                        className={`h-2.5 w-2.5 flex-shrink-0 rounded-full ${indicator.dotClassName}`}
+                        aria-hidden
+                      />
                       <span
                         className="font-medium text-gray-400"
                         style={{ fontFamily: MONO, minWidth: '52px' }}
@@ -412,9 +328,9 @@ export default function ContributorPage() {
                         {report.sub_category ? ` · ${report.sub_category}` : ''}
                       </span>
                       <span
-                        className={`whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${pill.className}`}
+                        className={`whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${indicator.className}`}
                       >
-                        {pill.label}
+                        {indicator.label}
                       </span>
                     </li>
                   );
@@ -444,6 +360,17 @@ export default function ContributorPage() {
             )}
           </>
         )}
+      </section>
+
+      {/* Compact nearby-activity map — same component as the landing page (#612),
+          rendered at a smaller viewport per the IA spec's "compact" requirement. */}
+      <section className="rounded border bg-white p-4 shadow-sm" aria-labelledby="nearby-map-heading">
+        <h2 id="nearby-map-heading" className="text-xl font-semibold">
+          Nearby activity
+        </h2>
+        <div className="mt-3">
+          <PublicFireMap height={220} zoom={11} showStations className="nearby-activity-map" />
+        </div>
       </section>
     </main>
   );
