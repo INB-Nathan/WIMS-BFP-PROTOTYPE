@@ -15,10 +15,10 @@ import {
   fetchSecurityLogsSummaryOfflineAware,
   fetchAuditLogsOfflineAware,
 } from '@/lib/api/offlineAdmin';
-import { blockSourceIp, blockSecurityLog, deleteSecurityLog, bulkActionSecurityLogs, blockByFilter } from '@/lib/api/securityActions';
+import { blockSourceIp, blockSecurityLog, deleteSecurityLog, bulkActionSecurityLogs, blockByFilter, bulkBlockPreview } from '@/lib/api/securityActions';
 import { StaleCacheBanner } from '@/components/ui/StaleCacheBanner';
 import { AutoRefreshToast } from '@/components/ui/AutoRefreshToast';
-import type { SecurityLogFilter } from '@/types/api';
+import type { SecurityLogFilter, BulkBlockPreviewResult } from '@/types/api';
 import { ShieldAlert, RefreshCw, AlertTriangle, Info, WifiOff } from 'lucide-react';
 import { BlockedIpsPanel } from './BlockedIpsPanel';
 import { useAutoRefresh } from '@/lib/useAutoRefresh';
@@ -290,6 +290,98 @@ export default function SecurityMonitoringPage() {
       const apiErr = err as { detail?: unknown; message?: string };
       const detail = typeof apiErr.detail === 'string' ? apiErr.detail : undefined;
       setToast({ type: 'error', text: detail || apiErr.message || 'Bulk action failed' });
+    }
+  };
+
+  // Wayfinder #571: bulk grouping preview — before blocking a multi-select of
+  // security logs, group them by device_token_hash so the admin makes an
+  // explicit per-group choice rather than a blanket IP block collapsing
+  // possibly-unrelated devices sharing an IP (design spec §8.2). Per the
+  // issue text ("Each group has Block Device / Block IP choice"), every
+  // device group gets its own three-way choice — block that device, block
+  // the IP(s) behind that group's logs instead, or skip it entirely — not
+  // just an on/off toggle for device-blocking.
+  type BulkGroupChoice = 'device' | 'ip' | 'skip';
+  const [bulkPreview, setBulkPreview] = useState<BulkBlockPreviewResult | null>(null);
+  const [bulkPreviewLoading, setBulkPreviewLoading] = useState(false);
+  const [bulkGroupChoices, setBulkGroupChoices] = useState<Record<string, BulkGroupChoice>>({});
+  const [bulkIpOnlyChecked, setBulkIpOnlyChecked] = useState(true);
+
+  const setBulkGroupChoice = (key: string, choice: BulkGroupChoice) =>
+    setBulkGroupChoices(prev => ({ ...prev, [key]: choice }));
+
+  const handleBulkBlockClick = async () => {
+    const log_ids = Array.from(selectedLogIds);
+    if (log_ids.length === 0) return;
+    setBulkPreviewLoading(true);
+    try {
+      const preview = await bulkBlockPreview(log_ids);
+      if (preview.device_groups.length === 0) {
+        // No device-linked logs in this selection — nothing to group, so
+        // don't show an empty panel. Fall straight to the existing flat
+        // IP-block flow (its own confirm() still applies).
+        setBulkPreviewLoading(false);
+        await handleBulkAction('block_ip');
+        return;
+      }
+      const initialChoices: Record<string, BulkGroupChoice> = {};
+      preview.device_groups.forEach(g => { initialChoices[g.device_token_hash] = 'device'; });
+      setBulkGroupChoices(initialChoices);
+      setBulkIpOnlyChecked(true);
+      setBulkPreview(preview);
+    } catch (err: unknown) {
+      const apiErr = err as { detail?: unknown; message?: string };
+      const detail = typeof apiErr.detail === 'string' ? apiErr.detail : undefined;
+      setToast({ type: 'error', text: detail || apiErr.message || 'Failed to preview bulk block' });
+    } finally {
+      setBulkPreviewLoading(false);
+    }
+  };
+
+  const handleCancelBulkPreview = () => setBulkPreview(null);
+
+  const handleConfirmBulkBlocks = async () => {
+    if (!bulkPreview) return;
+    const blockIpOnly = bulkPreview.ip_only_log_ids.length > 0 && bulkIpOnlyChecked;
+    const anyDeviceGroupActive = bulkPreview.device_groups.some(
+      g => (bulkGroupChoices[g.device_token_hash] ?? 'device') !== 'skip'
+    );
+
+    if (!anyDeviceGroupActive && !blockIpOnly) {
+      setBulkPreview(null);
+      return;
+    }
+
+    try {
+      let deviceLogCount = 0;
+      let ipLogCount = 0;
+      for (const group of bulkPreview.device_groups) {
+        const choice = bulkGroupChoices[group.device_token_hash] ?? 'device';
+        if (choice === 'skip') continue;
+        await bulkActionSecurityLogs({
+          log_ids: group.log_ids,
+          action: choice === 'device' ? 'block_device' : 'block_ip',
+          ttl_hours: 24,
+        });
+        if (choice === 'device') deviceLogCount += group.log_ids.length;
+        else ipLogCount += group.log_ids.length;
+      }
+      if (blockIpOnly) {
+        await bulkActionSecurityLogs({ log_ids: bulkPreview.ip_only_log_ids, action: 'block_ip', ttl_hours: 24 });
+        ipLogCount += bulkPreview.ip_only_log_ids.length;
+      }
+      const parts = [
+        deviceLogCount > 0 ? `${deviceLogCount} log(s) by device` : null,
+        ipLogCount > 0 ? `${ipLogCount} log(s) by IP` : null,
+      ].filter(Boolean);
+      setToast({ type: 'success', text: `Blocked ${parts.join(' and ')}` });
+      setBulkPreview(null);
+      setSelectedLogIds(new Set());
+      loadThreats();
+    } catch (err: unknown) {
+      const apiErr = err as { detail?: unknown; message?: string };
+      const detail = typeof apiErr.detail === 'string' ? apiErr.detail : undefined;
+      setToast({ type: 'error', text: detail || apiErr.message || 'Bulk block failed' });
     }
   };
 
@@ -752,11 +844,12 @@ export default function SecurityMonitoringPage() {
             </span>
             <div className="flex-1" />
             <button
-              onClick={() => handleBulkAction('block_ip')}
-              className="px-3 py-1.5 text-xs font-semibold rounded-md transition-colors"
+              onClick={handleBulkBlockClick}
+              disabled={bulkPreviewLoading}
+              className="px-3 py-1.5 text-xs font-semibold rounded-md transition-colors disabled:opacity-60"
               style={{ backgroundColor: 'var(--bfp-maroon)', color: '#ffffff' }}
             >
-              Block Selected IPs
+              {bulkPreviewLoading ? 'Checking…' : 'Block Selected'}
             </button>
             <button
               onClick={() => handleBulkAction('dismiss')}
@@ -773,13 +866,107 @@ export default function SecurityMonitoringPage() {
               Mark False Positive
             </button>
             <button
-              onClick={() => setSelectedLogIds(new Set())}
+              onClick={() => { setSelectedLogIds(new Set()); setBulkPreview(null); }}
               className="px-2 py-1.5 text-xs font-medium rounded-md transition-colors"
               style={{ color: 'var(--text-muted)', backgroundColor: 'transparent' }}
             >
               Clear selection
             </button>
           </div>
+
+          {/* Wayfinder #571: bulk grouping preview panel — only shown when the
+              selection includes at least one device-linked log. */}
+          {bulkPreview && (
+            <div
+              data-testid="bulk-block-preview-panel"
+              className="card-body pt-0"
+              style={{ borderTop: '1px solid var(--border-color)' }}
+            >
+              <div className="text-xs font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
+                Preview grouped blocks:
+              </div>
+              <div className="space-y-2 mb-3">
+                {bulkPreview.device_groups.map(group => {
+                  const choice = bulkGroupChoices[group.device_token_hash] ?? 'device';
+                  return (
+                    <div
+                      key={group.device_token_hash}
+                      data-testid="bulk-preview-device-group"
+                      className="flex flex-wrap items-center gap-3 text-xs"
+                    >
+                      <span className="font-mono font-bold" style={{ color: 'var(--text-primary)' }}>
+                        {group.device_token_hash.slice(0, 12)}…
+                      </span>
+                      <span style={{ color: 'var(--text-muted)' }}>
+                        ({group.log_ids.length} {group.log_ids.length === 1 ? 'log' : 'logs'})
+                      </span>
+                      <div className="flex items-center gap-3" role="radiogroup" aria-label={`Block choice for device ${group.device_token_hash}`}>
+                        <label className="flex items-center gap-1 cursor-pointer">
+                          <input
+                            type="radio"
+                            name={`bulk-group-choice-${group.device_token_hash}`}
+                            checked={choice === 'device'}
+                            onChange={() => setBulkGroupChoice(group.device_token_hash, 'device')}
+                          />
+                          Block Device
+                        </label>
+                        <label className="flex items-center gap-1 cursor-pointer">
+                          <input
+                            type="radio"
+                            name={`bulk-group-choice-${group.device_token_hash}`}
+                            checked={choice === 'ip'}
+                            onChange={() => setBulkGroupChoice(group.device_token_hash, 'ip')}
+                          />
+                          Block IP
+                        </label>
+                        <label className="flex items-center gap-1 cursor-pointer">
+                          <input
+                            type="radio"
+                            name={`bulk-group-choice-${group.device_token_hash}`}
+                            checked={choice === 'skip'}
+                            onChange={() => setBulkGroupChoice(group.device_token_hash, 'skip')}
+                          />
+                          Skip
+                        </label>
+                      </div>
+                    </div>
+                  );
+                })}
+                {bulkPreview.ip_only_log_ids.length > 0 && (
+                  <label
+                    data-testid="bulk-preview-ip-group"
+                    className="flex items-center gap-2 text-xs cursor-pointer"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={bulkIpOnlyChecked}
+                      onChange={() => setBulkIpOnlyChecked(v => !v)}
+                    />
+                    <span style={{ color: 'var(--text-muted)' }}>
+                      IP-only ({bulkPreview.ip_only_log_ids.length}{' '}
+                      {bulkPreview.ip_only_log_ids.length === 1 ? 'log' : 'logs'}, no device link) — Block source IP(s)
+                    </span>
+                  </label>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleConfirmBulkBlocks}
+                  className="px-3 py-1.5 text-xs font-semibold rounded-md transition-colors"
+                  style={{ backgroundColor: 'var(--bfp-maroon)', color: '#ffffff' }}
+                >
+                  Confirm Blocks
+                </button>
+                <button
+                  onClick={handleCancelBulkPreview}
+                  className="px-3 py-1.5 text-xs font-semibold rounded-md border transition-colors"
+                  style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
