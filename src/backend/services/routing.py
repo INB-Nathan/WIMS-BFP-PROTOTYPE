@@ -42,6 +42,7 @@ class RoutingResult(NamedTuple):
     data_source: str  # "osrm" or "postgis_straight_line"
     execution_path: str  # "celery", "inline_after_commit", or "fallback"
     candidate_count: int
+    geometry: dict | None  # GeoJSON LineString dict or None
 
 
 async def compute_routing(
@@ -63,14 +64,15 @@ async def compute_routing(
             data_source="osrm",
             execution_path="celery",
             candidate_count=1,
+            geometry=result[2],
         )
     return _fallback_estimate(report_lat, report_lon, station_lat, station_lon)
 
 
 async def _try_osrm(
     src_lon: float, src_lat: float, dst_lon: float, dst_lat: float
-) -> tuple[float, float] | None:
-    """Call OSRM driving route API. Returns (distance_m, duration_s) or None.
+) -> tuple[float, float, dict | None] | None:
+    """Call OSRM driving route API. Returns (distance_m, duration_s, geometry) or None.
 
     No coordinates or request URLs are ever logged here — only the exception
     type and the configured OSRM host, to avoid leaking incident locations.
@@ -82,7 +84,7 @@ async def _try_osrm(
     url = (
         f"{OSRM_BASE_URL}/route/v1/driving/"
         f"{src_lon},{src_lat};{dst_lon},{dst_lat}"
-        "?overview=false&geometries=geojson&steps=false"
+        "?overview=full&geometries=geojson&steps=false"
     )
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
@@ -92,7 +94,8 @@ async def _try_osrm(
             if "routes" not in data or not data["routes"]:
                 return None
             route = data["routes"][0]
-            return (float(route["distance"]), float(route["duration"]))
+            geometry = route.get("geometry")  # GeoJSON LineString or None
+            return (float(route["distance"]), float(route["duration"]), geometry)
     except Exception as exc:
         logger.warning(
             "OSRM lookup failed (host=%s, error_type=%s)",
@@ -128,4 +131,5 @@ def _fallback_estimate(
         data_source="postgis_straight_line",
         execution_path="fallback",
         candidate_count=1,
+        geometry=None,  # No geometry for fallback estimate
     )

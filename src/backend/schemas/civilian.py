@@ -105,6 +105,7 @@ class CivilianTrackingResponse(BaseModel):
     nearest_station_phone: str | None = None
     routing_distance_m: float | None = None
     routing_duration_s: float | None = None
+    routing_geometry: dict | None = None
     routing_data_source: str | None = None
     photo_count: int = 0
     created_at: datetime

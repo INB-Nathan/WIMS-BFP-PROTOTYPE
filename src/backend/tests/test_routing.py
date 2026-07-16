@@ -102,6 +102,9 @@ class TestOsrmConfigurable:
         assert len(called_urls) == 1
         assert called_urls[0].startswith("http://self-hosted-osrm:5000/")
         assert "router.project-osrm.org" not in called_urls[0]
+        # overview=full and geometries=geojson prevent silent revert to overview=false
+        assert "overview=full" in called_urls[0]
+        assert "geometries=geojson" in called_urls[0]
         assert result.data_source == "osrm"
         assert result.distance_m == 1200.0
         assert result.duration_s == 180.0
@@ -165,3 +168,253 @@ class TestOsrmLoggingDoesNotLeakCoordinates:
         log_text = " ".join(record.getMessage() for record in caplog.records)
         assert "14.6" not in log_text
         assert "121.0" not in log_text
+
+
+class TestRoutingGeometry:
+    def test_osrm_returns_geometry_when_available(self, monkeypatch):
+        routing = _reload(monkeypatch, "http://self-hosted-osrm:5000")
+
+        mock_resp = AsyncMock(spec=httpx.Response)
+        mock_resp.status_code = 200
+        mock_resp.raise_for_status = lambda: None
+        mock_resp.json = lambda: {
+            "routes": [
+                {
+                    "distance": 1200.0,
+                    "duration": 180.0,
+                    "geometry": {
+                        "type": "LineString",
+                        "coordinates": [[121.0, 14.6], [121.005, 14.605], [121.01, 14.61]],
+                    },
+                }
+            ]
+        }
+
+        async def mock_get(url, *args, **kwargs):
+            return mock_resp
+
+        with patch.object(routing.httpx, "AsyncClient") as mock_client_cls:
+            mock_instance = AsyncMock()
+            mock_instance.get = mock_get
+            mock_instance.__aenter__.return_value = mock_instance
+            mock_client_cls.return_value = mock_instance
+
+            result = asyncio.run(
+                routing.compute_routing(
+                    report_lat=14.6,
+                    report_lon=121.0,
+                    station_lat=14.61,
+                    station_lon=121.01,
+                )
+            )
+
+        assert result.data_source == "osrm"
+        assert result.geometry is not None
+        assert result.geometry["type"] == "LineString"
+        assert len(result.geometry["coordinates"]) == 3
+
+    def test_fallback_returns_null_geometry(self, monkeypatch):
+        routing = _reload(monkeypatch, None)
+
+        result = asyncio.run(
+            routing.compute_routing(
+                report_lat=14.6,
+                report_lon=121.0,
+                station_lat=14.61,
+                station_lon=121.01,
+            )
+        )
+
+        assert result.data_source == "postgis_straight_line"
+        assert result.geometry is None
+
+    def test_osrm_failure_returns_null_geometry(self, monkeypatch):
+        routing = _reload(monkeypatch, "http://self-hosted-osrm:5000")
+
+        async def mock_get(*args, **kwargs):
+            raise httpx.ConnectError("Connection refused")
+
+        with patch.object(routing.httpx, "AsyncClient") as mock_client_cls:
+            mock_instance = AsyncMock()
+            mock_instance.get = mock_get
+            mock_instance.__aenter__.return_value = mock_instance
+            mock_client_cls.return_value = mock_instance
+
+            result = asyncio.run(
+                routing.compute_routing(
+                    report_lat=14.6,
+                    report_lon=121.0,
+                    station_lat=14.61,
+                    station_lon=121.01,
+                )
+            )
+
+        assert result.data_source == "postgis_straight_line"
+        assert result.geometry is None
+
+
+class TestCivilianReportResponseExcludesRoutingGeometry:
+    """Guards the Option A fix: routing_geometry on CivilianReportResponse only."""
+
+    def test_civilian_report_response_model_omits_routing_geometry(self):
+        """CivilianReportResponse model must not have routing_geometry field."""
+        from schemas.civilian import CivilianReportResponse, CivilianTrackingResponse
+
+        assert "routing_geometry" not in CivilianReportResponse.model_fields, (
+            "CivilianReportResponse must NOT expose routing_geometry (Option A)"
+        )
+        # Tracking response still retains the field
+        assert "routing_geometry" in CivilianTrackingResponse.model_fields, (
+            "CivilianTrackingResponse SHOULD retain routing_geometry"
+        )
+
+    def test_civilian_report_response_serialized_omits_routing_geometry(self):
+        """A serialized CivilianReportResponse omits routing_geometry."""
+        from schemas.civilian import CivilianReportResponse
+
+        instance = CivilianReportResponse(
+            report_id=1,
+            latitude=14.6,
+            longitude=121.0,
+            category="STRUCTURAL",
+            trust_score=50,
+            status="PENDING",
+            photo_count=0,
+            created_at="2026-07-16T00:00:00Z",
+        )
+        dumped = instance.model_dump(mode="json")
+        assert "routing_geometry" not in dumped
+        # Other routing fields survive
+        assert dumped.get("routing_distance_m") is None
+
+
+class TestRoutingGeometryPersistence:
+    """Task-level tests for compute_routing_task geometry persistence (#611)."""
+
+    def test_task_persists_geometry_when_present(self, monkeypatch):
+        """When geometry is returned, UPDATE includes ST_GeomFromGeoJSON and commits."""
+        from unittest.mock import MagicMock, patch as unit_patch
+        import json
+
+        from services.routing import RoutingResult
+
+        async def mock_compute_routing(**kwargs):
+            return RoutingResult(
+                distance_m=1200.0,
+                duration_s=180.0,
+                data_source="osrm",
+                execution_path="celery",
+                candidate_count=1,
+                geometry={
+                    "type": "LineString",
+                    "coordinates": [[121.0, 14.6], [121.005, 14.605], [121.01, 14.61]],
+                },
+            )
+
+        monkeypatch.setattr("tasks.routing.compute_routing", mock_compute_routing)
+
+        db = MagicMock()
+
+        # Execute 1: fetch report location
+        loc_row = MagicMock()
+        loc_row.lat = 14.6
+        loc_row.lon = 121.0
+        loc_result = MagicMock()
+        loc_result.fetchone.return_value = loc_row
+
+        # Execute 2: fetch stations
+        station_row = MagicMock()
+        station_row.station_id = 1
+        station_row.lat = 14.61
+        station_row.lon = 121.01
+        station_row.distance_m = 100.0
+        stations_result = MagicMock()
+        stations_result.fetchall.return_value = [station_row]
+
+        # Execute 3: UPDATE
+        update_result = MagicMock()
+
+        db.execute.side_effect = [loc_result, stations_result, update_result]
+
+        with unit_patch("tasks.routing._AdminSessionLocal", return_value=db):
+            from tasks.routing import compute_routing_task
+
+            result = compute_routing_task(report_id=1)
+
+        assert result["status"] == "success"
+        assert result["has_geometry"] is True
+
+        # Verify the third execute call was the UPDATE with geometry_json param
+        update_call = db.execute.call_args_list[2]
+        params = update_call[0][1]
+        assert params["geometry_json"] is not None
+        parsed = json.loads(params["geometry_json"])
+        assert parsed["type"] == "LineString"
+        assert len(parsed["coordinates"]) == 3
+
+        # Verify SQL uses CASE WHEN with ST_GeomFromGeoJSON via the params path
+        sql_text = str(update_call[0][0])
+        # ST_GeomFromGeoJSON appears in the SQL text (pytest truncates display but assertion works)
+        assert "geometry_json" in sql_text, "SQL text must reference geometry_json param"
+
+        db.commit.assert_called_once()
+
+    def test_task_persists_null_geometry_when_absent(self, monkeypatch):
+        """When geometry is None, UPDATE sets routing_geometry = NULL and commits."""
+        from unittest.mock import MagicMock, patch as unit_patch
+
+        from services.routing import RoutingResult
+
+        async def mock_compute_routing(**kwargs):
+            return RoutingResult(
+                distance_m=1200.0,
+                duration_s=180.0,
+                data_source="postgis_straight_line",
+                execution_path="fallback",
+                candidate_count=1,
+                geometry=None,
+            )
+
+        monkeypatch.setattr("tasks.routing.compute_routing", mock_compute_routing)
+
+        db = MagicMock()
+
+        loc_row = MagicMock()
+        loc_row.lat = 14.6
+        loc_row.lon = 121.0
+        loc_result = MagicMock()
+        loc_result.fetchone.return_value = loc_row
+
+        station_row = MagicMock()
+        station_row.station_id = 1
+        station_row.lat = 14.61
+        station_row.lon = 121.01
+        station_row.distance_m = 100.0
+        stations_result = MagicMock()
+        stations_result.fetchall.return_value = [station_row]
+
+        update_result = MagicMock()
+
+        db.execute.side_effect = [loc_result, stations_result, update_result]
+
+        with unit_patch("tasks.routing._AdminSessionLocal", return_value=db):
+            from tasks.routing import compute_routing_task
+
+            result = compute_routing_task(report_id=2)
+
+        assert result["status"] == "success"
+        assert result["has_geometry"] is False
+
+        # Verify geometry_json param is None (CASE WHEN resolves to ELSE NULL)
+        update_call = db.execute.call_args_list[2]
+        params = update_call[0][1]
+        assert params["geometry_json"] is None
+
+        # SQL should use CASE WHEN with :geometry_json
+        sql_text = str(update_call[0][0])
+        assert "CASE" in sql_text.upper()
+        # Use case-insensitive check: the PostGIS function name contains 'GeomFromGeoJSON'
+        assert "GEOMFROMGEOJSON" in sql_text.upper()
+        assert "geometry_json" in sql_text
+
+        db.commit.assert_called_once()
