@@ -6,6 +6,7 @@ import { useAuth } from '@/context/AuthContext';
 import { Header } from './Header';
 import { Sidebar } from './Sidebar';
 import { PublicHeader } from './PublicHeader';
+import { PublicThemeProvider } from './public/PublicThemeProvider';
 import { usePathname } from 'next/navigation';
 import { isPublicRoute, isCivilianRoute } from '@/lib/routeUtils';
 import { registerServiceWorker } from '@/lib/swRegistration';
@@ -86,10 +87,10 @@ export function LayoutShell({ children }: { children: ReactNode }) {
     // Landing page (/) uses its own immersive floating header from page.tsx
     if (isPublicRoute(pathname) || isCivilianRoute(pathname)) {
         return (
-            <>
+            <PublicThemeProvider showHeader={false}>
                 {pathname !== '/' && <PublicHeader />}
                 {children}
-            </>
+            </PublicThemeProvider>
         );
     }
 

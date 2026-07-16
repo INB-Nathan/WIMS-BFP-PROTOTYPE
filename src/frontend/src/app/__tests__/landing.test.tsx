@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import userEvent from '@testing-library/user-event';
+import { PublicThemeProvider } from '@/components/public/PublicThemeProvider';
 
 // Mock next/navigation (used by IntentModal)
 const mockPush = vi.fn();
@@ -124,6 +125,40 @@ describe('LandingPage (public landing /)', () => {
     expect(screen.getByTestId('header-register')).toHaveAttribute('href', '/register');
     expect(screen.getByTestId('header-signin')).toHaveAttribute('href', '/login');
     expect(screen.getByTestId('header-report')).toHaveAttribute('href', '/report');
+  });
+
+  it('renders the theme-toggle button driven by the public theme provider (dark default label)', async () => {
+    const { default: LandingPage } = await import('../page');
+    // The landing page is rendered inside PublicThemeProvider by LayoutShell in
+    // production; mirror that tree here so usePublicTheme() resolves correctly.
+    render(
+      <PublicThemeProvider showHeader={false}>
+        <LandingPage />
+      </PublicThemeProvider>,
+    );
+    // The toggle must be present on the landing header.
+    const toggle = screen.getByTestId('theme-toggle');
+    expect(toggle).toBeInTheDocument();
+    // Default theme is dark -> label reads '🌙 Dark'.
+    expect(toggle).toHaveTextContent('🌙 Dark');
+    expect(toggle).toHaveAttribute('aria-label', 'Switch to light mode');
+  });
+
+  it('toggles the theme and persists it to the shared landing-theme storage key', async () => {
+    const user = userEvent.setup();
+    const { default: LandingPage } = await import('../page');
+    window.localStorage.clear();
+    render(
+      <PublicThemeProvider showHeader={false}>
+        <LandingPage />
+      </PublicThemeProvider>,
+    );
+    const toggle = screen.getByTestId('theme-toggle');
+    expect(toggle).toHaveTextContent('🌙 Dark');
+    await user.click(toggle);
+    // After toggle -> label flips to light and the shared key is written.
+    expect(screen.getByTestId('theme-toggle')).toHaveTextContent('☀️ Light');
+    expect(window.localStorage.getItem('landing-theme')).toBe('light');
   });
 
   it('renders the sidebar', async () => {

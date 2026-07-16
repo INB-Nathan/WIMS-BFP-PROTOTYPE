@@ -1,0 +1,238 @@
+/* Global public header styles.
+ * These rules are intentionally NOT scoped to .public-surface so that the
+ * .landing-header DOM works on the landing page (/) and any future public
+ * route, in addition to routes wrapped by PublicThemeProvider.
+ * The light-theme overrides use an ancestor [data-theme="light"] selector so
+ * they match both the provider (.public-surface) and the landing page
+ * (.scene-landing) wrappers.
+ */
+
+/* ── Header base ───────────────────────────────────────────────────────── */
+.landing-header {
+  position: sticky;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  height: 52px;
+  padding: 0 1.25rem;
+  background: var(--bg-deep, #0a0a0e);
+  border-bottom: 1px solid var(--border-strong, rgba(255, 255, 255, 0.08));
+  display: flex;
+  align-items: center;
+  color: var(--text-primary, #e8e8ed);
+}
+
+.landing-header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  text-decoration: none;
+}
+
+.landing-header-logo {
+  width: 30px;
+  height: 30px;
+  background: var(--red, #dc2626);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  flex-shrink: 0;
+}
+.landing-header-logo img,
+.landing-header-bfp-logo {
+  width: 22px;
+  height: 22px;
+}
+
+.landing-header-title {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text-primary, #e8e8ed);
+  white-space: nowrap;
+}
+
+.landing-header-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+.btn-ghost {
+  background: transparent;
+  color: var(--text-secondary, rgba(232, 232, 237, 0.65));
+  border: 1px solid transparent;
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  transition: all 180ms ease;
+}
+.btn-ghost:hover {
+  color: var(--text-primary, #e8e8ed);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.btn-outline {
+  background: transparent;
+  color: var(--text-primary, #e8e8ed);
+  border: 1px solid var(--border-strong, rgba(255, 255, 255, 0.15));
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  transition: all 180ms ease;
+}
+.btn-outline:hover {
+  border-color: rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.btn-primary {
+  background: var(--red, #dc2626);
+  color: #fff;
+  border: 1px solid transparent;
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  transition: all 180ms ease;
+}
+.btn-primary:hover {
+  background: var(--red-deep, #b91c1c);
+  box-shadow: 0 0 16px rgba(220, 38, 38, 0.3);
+}
+
+/* ── Theme toggle (previously unstyled) ────────────────────────────────── */
+.btn-theme-toggle {
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  font-family: inherit;
+  background: var(--bg-surface, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--border-strong, rgba(255, 255, 255, 0.15));
+  color: var(--text-primary, #e8e8ed);
+  cursor: pointer;
+  transition: border-color 180ms ease, background 180ms ease;
+}
+.btn-theme-toggle:hover {
+  border-color: rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.08);
+}
+.btn-theme-toggle:focus-visible {
+  outline: 2px solid var(--primary, #3b82f6);
+  outline-offset: 2px;
+}
+
+/* ── Civilian nav + avatar ─────────────────────────────────────────────── */
+.landing-header-nav {
+  display: none;
+  align-items: center;
+  gap: 1rem;
+}
+@media (min-width: 768px) {
+  .landing-header-nav {
+    display: flex;
+  }
+}
+.landing-header-nav-link {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-secondary, rgba(232, 232, 237, 0.65));
+  text-decoration: none;
+  transition: color 180ms ease;
+  white-space: nowrap;
+}
+.landing-header-nav-link:hover {
+  color: var(--text-primary, #e8e8ed);
+}
+.landing-header-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--bg-surface, rgba(255, 255, 255, 0.06));
+  color: var(--text-secondary, rgba(232, 232, 237, 0.65));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+/* ── Light theme overrides (ancestor [data-theme="light"]) ─────────────── */
+[data-theme="light"] .landing-header {
+  background: var(--bg-deep, #ffffff);
+  border-bottom-color: var(--border-strong, rgba(0, 0, 0, 0.1));
+  color: var(--text-primary, #1a1a1f);
+}
+[data-theme="light"] .landing-header-title {
+  color: var(--text-primary, #1a1a1f);
+}
+[data-theme="light"] .landing-header-nav-link {
+  color: var(--text-secondary, rgba(26, 24, 21, 0.62));
+}
+[data-theme="light"] .landing-header-nav-link:hover {
+  color: var(--text-primary, #1a1a1f);
+}
+[data-theme="light"] .landing-header-avatar {
+  background: var(--bg-surface, rgba(0, 0, 0, 0.05));
+  color: var(--text-secondary, rgba(26, 24, 21, 0.62));
+}
+[data-theme="light"] .btn-ghost {
+  color: var(--text-primary, #1a1a1f);
+}
+[data-theme="light"] .btn-ghost:hover {
+  color: var(--text-primary, #1a1a1f);
+  background: rgba(0, 0, 0, 0.05);
+}
+[data-theme="light"] .btn-outline {
+  color: var(--text-primary, #1a1a1f);
+  border-color: var(--border-strong, rgba(0, 0, 0, 0.18));
+}
+[data-theme="light"] .btn-outline:hover {
+  border-color: var(--primary, #2563eb);
+  background: var(--primary-bg, rgba(37, 99, 235, 0.08));
+}
+[data-theme="light"] .btn-primary {
+  background: var(--primary, #2563eb);
+  border-color: var(--primary, #2563eb);
+  color: #fff;
+}
+[data-theme="light"] .btn-primary:hover {
+  background: var(--primary-deep, #1d4ed8);
+  box-shadow: 0 0 16px rgba(37, 99, 235, 0.3);
+}
+[data-theme="light"] .btn-theme-toggle {
+  background: var(--bg-surface, rgba(0, 0, 0, 0.04));
+  border-color: var(--border-strong, rgba(0, 0, 0, 0.18));
+  color: var(--text-primary, #1a1a1f);
+}
+[data-theme="light"] .btn-theme-toggle:hover {
+  border-color: var(--primary, #2563eb);
+  background: var(--primary-bg, rgba(37, 99, 235, 0.08));
+}

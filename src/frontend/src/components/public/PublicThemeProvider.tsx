@@ -1,5 +1,7 @@
 'use client';
 
+import '@/styles/public-surface.css';
+
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 
@@ -31,9 +33,11 @@ function readInitialTheme(): Theme {
 export function PublicThemeProvider({
   children,
   showThemeToggle = true,
+  showHeader = true,
 }: {
   children: React.ReactNode;
   showThemeToggle?: boolean;
+  showHeader?: boolean;
 }) {
   const [theme, setTheme] = useState<Theme>(readInitialTheme);
 
@@ -50,7 +54,8 @@ export function PublicThemeProvider({
   return (
     <ThemeContext.Provider value={ctx}>
       <div className="public-surface" data-theme={theme} suppressHydrationWarning>
-        <header className="ps-header">
+        {showHeader && (
+          <header className="ps-header">
           <div className="ps-header-left">
             <Link href="/" className="ps-header-logo-link" aria-label="WIMS-BFP home">
               <span className="ps-header-title">WIMS-BFP</span>
@@ -70,6 +75,7 @@ export function PublicThemeProvider({
             )}
           </div>
         </header>
+        )}
 
         <main className="ps-content">{children}</main>
 
