@@ -1,4 +1,5 @@
 export {
+  applyReportStatusUpdate,
   applyTriageTerminalAction,
   claimTriageCluster,
   correctTriageReport,
@@ -11,6 +12,7 @@ export {
 
 export type {
   MergeCandidateEntry,
+  StatusUpdateStage,
   TerminalCitizenStatus,
   TriageClusterActivityEntry,
   TriageClusterEntry,

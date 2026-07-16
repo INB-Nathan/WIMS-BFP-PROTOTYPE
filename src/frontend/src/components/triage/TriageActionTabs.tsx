@@ -1,6 +1,6 @@
 'use client';
 
-import { Activity, GitMerge, GitPullRequestArrow, RotateCcw, Terminal } from 'lucide-react';
+import { Activity, GitMerge, GitPullRequestArrow, RotateCcw, Send, Terminal } from 'lucide-react';
 import type { TriageActionTab } from './useTriageModalState';
 
 export interface TriageActionTabsProps {
@@ -11,6 +11,8 @@ export interface TriageActionTabsProps {
   totalCount: number;
   correctionReportId: number | null;
   mergeCandidateCount: number;
+  /** Whether the current user may send validator status updates (Send Update tab). */
+  canSendStatusUpdate: boolean;
 }
 
 interface TabSpec {
@@ -19,6 +21,8 @@ interface TabSpec {
   shortcut: string;
   Icon: typeof Activity;
   clusterOnly?: boolean;
+  /** Hide this tab entirely unless the user is allowed to perform it. */
+  requiresCapability?: boolean;
   badge?: (props: TriageActionTabsProps) => string | null;
 }
 
@@ -31,6 +35,7 @@ const TABS: TabSpec[] = [
   { key: 'merge', label: 'Merge', shortcut: '4', Icon: GitMerge, clusterOnly: true,
     badge: (p) => (p.mergeCandidateCount > 0 ? `${p.mergeCandidateCount}` : null) },
   { key: 'activity', label: 'Activity', shortcut: '5', Icon: Activity },
+  { key: 'update', label: 'Send Update', shortcut: '6', Icon: Send, requiresCapability: true },
 ];
 
 /**
@@ -40,7 +45,9 @@ const TABS: TabSpec[] = [
  * - Keyboard shortcut hint is rendered next to each label.
  */
 export function TriageActionTabs(props: TriageActionTabsProps) {
-  const visibleTabs = TABS.filter((t) => !t.clusterOnly || props.inspectionMode === 'cluster');
+  const visibleTabs = TABS.filter((t) => !t.clusterOnly || props.inspectionMode === 'cluster').filter(
+    (t) => !t.requiresCapability || props.canSendStatusUpdate,
+  );
   return (
     <nav className="triage-tabs" aria-label="Triage actions" data-testid="triage-action-tabs">
       {visibleTabs.map((tab) => {

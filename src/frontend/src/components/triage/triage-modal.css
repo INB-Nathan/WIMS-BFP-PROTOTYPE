@@ -1800,3 +1800,148 @@
 .triage-modal__rail::-webkit-scrollbar-thumb:hover {
   background: rgba(15, 23, 42, 0.32);
 }
+
+/* ── #636: Jurisdiction + nearest-station context strip ──────────────────── */
+.triage-context {
+  display: flex;
+  align-items: stretch;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  margin: 0 0 0.25rem;
+  background: rgba(15, 23, 42, 0.03);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-left: 3px solid #7F1D1D; /* maroon accent */
+  border-radius: 8px;
+  font-size: 0.8125rem;
+}
+.triage-context__group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  min-width: 0;
+}
+.triage-context__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #64748B;
+}
+.triage-context__value {
+  font-weight: 600;
+  color: #1E293B;
+  line-height: 1.25;
+}
+.triage-context__sub {
+  font-weight: 500;
+  color: #475569;
+}
+.triage-context__divider {
+  width: 1px;
+  background: rgba(15, 23, 42, 0.1);
+}
+.triage-context__empty {
+  color: #94A3B8;
+  font-style: italic;
+}
+
+/* ── #636: Send Update panel action button ──────────────────────────────── */
+.triage-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  width: 100%;
+  margin-top: 0.75rem;
+  padding: 0.625rem 0.875rem;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.triage-action-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.triage-action-btn--primary {
+  background: #7F1D1D; /* maroon */
+  color: #FDF6EC; /* bone-cream */
+  border-color: #5B1414;
+}
+.triage-action-btn--primary:not(:disabled):hover {
+  background: #5B1414;
+}
+.triage-update__note {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 0.375rem;
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.625rem;
+  border-radius: 6px;
+  background: rgba(127, 29, 29, 0.06);
+  color: #7F1D1D;
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+
+/* ── #636 fixes: stage <select> styled like inputs + update warnings ───────── */
+.triage-select {
+  width: 100%;
+  padding: 0.55rem 0.7rem;
+  background: #FFFFFF;
+  border: 1px solid #D1D5DB;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  color: #1F2937;
+  font-family: 'Inter', sans-serif;
+  line-height: 1.45;
+  appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2364748B' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'></polyline></svg>");
+  background-repeat: no-repeat;
+  background-position: right 0.6rem center;
+  background-size: 1rem;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.triage-select:focus {
+  outline: none;
+  border-color: #991B1B;
+  box-shadow: 0 0 0 3px rgba(153, 27, 27, 0.12);
+}
+.triage-select:disabled {
+  background-color: #F3F4F6;
+  cursor: not-allowed;
+}
+
+.triage-update__warn {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 0.375rem;
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.625rem;
+  border-radius: 6px;
+  background: rgba(180, 83, 9, 0.08);
+  color: #B45309;
+  font-size: 0.75rem;
+  line-height: 1.35;
+  border-left: 3px solid #B45309;
+}
+.triage-update__error {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 0.375rem;
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.625rem;
+  border-radius: 6px;
+  background: rgba(127, 29, 29, 0.08);
+  color: #991B1B;
+  font-size: 0.75rem;
+  line-height: 1.35;
+  font-weight: 600;
+  border-left: 3px solid #991B1B;
+}
