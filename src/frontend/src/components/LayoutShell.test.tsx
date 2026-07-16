@@ -81,7 +81,6 @@ describe('LayoutShell', () => {
 
   describe('Anonymous user on public routes (isPublicRoute)', () => {
     const publicPaths = [
-      '/',
       '/report',
       '/login',
       '/register',
@@ -98,6 +97,15 @@ describe('LayoutShell', () => {
       render(<LayoutShell>content</LayoutShell>);
 
       expect(screen.getByTestId('public-header')).toBeInTheDocument();
+      expect(screen.queryByTestId('sidebar')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('header')).not.toBeInTheDocument();
+    });
+
+    it('does NOT render PublicHeader for the landing page "/" (has its own immersive header)', () => {
+      mockUsePathname.mockReturnValue('/');
+      render(<LayoutShell>content</LayoutShell>);
+
+      expect(screen.queryByTestId('public-header')).not.toBeInTheDocument();
       expect(screen.queryByTestId('sidebar')).not.toBeInTheDocument();
       expect(screen.queryByTestId('header')).not.toBeInTheDocument();
     });

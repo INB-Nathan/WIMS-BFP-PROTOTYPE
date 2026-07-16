@@ -83,10 +83,11 @@ export function LayoutShell({ children }: { children: ReactNode }) {
     }
 
     // Public surface (anonymous or civilian) — uses PublicHeader
+    // Landing page (/) uses its own immersive floating header from page.tsx
     if (isPublicRoute(pathname) || isCivilianRoute(pathname)) {
         return (
             <>
-                <PublicHeader />
+                {pathname !== '/' && <PublicHeader />}
                 {children}
             </>
         );
