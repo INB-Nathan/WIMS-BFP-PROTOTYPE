@@ -1,3 +1,12 @@
+## [2026-07-16] feat(public-surface): intent modal + public landing (#612)
+
+- **Scope:** Public entry point overhaul (Slice P1). Added the Intent Modal shown on every visit to `/` unless a 2h `wims_browse_bypass` cookie is set; two cards (Report a Fire red → `/report`, Browse gray → sets 2h cookie), microcopy "No account needed to report", no dismiss X. Reworked the Public Landing to a Leaflet map (~55vh) reusing `PublicFireMap` with a toggleable fire-station layer (`fetchStations` → public `/api/ref/fire-stations`), plus a bottom-sheet (Active fires, Announcements skeleton → calm "No active announcements at this time." empty state, `/fire-stations` link) and footer. Removed the legacy hero, `LiveTicker` marquee, and standalone station card.
+- **Frontend-only:** reuses foundations #619 (`PublicHeader`/`LayoutShell`), #620 (Tabler filled icons + `SeverityIndicator`), and the public stations endpoint. No new npm dependencies; no backend/SQL/RLS/auth changes. `fetchStations` added to `src/frontend/src/lib/api/map.ts`.
+- **Review+harden (SDD):** 4-voice Gate 1 found dead `LiveTicker`, Report card not larger, and 2 test gaps → hardened (delete `LiveTicker`, Report card larger via grid `1.15fr 0.85fr`, cookie-variant + station-error tests). Phase F re-review: all gates PASS, no blockers. Lint 0 errors, 37 changed tests pass, tsc clean on changed files.
+- **Tests:** `IntentModal.test.tsx` (cookie variants '1'/''/'0'), `AnnouncementsSection.test.tsx` (skeleton/empty), `PublicFireMapInner.test.tsx` (station error/success), `landing.test.tsx` (LiveTicker removed, modal flow).
+- **Wiki:** this entry appended. No FRS/code gap-register change (behavior matches IA spec §2/§3).
+- **Validation:** `cd src/frontend && npx eslint <changed> && npx vitest run <changed tests> && npx tsc --noEmit` — all green. Merged via PR #622 into `origin/master` (commit `84e2e2ac`).
+
 ## [2026-07-15] fix(observability): stop audit-log flood from idle expiry beat + add sweep metrics
 
 - **Scope:** `tasks.expire_content.expire_published_content` (Celery beat, every 300s) archived expired PUBLISHED `community_content` rows and emitted a `CMS_EXPIRY_SYSTEM` audit row on **every** run, including no-op runs (`archived_count: 0`). With no community content yet, this flooded `wims.system_audit_trails` with an empty audit row every 5 minutes.
