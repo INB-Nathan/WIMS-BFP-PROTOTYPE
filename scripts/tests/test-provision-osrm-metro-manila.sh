@@ -13,7 +13,7 @@ cat >"$tmp/metadata.env" <<EOF
 OSRM_DATA_VERSION=test-version
 OSRM_PBF_URL=https://example.invalid/metro-manila.osm.pbf
 OSRM_PBF_SHA256=$checksum
-OSRM_IMAGE=osrm/osrm-backend:v5.27.1
+OSRM_IMAGE=osrm/osrm-backend:v5.25.0
 EOF
 
 cat >"$tmp/bin/curl" <<EOF

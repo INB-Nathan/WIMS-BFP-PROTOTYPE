@@ -15,7 +15,7 @@ def test_osrm_is_production_only_and_internal():
 
     assert "osrm" not in base["services"]
     osrm = prod["services"]["osrm"]
-    assert osrm["image"] == "osrm/osrm-backend:v5.27.1"
+    assert osrm["image"] == "osrm/osrm-backend:v5.25.0"
     assert osrm["command"] == [
         "osrm-routed",
         "--algorithm",

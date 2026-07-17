@@ -1,3 +1,9 @@
+## [2026-07-18] fix(infra): repair unavailable OSRM image pin
+
+- **Scope:** Production serving and Metro Manila dataset preprocessing now use the available, pinned `osrm/osrm-backend:v5.25.0` image instead of unavailable `v5.27.1`. The Compose service and provisioning metadata remain aligned, preserving the internal-only network, read-only data mount, and pinned-source processing contract.
+- **Validation:** Docker registry manifest inspection confirmed `v5.25.0` is available; OSRM Compose-contract and stubbed provisioning tests pass. Production dataset provisioning remains an authorized operational step.
+- **Wiki:** Updated [[architecture/infrastructure-config]] and [[index]]. No FRS/code gap changed.
+
 ## [2026-07-18] feat(validator): link sidebar to perimeter workspace (#665)
 
 - **Scope:** NATIONAL_VALIDATOR now has a Perimeter Drawing sidebar link to the existing workspace. The workspace continues to require selecting a real verified incident before editing.

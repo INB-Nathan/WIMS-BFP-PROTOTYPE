@@ -4,7 +4,7 @@ services:
       KC_HOSTNAME_URL: ${PUBLIC_BASE_URL}/auth
 
   osrm:
-    image: osrm/osrm-backend:v5.27.1
+    image: osrm/osrm-backend:v5.25.0
     container_name: wims-osrm
     command: ["osrm-routed", "--algorithm", "mld", "--verbosity", "WARNING", "/data/metro-manila.osrm"]
     volumes:

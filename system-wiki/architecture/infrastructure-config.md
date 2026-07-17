@@ -1,7 +1,7 @@
 ---
 title: Infrastructure Configuration
 created: 2026-05-16
-updated: 2026-07-17
+updated: 2026-07-18
 type: architecture
 tags: [wims-bfp, docker, nginx, suricata, keycloak, infrastructure]
 sources: [src/docker-compose.yml, src/docker-compose.prod.yml, src/.env.production.example, src/osrm/metro-manila.env, scripts/provision-osrm-metro-manila.sh, src/nginx/, src/suricata/, src/keycloak/import/bfp-realm.json, src/keycloak/Dockerfile, .github/workflows/ci.yml]
@@ -32,7 +32,7 @@ status: draft
 | backend | wims-backend | Dockerfile at `./backend/Dockerfile` (python:3.11-slim) | 8000 (internal) |
 | frontend | wims-frontend | `./frontend/Dockerfile` (Next.js) | 3000 (internal) |
 | wims-suricata | wims-suricata | `jasonish/suricata:7.0.5` | (none) |
-| osrm (production overlay only) | wims-osrm | `osrm/osrm-backend:v5.27.1` | none |
+| osrm (production overlay only) | wims-osrm | `osrm/osrm-backend:v5.25.0` | none |
 | nginx-gateway | wims-nginx-gateway | `nginx:1.27.3-alpine` | 80, 443 |
 
 **Health checks:** postgres (`pg_isready -U postgres -d wims`, interval 5s), redis (`redis-cli ping`, interval 5s), Keycloak (HTTP probe), and Suricata (`pgrep Suricata-Main`). Backend depends on healthy Postgres and Redis plus the completed Keycloak bootstrap.
