@@ -243,6 +243,62 @@
   margin-top: 4px;
 }
 
+/* ── Report wizard auth-state indicator (issue #680) ──
+ * Compact, responsive status row shown above the report card. Reuses the
+ * shared public-surface tokens; no new color or layout system introduced. */
+.public-surface .ps-report-auth-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+.public-surface .ps-report-auth-text {
+  line-height: 1.3;
+}
+.public-surface .ps-report-auth-name {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.public-surface .ps-report-auth-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--text-muted);
+}
+.public-surface .ps-report-auth-status--loading .ps-report-auth-dot {
+  background: var(--text-muted);
+  animation: ps-report-auth-pulse 1.2s ease-in-out infinite;
+}
+.public-surface .ps-report-auth-status--signed-in .ps-report-auth-dot {
+  background: var(--green);
+}
+.public-surface .ps-report-auth-status--guest .ps-report-auth-dot {
+  background: var(--text-secondary);
+}
+.public-surface .ps-report-auth-link {
+  color: var(--primary);
+  font-weight: 600;
+  text-decoration: underline;
+}
+.public-surface .ps-report-auth-link:hover {
+  color: var(--primary-hover);
+}
+.public-surface .ps-report-auth-link:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+@keyframes ps-report-auth-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
 /* ── Shared chrome: header / footer (prototype .landing-header / .landing-footer) ── */
 .public-surface .ps-header {
   position: sticky;

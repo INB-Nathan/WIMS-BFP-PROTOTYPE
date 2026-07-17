@@ -1,3 +1,10 @@
+## [2026-07-18] feat(report-wizard): add auth-state indicator to public report wizard (#680)
+
+- **Scope:** `components/report-wizard/Wizard.tsx` now renders a compact auth-state indicator above the report card in both the active 5-step wizard and the draft-resume prompt. The indicator reuses `AuthContext` via `useAuth()` — no second session fetch and no client-side HttpOnly JWT parsing. It shows a neutral loading state while auth resolves (no guest/identity flash), a signed-in row with the available `preferred_username`/email, or a guest-reporting row with a `/login` link. It is session awareness only.
+- **No behavior change:** Anonymous reporting stays available; the indicator does not gate submission, alter report ownership, payloads, `buildPayload()`, `submitCivilianReportOfflineAware()`, the offline queue, or CAPTCHA/Turnstile behavior. `LayoutShell` already blocks public-route mount during initial auth loading, so the component-level loading state is a robustness safety net.
+- **Tests:** Added focused `Report Wizard — auth-state indicator (#680)` suite (loading, authenticated with username→email fallback, anonymous with `/login` link, anonymous wizard still fully usable, session-change update without navigation, draft-prompt rendering). Full `src/app/report/__tests__/page.test.tsx` passes 24/24. `npm run lint` 0 errors; production `npm run build` succeeds.
+- **Wiki:** Added the missing `/report` route to [[frontend/route-map]]; updated [[index]]. No FRS/code gap changed.
+
 ## [2026-07-18] feat(tracking): public-surface capability receipt (#657)
 
 - **Scope:** The capability-token tracking page now uses the shared public-surface receipt layout that `LayoutShell` already supplies for `/tracking` routes; it does not add a page-local `PublicThemeProvider`. The receipt presents the secure token with copy control and QR code, then preserves the existing route workspace, text-only no-geometry fallback, timeline, and emergency guidance.
@@ -14,7 +21,8 @@
 
 ## [2026-07-17] feat(auth-ui): session-aware public navigation and Keycloak parity
 
-- **Navigation:** `PublicHeader` now consumes the existing `AuthContext` session state across `/`, `/information`, and the shared public shell. Anonymous users receive Home, Information, Fire Stations, Register, and Sign In only; authenticated users receive their role dashboard, avatar, and Report a Fire action.
+- **Navigation:** `PublicHeader` now consumes the existing `AuthContext` session state across `/`, `/information`, and the shared public shell. Anonymous users receive Home, Information, Fire Stations, Register, and Sign In only; authenticated users receive their role dashboard, profile/logout menu, and Report a Fire action. The follow-up adds the same destination policy to an accessible mobile drawer and reserves header space with a 52px skeleton while auth resolves.
+- **Public surface:** Shared dark/light tokens now serve both `.public-surface` and `.scene-landing`, removing the landing page's duplicate token declarations. `/fire-stations` now uses those tokens for its responsive map, directory, emergency-hotline, and BFP information presentation without changing its API, geolocation, filtering, or map-degradation behavior.
 - **Login/SSO:** `/login` has no application navbar/footer and adds a return-to-WIMS control. The Keycloak `wims-bfp` theme mirrors the formal split-panel tokens, exposes the same return control, and reads `landing-theme` from same-origin local storage without changing OIDC, cookie, or offline-session behavior.
 - **Tests:** Targeted Vitest coverage verifies anonymous/authenticated navigation, root composition, `/information` shell composition, login chrome removal/return control, and the Keycloak theme contract (83/83 passed).
 - **Gaps:** No FRS/codebase gap changed; this is presentation and navigation behavior over the existing authentication contract. See [[frontend/route-map]] and [[security/security-baseline]].

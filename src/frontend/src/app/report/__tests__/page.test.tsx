@@ -39,6 +39,18 @@ vi.mock('@/lib/usePublicAutoSync', () => ({
   usePublicAutoSync: () => ({ syncing: false, lastSyncedAt: null, pendingCount: 0, failedCount: 0, syncNow: vi.fn() }),
 }));
 
+// AuthContext — controllable mock for the #680 auth-state indicator. Defaults to
+// anonymous so the existing report-wizard tests keep rendering. Tests reassign
+// `authState.state` to drive loading / authenticated / anonymous scenarios and
+// to simulate a session change without navigation.
+const authState = vi.hoisted(() => ({
+  state: { user: null, isAuthenticated: false, loading: false },
+}));
+
+vi.mock('@/context/AuthContext', () => ({
+  useAuth: () => authState.state,
+}));
+
 const offlineMocks = vi.hoisted(() => ({
   submitCivilianReportOfflineAware: vi.fn().mockResolvedValue({
     queued: false,
@@ -125,6 +137,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   try { localStorage.clear(); } catch {}
   mapPicker.onChange = null;
+  // Reset auth mock to anonymous default for each test.
+  authState.state = { user: null, isAuthenticated: false, loading: false };
   offlineMocks.submitCivilianReportOfflineAware.mockResolvedValue({
     queued: false,
     response: { report_id: 7, status: 'PENDING', tracking_token: 'tok-7', tracking_url: '/tracking/v2/7/tok-7', latitude: 14.5, longitude: 121, category: 'NON_STRUCTURAL', created_at: '2026-07-15T10:00:00.000Z' },
@@ -507,5 +521,99 @@ describe('Report Wizard — clipboard fallback', () => {
     fireEvent.click(screen.getByTestId('copy-token'));
     await waitFor(() => expect(execCommand).toHaveBeenCalledWith('copy'));
     expect(screen.getByText('Copied')).toBeInTheDocument();
+  });
+});
+
+describe('Report Wizard — auth-state indicator (#680)', () => {
+  it('shows a neutral loading state while auth resolves (no guest/identity flash)', async () => {
+    authState.state = { user: null, isAuthenticated: false, loading: true };
+    const { default: ReportPage } = await import('../page');
+    render(<ReportPage />);
+    const status = screen.getByTestId('report-auth-status');
+    expect(status).toHaveAttribute('data-auth-state', 'loading');
+    expect(status).toHaveTextContent('Checking your sign-in status');
+    // Must not reveal guest or signed-in content during loading.
+    expect(status).not.toHaveTextContent('Signed in');
+    expect(status).not.toHaveTextContent('guest');
+    expect(screen.queryByTestId('report-auth-signin')).not.toBeInTheDocument();
+  });
+
+  it('shows a signed-in indicator using preferred username, falling back to email', async () => {
+    authState.state = {
+      user: { id: 'u1', preferred_username: 'juan', email: 'juan@example.com' },
+      isAuthenticated: true,
+      loading: false,
+    };
+    const { default: ReportPage } = await import('../page');
+    const utils = render(<ReportPage />);
+    const status = screen.getByTestId('report-auth-status');
+    expect(status).toHaveAttribute('data-auth-state', 'authenticated');
+    expect(status).toHaveTextContent('Signed in as');
+    expect(status).toHaveTextContent('juan');
+
+    // Fallback to email when preferred_username is absent.
+    authState.state = {
+      user: { id: 'u2', email: 'ana@example.com' },
+      isAuthenticated: true,
+      loading: false,
+    };
+    utils.rerender(<ReportPage />);
+    const updated = screen.getByTestId('report-auth-status');
+    expect(updated).toHaveTextContent('ana@example.com');
+    expect(updated).not.toHaveTextContent('juan');
+  });
+
+  it('shows a guest-reporting indicator with a /login link when anonymous', async () => {
+    // Anonymous default from beforeEach.
+    const { default: ReportPage } = await import('../page');
+    render(<ReportPage />);
+    const status = screen.getByTestId('report-auth-status');
+    expect(status).toHaveAttribute('data-auth-state', 'anonymous');
+    expect(status).toHaveTextContent('Reporting as a guest');
+    const signIn = screen.getByTestId('report-auth-signin');
+    expect(signIn).toHaveAttribute('href', '/login');
+    expect(signIn).toHaveTextContent('Sign in');
+  });
+
+  it('keeps the wizard fully usable for anonymous reporters (no auth gate)', async () => {
+    const { default: ReportPage } = await import('../page');
+    render(<ReportPage />);
+    // Step 1 controls are present and offered, not gated by auth state.
+    expect(screen.getByText('Where is the fire?')).toBeInTheDocument();
+    expect(screen.getByText('Use my location')).toBeInTheDocument();
+    expect(screen.getByTestId('report-auth-signin')).toBeInTheDocument();
+    // Continue is disabled only by the existing location rule, not by auth.
+    expect(screen.getByText('Continue').closest('button')).toBeDisabled();
+  });
+
+  it('updates the indicator when the session changes without navigation', async () => {
+    const { default: ReportPage } = await import('../page');
+    const utils = render(<ReportPage />);
+    expect(screen.getByTestId('report-auth-status')).toHaveAttribute('data-auth-state', 'anonymous');
+
+    authState.state = {
+      user: { id: 'u1', preferred_username: 'juan' },
+      isAuthenticated: true,
+      loading: false,
+    };
+    utils.rerender(<ReportPage />);
+    const status = screen.getByTestId('report-auth-status');
+    expect(status).toHaveAttribute('data-auth-state', 'authenticated');
+    expect(status).toHaveTextContent('juan');
+  });
+
+  it('renders the indicator inside the draft-resume prompt', async () => {
+    localStorage.setItem(
+      'wims_report_wizard_draft_v1',
+      JSON.stringify({
+        stepIndex: 2, savedAt: Date.now(), latitude: 14.6, longitude: 121.1, landmark: 'near Jollibee',
+        photoPresent: false, category: 'NON_STRUCTURAL', observables: ['HEAVY_SMOKE'],
+        description: 'Smoke observed', contactName: '', contactPhone: '', notes: '',
+      }),
+    );
+    const { default: ReportPage } = await import('../page');
+    render(<ReportPage />);
+    expect(screen.getByTestId('continue-draft')).toBeInTheDocument();
+    expect(screen.getByTestId('report-auth-status')).toHaveAttribute('data-auth-state', 'anonymous');
   });
 });

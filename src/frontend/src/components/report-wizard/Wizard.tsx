@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import React from 'react';
 import { ArrowLeft, AlertTriangle, RefreshCw } from 'lucide-react';
 import { TurnstileInstance } from '@marsidev/react-turnstile';
+import Link from 'next/link';
+import { useAuth } from '@/context/AuthContext';
 import { SafetyBanner } from './SafetyBanner';
 import { StepLocation } from './StepLocation';
 import { StepPhoto } from './StepPhoto';
@@ -49,6 +51,76 @@ function getDeviceId(): string {
 }
 
 type Mode = 'prompt' | 'wizard' | 'queued' | 'receipt';
+
+/**
+ * ReportAuthStatus — compact auth-state indicator for the public report wizard.
+ * Issue #680. Reuses the shared AuthContext via useAuth(); performs no extra
+ * session fetch and never reads the HttpOnly JWT in browser code. Presentation
+ * only: it never touches report ownership, payload, submission, offline-queue,
+ * or CAPTCHA behavior.
+ *
+ * - Loading: neutral status, no guest/identity flash.
+ * - Authenticated: signed-in row with the available username/email.
+ * - Anonymous: guest-reporting row with a /login link. Anonymous reporting
+ *   stays fully available — this is awareness, not a gate.
+ * role="status" + aria-live="polite" keeps it in sync when the session changes
+ * without a full-page refresh.
+ */
+function ReportAuthStatus() {
+  const { user, loading } = useAuth();
+  const isAuthenticated = user !== null;
+
+  if (loading) {
+    return (
+      <div
+        className="ps-report-auth-status ps-report-auth-status--loading"
+        role="status"
+        aria-live="polite"
+        data-testid="report-auth-status"
+        data-auth-state="loading"
+      >
+        <span className="ps-report-auth-dot" aria-hidden="true" />
+        <span className="ps-report-auth-text">Checking your sign-in status…</span>
+      </div>
+    );
+  }
+
+  if (isAuthenticated && user) {
+    const identity = user.preferred_username || user.email || 'your account';
+    return (
+      <div
+        className="ps-report-auth-status ps-report-auth-status--signed-in"
+        role="status"
+        aria-live="polite"
+        data-testid="report-auth-status"
+        data-auth-state="authenticated"
+      >
+        <span className="ps-report-auth-dot" aria-hidden="true" />
+        <span className="ps-report-auth-text">
+          Signed in as <span className="ps-report-auth-name">{identity}</span>
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="ps-report-auth-status ps-report-auth-status--guest"
+      role="status"
+      aria-live="polite"
+      data-testid="report-auth-status"
+      data-auth-state="anonymous"
+    >
+      <span className="ps-report-auth-dot" aria-hidden="true" />
+      <span className="ps-report-auth-text">
+        Reporting as a guest.{' '}
+        <Link href="/login" className="ps-report-auth-link" data-testid="report-auth-signin">
+          Sign in
+        </Link>
+      </span>
+    </div>
+  );
+}
 
 export function ReportWizard() {
   usePublicAutoSync();
@@ -408,6 +480,7 @@ export function ReportWizard() {
           <div className="ps-intent-bg" aria-hidden />
           <SafetyBanner />
           <div className="relative z-10 max-w-lg mx-auto px-4 mt-10 pb-8">
+            <ReportAuthStatus />
             <div className="ps-card">
               <div className="p-6 text-center space-y-4">
                 <AlertTriangle className="w-10 h-10 mx-auto" style={{ color: 'var(--orange)' }} />
@@ -450,6 +523,7 @@ export function ReportWizard() {
       <SafetyBanner />
 
       <div className="relative z-10 max-w-lg mx-auto px-4 mt-4 pb-8">
+        <ReportAuthStatus />
         <div className="ps-card">
           <div className="p-6 space-y-5">
             {/* Progress */}
