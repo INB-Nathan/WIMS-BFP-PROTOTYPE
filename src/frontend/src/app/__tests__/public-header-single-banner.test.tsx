@@ -75,7 +75,7 @@ describe('Public surface — exactly one header per route (#654)', () => {
   });
 
   // Routes that previously double-rendered (provider ps-header + PublicHeader).
-  const singleHeaderPaths = ['/report', '/tracking', '/tracking/abc', '/login', '/register', '/contributor'];
+  const singleHeaderPaths = ['/report', '/tracking', '/tracking/abc', '/register', '/contributor', '/information'];
 
   it.each(singleHeaderPaths)(
     'renders exactly ONE <header> and no .ps-header duplicate on "%s"',
@@ -95,4 +95,13 @@ describe('Public surface — exactly one header per route (#654)', () => {
       expect(document.querySelector('.landing-header')).not.toBeNull();
     },
   );
+
+  it('renders no navigation header or footer on /login', () => {
+    mockUsePathname.mockReturnValue('/login');
+    render(<LayoutShell>child-content</LayoutShell>);
+
+    expect(screen.getByText('child-content')).toBeInTheDocument();
+    expect(screen.queryByRole('banner')).not.toBeInTheDocument();
+    expect(screen.queryByRole('contentinfo')).not.toBeInTheDocument();
+  });
 });

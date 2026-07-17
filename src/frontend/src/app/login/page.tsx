@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { defaultRouteForRole } from '@/lib/roleRedirect';
-import { CheckCircle, Lock } from 'lucide-react';
+import { ArrowLeft, CheckCircle, Lock } from 'lucide-react';
 import '@/styles/public-surface.css';
 
 function RegistrationBanner() {
@@ -44,7 +44,12 @@ function LoginInner() {
     };
 
     return (
-        <div className="ps-auth-split">
+        <div className="ps-auth-split ps-auth-login">
+            <Link href="/" className="ps-login-return" data-testid="login-return">
+                <ArrowLeft className="w-4 h-4" aria-hidden />
+                Return to WIMS-BFP
+            </Link>
+
             {/* Left Panel — BFP Branding */}
             <div className="ps-auth-branding">
                 <div className="ps-branding-content">
