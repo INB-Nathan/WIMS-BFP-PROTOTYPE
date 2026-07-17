@@ -1,7 +1,7 @@
 ---
 title: Database Schema Overview
 created: 2026-05-14
-updated: 2026-07-13
+updated: 2026-07-17
 type: database
 tags: [wims-bfp, database, schema, rls, audit-log, implementation-map, alembic]
 sources: [raw/codebase/codebase-snapshot-2026-05-14.md, src/postgres-init, src/postgres-init/86_civilian_contributor_snapshot.sql, src/postgres-init/87_photo_preupload_schema.sql, src/postgres-init/88_anonymous_photo_ownership.sql, src/postgres-init/89_anonymous_pending_photo_insert.sql, src/postgres-init/90_registered_photo_ownership.sql, src/postgres-init/91_community_content_schema.sql, src/postgres-init/92_remove_legacy_photo_bonus_function.sql, src/backend/alembic, src/backend/alembic/versions/0007_contributor_snapshot_cleanup.py, src/backend/alembic/versions/0008_photo_preupload_schema.py, src/backend/alembic/versions/0009_anonymous_photo_ownership_helpers.py, src/backend/alembic/versions/0010_anonymous_pending_photo_insert.py, src/backend/alembic/versions/0011_registered_photo_ownership_helper.py, src/backend/alembic/versions/0012_community_content_schema.py, src/backend/alembic/versions/0013_remove_legacy_photo_bonus_function.py, src/backend/services/contributor.py, src/backend/entrypoint.sh]
@@ -40,6 +40,8 @@ PostgreSQL/PostGIS clean-volume schema is bootstrapped by ordered SQL files in
 | `wims.users` | `03_users.sql`; email column/unique local email index in `44_add_email_to_users.sql` |
 | `wims.data_import_batches` | `04_import_incidents.sql` |
 | `wims.fire_incidents` | `04_import_incidents.sql` |
+| `wims.fire_incident_perimeters` | `96_fire_incident_perimeters.sql`; Alembic `0024`; `MANUAL_DRAW` method added by Alembic `0025` |
+| `wims.fire_incident_perimeters_history` | `96_fire_incident_perimeters.sql`; Alembic `0024` append-only temporal history |
 | `wims.citizen_reports` | `05_citizen_reports.sql` |
 | `wims.citizen_report_followups` | `59_citizen_report_followups.sql` |
 | `wims.operations` | `51_operations.sql`; map fields in `52_operations_map.sql`; archive/reset flags in `79_operations_day_reset.sql` |
@@ -73,7 +75,7 @@ PostgreSQL/PostGIS clean-volume schema is bootstrapped by ordered SQL files in
 ## Schema Clusters
 - Reference geography: `wims.ref_regions`, `wims.ref_provinces`, `wims.ref_cities`, `wims.ref_barangays`.
 - Users and RBAC mirror: `wims.users` plus Keycloak identity data. PR #207 adds local `email` storage with a unique `LOWER(email)` index (`uq_users_email_lower`) to align local email uniqueness with Keycloak's duplicate-email prevention; startup DDL intentionally does not patch this table.
-- Incident workflow: `wims.fire_incidents`, detail tables, involved parties, responding units, operational challenges, attachments.
+- Incident workflow: `wims.fire_incidents`, detail tables, involved parties, responding units, operational challenges, attachments, and validator-authored `wims.fire_incident_perimeters`. Perimeters use `GEOGRAPHY(POLYGON, 4326)`, retain one current row per incident, and calculate acreage with PostGIS; the history table records edit ranges. `MANUAL_DRAW` is the production browser-drawing method, added in Alembic `0025`.
 - Verification/immutability: `wims.incident_verification_history` has final-schema UPDATE/DELETE blocking rules. `wims.system_audit_trails` is required to be append-only, but `72_partition_audit_trail.sql` replaces the table after migration 17 and does not recreate `no_update_audit`/`no_delete_audit`; this is an open enforcement gap in [[gaps/frs-codebase-gap-register]].
 - Analytics: `wims.analytics_incident_facts`, materialized view SQL, export/scheduled report tables. Migration `28_analytics_geography_denorm.sql` adds denormalized `municipality_name` and `province_name` fields for analyst filters/top-N views, plus export task/file metadata on `analytics_export_log`. Scheduled reports remain deferred outside the National Analyst dashboard phase.
 - Security: `wims.security_threat_logs`, `wims.system_audit_trails`, `wims.ip_blocklist`, public keys.

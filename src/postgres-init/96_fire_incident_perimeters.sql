@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS wims.fire_incident_perimeters (
     gis_acres    DOUBLE PRECISION,
     map_method   VARCHAR(25) CHECK (
         map_method IN (
+            'MANUAL_DRAW',
             'GPS-Driven',
             'GPS-Flight',
             'GPS-Walked',

@@ -668,3 +668,10 @@ Removed the AI incident narrative feature (PR #104 / #69) — backend-only featu
   and swaps bespoke classes for `ps-*` tokens.
 - **Validation:** `npx vitest run src/app/tracking/page.test.tsx` — 3/3 passed. `npm run lint` on
   new files — 0 errors. `npm run build` — passed.
+
+## [2026-07-17] feat(validator): production manual perimeter workspace (#665)
+
+- **Scope:** Replaced the disposable synthetic drawing screen with a role-gated, online-only workspace for a real verified incident selected by ID. It loads the existing incident/perimeter records, preserves the accepted map-left/inspector-right interaction (top-right zoom, vertex snap, close, undo, clear, GeoJSON inspection), and persists only through the existing perimeter API.
+- **Authority:** `MANUAL_DRAW` is now an allowed durable map method in the clean bootstrap and Alembic upgrade. GeoJSON validity and acreage remain PostGIS-authoritative; the browser calculation is labelled preview-only. The UI displays stored incident province/region metadata rather than the prototype's coarse client-side reverse-geocode boxes.
+- **Security:** UI presentation permits NATIONAL_VALIDATOR and SYSTEM_ADMIN, while the existing perimeter route and RLS policies remain the authorization boundary. The workspace rejects non-verified or unmapped incidents before drawing.
+- **Wiki:** Updated [[frontend/route-map]] and [[backend/api-route-map]]. No FRS/code gap changed.

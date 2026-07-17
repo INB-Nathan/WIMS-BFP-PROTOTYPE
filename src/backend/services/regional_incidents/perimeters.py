@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 # agree on allowed values even before the DB CHECK enforces them.
 VALID_MAP_METHODS = frozenset(
     {
+        "MANUAL_DRAW",
         "GPS-Driven",
         "GPS-Flight",
         "GPS-Walked",
