@@ -305,6 +305,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Validate Suricata configuration
+        run: |
+          docker run --rm --network none --entrypoint suricata \
+            -v "$GITHUB_WORKSPACE/src/suricata/suricata.yaml:/etc/suricata/suricata.yaml:ro" \
+            -v "$GITHUB_WORKSPACE/src/suricata/rules:/var/lib/suricata/rules:ro" \
+            jasonish/suricata:8.0.5 -T -c /etc/suricata/suricata.yaml
+
       - name: Create CI env file
         working-directory: src
         run: cp ../.env.example .env

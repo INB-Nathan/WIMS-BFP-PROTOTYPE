@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import tempfile
+from pathlib import Path
 
 import pytest
 from sqlalchemy import text
@@ -76,6 +78,17 @@ def _suricata_container_running() -> bool:
     return exit_code == 0
 
 
+def test_custom_rules_define_all_expected_sids():
+    custom_rules = Path(__file__).parents[2] / "suricata" / "rules" / "custom.rules"
+    custom_sids = {int(sid) for sid in re.findall(r"\bsid:(\d+)", custom_rules.read_text())}
+    expected_sids = {
+        *range(1_000_001, 1_000_011),
+        *range(1_000_020, 1_000_025),
+        *range(1_000_100, 1_000_138),
+    }
+    assert custom_sids == expected_sids
+
+
 class TestSuricataRulesLoaded:
     """Verify Suricata loads all expected rule files at startup."""
 
@@ -86,9 +99,8 @@ class TestSuricataRulesLoaded:
 
     @pytest.mark.skipif(os.environ.get("SKIP_DOCKER_TESTS") == "1", reason=SKIP_REASON)
     def test_no_missing_rules_warning(self):
-        exit_code, output = _suricata_exec("cat /var/log/suricata/suricata.log")
-        if exit_code != 0:
-            pytest.skip(f"Could not read suricata.log: {output[:200]}")
+        exit_code, output = _suricata_exec("suricata -T -c /etc/suricata/suricata.yaml")
+        assert exit_code == 0, f"Suricata config validation failed:\n{output[:2000]}"
         assert "No rule files match" not in output, (
             f"Suricata reports missing rule files:\n{output[:2000]}"
         )
@@ -129,6 +141,9 @@ class TestSuricataRulesLoaded:
             pytest.skip(f"Could not read config: {output[:200]}")
         assert "suricata.rules" in output, (
             f"Expected suricata.rules in suricata.yaml rule-files section:\n{output[:2000]}"
+        )
+        assert "custom.rules" in output, (
+            f"Expected custom.rules in suricata.yaml rule-files section:\n{output[:2000]}"
         )
         assert "default-rule-path" in output, "Expected default-rule-path in suricata.yaml"
 
