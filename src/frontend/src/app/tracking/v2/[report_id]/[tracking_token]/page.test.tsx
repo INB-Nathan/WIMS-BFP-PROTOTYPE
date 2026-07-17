@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockParams = { report_id: '42', tracking_token: 'token-abc' };
@@ -67,6 +67,28 @@ describe('TrackingV2Page', () => {
 
     expect(await screen.findByTestId('routing-text-fallback')).toBeInTheDocument();
     expect(screen.queryByTestId('tracking-route-map')).not.toBeInTheDocument();
+  });
+
+  it('renders the receipt QR code and secure tracking token', async () => {
+    publicApiFetchMock.mockResolvedValue(BASE_TRACKING_DATA);
+    const { default: Page } = await import('./page');
+    render(<Page />);
+
+    expect(await screen.findByTestId('qr-code')).toBeInTheDocument();
+    expect(screen.getByTestId('tracking-token')).toHaveTextContent('token-abc');
+    expect(screen.getByRole('button', { name: 'Copy tracking token' })).toBeInTheDocument();
+  });
+
+  it('copies the token through the document fallback when Clipboard API is unavailable', async () => {
+    publicApiFetchMock.mockResolvedValue(BASE_TRACKING_DATA);
+    const execCommand = vi.fn(() => true);
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined });
+    Object.defineProperty(document, 'execCommand', { configurable: true, value: execCommand });
+    const { default: Page } = await import('./page');
+    render(<Page />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Copy tracking token' }));
+    expect(execCommand).toHaveBeenCalledWith('copy');
   });
 
   it('renders stage-specific timeline metadata', async () => {
