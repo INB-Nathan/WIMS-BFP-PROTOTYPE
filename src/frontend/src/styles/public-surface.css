@@ -1392,9 +1392,42 @@
   display: flex;
   min-height: calc(100vh - 52px - 52px);
 }
+.public-surface .ps-auth-split.ps-auth-login {
+  min-height: 100vh;
+  position: relative;
+}
+.public-surface .ps-login-return {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+.public-surface .ps-login-return:hover {
+  color: var(--text-primary);
+  border-color: var(--primary);
+}
+.public-surface .ps-login-return:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
 @media (max-width: 768px) {
   .public-surface .ps-auth-split {
     flex-direction: column;
+  }
+  .public-surface .ps-login-return {
+    top: 12px;
+    left: 12px;
   }
 }
 .public-surface .ps-auth-branding {

@@ -3,8 +3,7 @@
  * Issue #609 (PR feat/609-shared-header-nav)
  *
  * Verifies that:
- * - Public routes (/, /login, /register, /report, /callback, /verify-sent, /verify,
- *   /tracking/*, /fire-stations/*, /privacy/*) render PublicHeader.
+ * - Public routes render PublicHeader except / (page-owned overlay) and /login.
  * - Civilian routes (/contributor, /information) render PublicHeader.
  * - Staff-authenticated routes render Sidebar+Header (not PublicHeader).
  */
@@ -82,7 +81,6 @@ describe('LayoutShell', () => {
   describe('Anonymous user on public routes (isPublicRoute)', () => {
     const publicPaths = [
       '/report',
-      '/login',
       '/register',
       '/callback',
       '/verify-sent',
@@ -101,18 +99,19 @@ describe('LayoutShell', () => {
       expect(screen.queryByTestId('header')).not.toBeInTheDocument();
     });
 
-    it('does NOT render PublicHeader for the landing page "/" (has its own immersive header)', () => {
-      mockUsePathname.mockReturnValue('/');
+    it.each(['/', '/login'])('does NOT inject PublicHeader for pathname "%s"', (pathname) => {
+      mockUsePathname.mockReturnValue(pathname);
       render(<LayoutShell>content</LayoutShell>);
 
       expect(screen.queryByTestId('public-header')).not.toBeInTheDocument();
       expect(screen.queryByTestId('sidebar')).not.toBeInTheDocument();
       expect(screen.queryByTestId('header')).not.toBeInTheDocument();
+      expect(screen.queryByRole('contentinfo')).not.toBeInTheDocument();
     });
   });
 
   describe('Anonymous user on civilian routes (isCivilianRoute)', () => {
-    const civilianPaths = ['/contributor'];
+    const civilianPaths = ['/contributor', '/information'];
 
     it.each(civilianPaths)(
       'renders PublicHeader for civilian pathname "%s"',
@@ -125,14 +124,6 @@ describe('LayoutShell', () => {
         expect(screen.queryByTestId('header')).not.toBeInTheDocument();
       },
     );
-
-    it('does NOT render the LayoutShell PublicHeader for /information (page owns its chrome)', () => {
-      mockUsePathname.mockReturnValue('/information');
-      render(<LayoutShell>content</LayoutShell>);
-
-      expect(screen.queryByTestId('public-header')).not.toBeInTheDocument();
-      expect(screen.queryByTestId('sidebar')).not.toBeInTheDocument();
-    });
   });
 
   describe('Staff-authenticated user', () => {

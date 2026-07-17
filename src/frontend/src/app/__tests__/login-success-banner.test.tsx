@@ -21,6 +21,14 @@ vi.mock('@/context/AuthContext', () => ({
 }));
 
 describe('LoginPage — registration success banner', () => {
+  it('shows a return-to-public-site control without a navigation bar', async () => {
+    const { default: LoginPage } = await import('../login/page');
+    const { container } = render(<LoginPage />);
+
+    expect(screen.getByTestId('login-return')).toHaveAttribute('href', '/');
+    expect(container.querySelector('header')).not.toBeInTheDocument();
+  });
+
   it('shows the green banner when ?registered=true', async () => {
     mockSearchParams.get = (key: string) => (key === 'registered' ? 'true' : null);
     const { default: LoginPage } = await import('../login/page');

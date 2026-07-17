@@ -1,3 +1,10 @@
+## [2026-07-17] feat(auth-ui): session-aware public navigation and Keycloak parity
+
+- **Navigation:** `PublicHeader` now consumes the existing `AuthContext` session state across `/`, `/information`, and the shared public shell. Anonymous users receive Home, Information, Fire Stations, Register, and Sign In only; authenticated users receive their role dashboard, avatar, and Report a Fire action.
+- **Login/SSO:** `/login` has no application navbar/footer and adds a return-to-WIMS control. The Keycloak `wims-bfp` theme mirrors the formal split-panel tokens, exposes the same return control, and reads `landing-theme` from same-origin local storage without changing OIDC, cookie, or offline-session behavior.
+- **Tests:** Targeted Vitest coverage verifies anonymous/authenticated navigation, root composition, `/information` shell composition, login chrome removal/return control, and the Keycloak theme contract (83/83 passed).
+- **Gaps:** No FRS/codebase gap changed; this is presentation and navigation behavior over the existing authentication contract. See [[frontend/route-map]] and [[security/security-baseline]].
+
 ## [2026-07-17] feat(tracking): public status timeline and light route workspace (#638)
 
 - **Scope:** The capability-token tracking endpoint now returns an ordered `status_updates` projection alongside its existing route/station summary. `services/civilian_triage/status_update.py::get_public_status_updates` explicitly allowlists only citizen-facing metadata by lifecycle stage; validator identities and arbitrary JSONB keys remain absent. The tracking-v2 UI uses the shared typed client, displays the timeline in a light map/inspector workspace, renders valid GeoJSON road routes through the existing SSR-safe Leaflet path, and puts the zoom control top-right.

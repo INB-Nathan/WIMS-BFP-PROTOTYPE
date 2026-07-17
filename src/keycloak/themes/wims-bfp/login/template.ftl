@@ -67,6 +67,12 @@
     x-on:focusin.window="! $refs.panel?.contains($event.target) && close()"
     x-id="['language-select']"
 >
+  <a href="/" class="wims-return-link">
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="m15 18-6-6 6-6" />
+    </svg>
+    <span>Return to WIMS-BFP</span>
+  </a>
   <div class="wims-login-branding">
     <div class="wims-branding-content">
       <div class="wims-logo-wrap">
@@ -86,7 +92,9 @@
   <div class="pf-v5-c-login__container">
     <main class="pf-v5-c-login__main">
       <header class="pf-v5-c-login__main-header">
+        <p class="wims-form-eyebrow">Bureau of Fire Protection</p>
         <h1 class="pf-v5-c-title pf-m-3xl"><#nested "header"></h1>
+        <p class="wims-form-subtitle">Authorized access to the WIMS-BFP incident management system.</p>
         <#if realm.internationalizationEnabled && locale.supported?? && locale.supported?size gt 1>
         <div class="pf-v5-c-login__main-header-utilities">
           <div class="pf-v5-c-select">
