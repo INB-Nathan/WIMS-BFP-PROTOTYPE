@@ -117,6 +117,26 @@ describe('Sidebar — Rate Limits entry', () => {
   });
 });
 
+describe('Sidebar — Validator perimeter workspace', () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  it('links NATIONAL_VALIDATOR to the perimeter workspace', () => {
+    mockUseAuth.mockReturnValue({
+      user: { role: 'NATIONAL_VALIDATOR' },
+      loading: false,
+      logout: vi.fn(),
+    });
+    render(<Sidebar isOpen={true} onClose={vi.fn()} />);
+
+    expect(screen.getByRole('link', { name: 'Perimeter Drawing' })).toHaveAttribute(
+      'href',
+      '/dashboard/validator/perimeter-draw',
+    );
+  });
+});
+
 describe('Sidebar — Offline Work badge (Item 10)', () => {
   afterEach(() => {
     cleanup();

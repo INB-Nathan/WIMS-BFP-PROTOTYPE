@@ -291,6 +291,7 @@ function getNavSections(role: string | null, badgeCount: number = 0): NavSection
             items: [
                 { label: 'Triage Queue', href: '/incidents/triage', icon: ClipboardList },
                 { label: 'Operational Map', href: '/dashboard/validator/map', icon: Map },
+                { label: 'Perimeter Drawing', href: '/dashboard/validator/perimeter-draw', icon: MapPinned },
                 { label: 'Audit Trail', href: '/dashboard/validator/audit', icon: History },
             ],
         });

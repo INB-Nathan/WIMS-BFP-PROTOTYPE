@@ -1,3 +1,9 @@
+## [2026-07-18] feat(validator): link sidebar to perimeter workspace (#665)
+
+- **Scope:** NATIONAL_VALIDATOR now has a Perimeter Drawing sidebar link to the existing workspace. The workspace continues to require selecting a real verified incident before editing.
+- **Tests:** `Sidebar.test.tsx` verifies the role-scoped link and route.
+- **Wiki:** Updated [[frontend/route-map]] and [[index]]. No FRS/code gap changed.
+
 ## [2026-07-18] fix(public-header): expose authenticated sign-out
 
 - **Scope:** The shared `PublicHeader` now renders an explicit Sign out button for every authenticated session and calls the existing `AuthContext.logout` action. Its established server logout, cache cleanup, and identity-provider teardown remain unchanged.
