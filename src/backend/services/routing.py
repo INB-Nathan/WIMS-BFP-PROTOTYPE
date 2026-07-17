@@ -14,6 +14,7 @@ Call pattern:
 from __future__ import annotations
 
 import logging
+import math
 import os
 from typing import NamedTuple
 
@@ -94,7 +95,9 @@ async def _try_osrm(
             if "routes" not in data or not data["routes"]:
                 return None
             route = data["routes"][0]
-            geometry = route.get("geometry")  # GeoJSON LineString or None
+            geometry = route.get("geometry")
+            if not _is_linestring(geometry):
+                geometry = None
             return (float(route["distance"]), float(route["duration"]), geometry)
     except Exception as exc:
         logger.warning(
@@ -105,6 +108,23 @@ async def _try_osrm(
         return None
 
 
+def _is_linestring(geometry: object) -> bool:
+    if not isinstance(geometry, dict) or geometry.get("type") != "LineString":
+        return False
+    coordinates = geometry.get("coordinates")
+    if not isinstance(coordinates, list) or len(coordinates) < 2:
+        return False
+    return all(
+        isinstance(pair, list)
+        and len(pair) >= 2
+        and all(
+            isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+            for value in pair[:2]
+        )
+        for pair in coordinates
+    )
+
+
 def _fallback_estimate(
     report_lat: float,
     report_lon: float,
@@ -112,8 +132,6 @@ def _fallback_estimate(
     station_lon: float,
 ) -> RoutingResult:
     """PostGIS straight-line × 1.5 sinuosity + 40 km/h urban speed estimate."""
-    import math
-
     # Haversine distance
     R = 6371000  # Earth radius in meters
     phi1, phi2 = math.radians(report_lat), math.radians(station_lat)

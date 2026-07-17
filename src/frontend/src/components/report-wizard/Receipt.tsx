@@ -6,7 +6,6 @@ import Link from 'next/link';
 import { CheckCircle2, Copy, PhoneCall, ChevronDown, UserPlus, MapPin, Clock, AlertTriangle } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { RouteFeedback } from './RouteFeedback';
-import type { RouteState } from './RouteFeedback';
 import { SafetyBanner } from './SafetyBanner';
 import type { PublicTrackingData } from '@/lib/api/tracking';
 
@@ -27,7 +26,6 @@ export interface ReceiptProps {
   data: ReceiptData;
   tracking?: PublicTrackingData | null;
   trackingLoading: boolean;
-  trackingState: RouteState;
 }
 
 /**
@@ -35,7 +33,7 @@ export interface ReceiptProps {
  * Includes QR (tracking URL), copy-to-clipboard token, timestamp, and an
  * additive registration incentive (progressive disclosure).
  */
-export function Receipt({ data, tracking, trackingLoading, trackingState }: ReceiptProps) {
+export function Receipt({ data, tracking, trackingLoading }: ReceiptProps) {
   const [copied, setCopied] = useState(false);
   const [showIncentive, setShowIncentive] = useState(false);
 
@@ -156,7 +154,6 @@ export function Receipt({ data, tracking, trackingLoading, trackingState }: Rece
               station={data.nearestStation ?? null}
               tracking={tracking}
               loading={trackingLoading}
-              state={trackingState}
             />
           </div>
 

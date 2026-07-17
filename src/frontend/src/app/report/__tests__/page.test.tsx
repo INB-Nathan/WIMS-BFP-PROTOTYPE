@@ -31,6 +31,12 @@ vi.mock('@/components/civilian/PhotoUpload', () => ({
   PhotoUpload: () => <div data-testid="photo-upload" />,
 }));
 
+vi.mock('@/components/map/RouteMap', () => ({
+  default: ({ geometry }: { geometry?: Record<string, unknown> | null }) => (
+    <div data-testid="route-map" data-routed={geometry ? 'true' : 'false'} />
+  ),
+}));
+
 vi.mock('@/lib/useNetworkStatus', () => ({
   useNetworkStatus: () => ({ isOnline: true, isReconnecting: false, state: 'online', isChecking: false, lastCheckedAt: null }),
 }));
@@ -63,8 +69,13 @@ vi.mock('@/lib/api', () => ({
   submitCivilianReportV2: vi.fn(),
 }));
 
+const validRoutingGeometry = {
+  type: 'LineString',
+  coordinates: [[121, 14.5], [121.01, 14.51]],
+};
+
 const trackingMocks = vi.hoisted(() => ({
-  // Default: response present with a routing source => SUCCESS.
+  // Default: valid geometry ends polling immediately.
   fetchPublicTracking: vi.fn().mockResolvedValue({
     report_id: 7,
     category: 'NON_STRUCTURAL',
@@ -80,7 +91,7 @@ const trackingMocks = vi.hoisted(() => ({
     nearest_station_phone: null,
     routing_distance_m: 1500,
     routing_duration_s: 300,
-    routing_geometry: null,
+    routing_geometry: { type: 'LineString', coordinates: [[121, 14.5], [121.01, 14.51]] },
     routing_data_source: 'osrm',
     photo_count: 0,
     submitter_type: 'ANONYMOUS',
@@ -135,12 +146,13 @@ beforeEach(() => {
     safety_status: 'UNKNOWN', status: 'PENDING', status_explanation: null, guidance: null,
     escalation_guidance: null, related_cluster_status: null, nearest_station_name: 'Station A',
     nearest_station_phone: null, routing_distance_m: 1500, routing_duration_s: 300,
-    routing_geometry: null, routing_data_source: 'osrm', photo_count: 0,
+    routing_geometry: validRoutingGeometry, routing_data_source: 'osrm', photo_count: 0,
     submitter_type: 'ANONYMOUS', link_count: 0, created_at: '2026-07-15T10:00:00.000Z',
   });
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   try { localStorage.clear(); } catch {}
 });
 
@@ -346,56 +358,92 @@ describe('Report Wizard — safety banner on all steps', () => {
   });
 });
 
-describe('Report Wizard — routing feedback 3-state (straight line)', () => {
-  it('shows PENDING while the tracking fetch is loading', async () => {
-    trackingMocks.fetchPublicTracking.mockImplementation(
-      () => new Promise(() => {}), // never resolves => loading
-    );
+describe('Report Wizard — bounded routing polling', () => {
+  it('keeps one request in flight and stops on unmount', async () => {
+    trackingMocks.fetchPublicTracking.mockImplementation(() => new Promise(() => {}));
+    const { default: ReportPage } = await import('../page');
+    const view = render(<ReportPage />);
+    await driveToReview();
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByTestId('submit-report'));
+    await act(async () => { await Promise.resolve(); });
+
+    expect(screen.getByTestId('route-feedback')).toHaveAttribute('data-state', 'PENDING');
+    expect(trackingMocks.fetchPublicTracking).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    expect(trackingMocks.fetchPublicTracking).toHaveBeenCalledTimes(1);
+
+    view.unmount();
+    await act(async () => { await vi.runOnlyPendingTimersAsync(); });
+    expect(trackingMocks.fetchPublicTracking).toHaveBeenCalledTimes(1);
+  });
+
+  it('polls immediately, then stops when a retry returns valid geometry', async () => {
+    trackingMocks.fetchPublicTracking
+      .mockResolvedValueOnce({
+        report_id: 7, category: 'NON_STRUCTURAL', sub_category: null, safety_status: 'UNKNOWN',
+        status: 'PENDING', guidance: null, escalation_guidance: null, nearest_station_name: 'Station A',
+        nearest_station_phone: null, routing_distance_m: null, routing_duration_s: null,
+        routing_geometry: null, routing_data_source: 'postgis_straight_line', photo_count: 0,
+        status_updates: [], created_at: '2026-07-15T10:00:00.000Z',
+      })
+      .mockResolvedValueOnce({
+        report_id: 7, category: 'NON_STRUCTURAL', sub_category: null, safety_status: 'UNKNOWN',
+        status: 'PENDING', guidance: null, escalation_guidance: null, nearest_station_name: 'Station A',
+        nearest_station_phone: null, routing_distance_m: 1500, routing_duration_s: 300,
+        routing_geometry: validRoutingGeometry, routing_data_source: 'osrm', photo_count: 0,
+        status_updates: [], created_at: '2026-07-15T10:00:00.000Z',
+      });
     const { default: ReportPage } = await import('../page');
     render(<ReportPage />);
     await driveToReview();
+    vi.useFakeTimers();
     fireEvent.click(screen.getByTestId('submit-report'));
-    const feedback = await screen.findByTestId('route-feedback');
-    expect(feedback).toHaveAttribute('data-state', 'PENDING');
-    expect(screen.getByText(/Calculating route/i)).toBeInTheDocument();
+    await act(async () => { await Promise.resolve(); });
+
+    expect(trackingMocks.fetchPublicTracking).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('route-feedback')).toHaveAttribute('data-state', 'PENDING');
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    expect(trackingMocks.fetchPublicTracking).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId('route-feedback')).toHaveAttribute('data-state', 'SUCCESS');
+    expect(screen.getByTestId('route-map')).toHaveAttribute('data-routed', 'true');
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    expect(trackingMocks.fetchPublicTracking).toHaveBeenCalledTimes(2);
   });
 
-  it('shows SUCCESS (straight line) when routing_data_source is present', async () => {
+  it('makes exactly one immediate request plus five retries before Estimated', async () => {
     trackingMocks.fetchPublicTracking.mockResolvedValue({
-      report_id: 7, category: 'NON_STRUCTURAL', sub_category: null, reporting_context: 'WITNESS',
-      safety_status: 'UNKNOWN', status: 'PENDING', status_explanation: null, guidance: null,
-      escalation_guidance: null, related_cluster_status: null, nearest_station_name: 'Station A',
-      nearest_station_phone: null, routing_distance_m: 1500, routing_duration_s: 300,
-      routing_geometry: null, routing_data_source: 'osrm', photo_count: 0,
-      submitter_type: 'ANONYMOUS', link_count: 0, created_at: '2026-07-15T10:00:00.000Z',
-    });
-    const { default: ReportPage } = await import('../page');
-    render(<ReportPage />);
-    await driveToReview();
-    fireEvent.click(screen.getByTestId('submit-report'));
-    const feedback = await screen.findByTestId('route-feedback');
-    await waitFor(() => expect(feedback).toHaveAttribute('data-state', 'SUCCESS'));
-    // Straight line is always rendered (no road polyline available).
-    expect(screen.getByTestId('route-line').querySelector('line')).toBeInTheDocument();
-    expect(screen.getByText(/Distance: 1.5 km/)).toBeInTheDocument();
-  });
-
-  it('shows FAILED (permanent straight line) when routing_data_source is absent', async () => {
-    trackingMocks.fetchPublicTracking.mockResolvedValue({
-      report_id: 7, category: 'NON_STRUCTURAL', sub_category: null, reporting_context: 'WITNESS',
-      safety_status: 'UNKNOWN', status: 'PENDING', status_explanation: null, guidance: null,
-      escalation_guidance: null, related_cluster_status: null, nearest_station_name: 'Station A',
+      report_id: 7, category: 'NON_STRUCTURAL', sub_category: null, safety_status: 'UNKNOWN',
+      status: 'PENDING', guidance: null, escalation_guidance: null, nearest_station_name: 'Station A',
       nearest_station_phone: null, routing_distance_m: null, routing_duration_s: null,
-      routing_geometry: null, routing_data_source: null, photo_count: 0,
-      submitter_type: 'ANONYMOUS', link_count: 0, created_at: '2026-07-15T10:00:00.000Z',
+      routing_geometry: null, routing_data_source: 'postgis_straight_line', photo_count: 0,
+      status_updates: [], created_at: '2026-07-15T10:00:00.000Z',
+    });
+    const { default: ReportPage } = await import('../page');
+    render(<ReportPage />);
+    await driveToReview();
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByTestId('submit-report'));
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+
+    expect(trackingMocks.fetchPublicTracking).toHaveBeenCalledTimes(6);
+    expect(screen.getByTestId('route-feedback')).toHaveAttribute('data-state', 'FAILED');
+    expect(screen.getByTestId('route-state-badge')).toHaveTextContent('Estimated');
+  });
+
+  it('does not request tracking when the submission has no token', async () => {
+    offlineMocks.submitCivilianReportOfflineAware.mockResolvedValue({
+      queued: false,
+      response: { report_id: 8, status: 'PENDING', tracking_token: null, tracking_url: null, latitude: 14.5, longitude: 121, category: 'NON_STRUCTURAL', created_at: '2026-07-15T10:00:00.000Z' },
     });
     const { default: ReportPage } = await import('../page');
     render(<ReportPage />);
     await driveToReview();
     fireEvent.click(screen.getByTestId('submit-report'));
-    const feedback = await screen.findByTestId('route-feedback');
-    await waitFor(() => expect(feedback).toHaveAttribute('data-state', 'FAILED'));
-    expect(screen.getByText(/Route unavailable/i)).toBeInTheDocument();
+
+    expect(await screen.findByTestId('route-feedback')).toHaveAttribute('data-state', 'FAILED');
+    expect(trackingMocks.fetchPublicTracking).not.toHaveBeenCalled();
   });
 });
 

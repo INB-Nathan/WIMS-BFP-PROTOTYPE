@@ -1,6 +1,8 @@
 'use client';
 
-import { AlertTriangle, MapPin, Loader2, CheckCircle2, XCircle, Navigation } from 'lucide-react';
+import { Loader2, CheckCircle2, XCircle, Navigation, MapPin } from 'lucide-react';
+import RouteMap from '@/components/map/RouteMap';
+import { parseLineStringToLatLng } from '@/components/map/RoutePolyline';
 import type { PublicTrackingData } from '@/lib/api/tracking';
 
 export type RouteState = 'PENDING' | 'SUCCESS' | 'FAILED';
@@ -8,69 +10,57 @@ export type RouteState = 'PENDING' | 'SUCCESS' | 'FAILED';
 export interface RouteFeedbackProps {
   reportLat: number;
   reportLng: number;
-  /** Nearest station target for the straight line. */
+  /** Nearest station target for the route. */
   station?: { name: string; lat: number; lng: number } | null;
   /** Tracking data once fetched; null while loading. */
   tracking?: PublicTrackingData | null;
-  /** True while the tracking fetch is in flight. */
+  /** True while bounded tracking polling is active. */
   loading: boolean;
-  /** Optional controlled state override (defaults to derived). */
-  state?: RouteState;
 }
 
 /**
- * Report Wizard receipt routing feedback (Issue #613).
+ * Derive route state from loading status and tracking data.
  *
- * VERIFIED FACT (backend CivilianTrackingResponse, src/backend/schemas/
- * civilian.py:94): the tracking payload exposes routing_distance_m,
- * routing_duration_s, and routing_data_source — but the frontend has NO road
- * polyline. Therefore THIS PR renders a STRAIGHT LINE between the report
- * location and the nearest station in ALL three states. The state machine
- * (PENDING / SUCCESS / FAILED) is driven purely by tracking-response
- * availability:
- *   - loading (no response yet)          => PENDING  ("calculating route…")
- *   - response present (routing source)  => SUCCESS  (road-path placeholder)
- *   - response present but no route      => FAILED   (permanent straight line)
+ * RouteState flow (spec 2026-07-17):
+ *   loading + no data     => PENDING  (Calculating — map with dashed estimate)
+ *   data + valid geometry => SUCCESS  (Routed — road polyline)
+ *   data + no geometry    => FAILED   (Estimated — dashed line, labeled estimate)
  *
- * GAP (documented, not fixed here): when the backend starts returning a real
- * road geometry, swap the straight-line <line> for the polyline and animate.
- * Do NOT call OSRM or any routing service client-side — geometry is only ever
- * provided by the token-gated tracking endpoint.
+ * Gap fixed: `routing_data_source` alone no longer drives SUCCESS.
+ * Valid road geometry (parseLineStringToLatLng) is the deciding condition.
  */
-export function RouteFeedback({ reportLat, reportLng, station, tracking, loading, state: forcedState }: RouteFeedbackProps) {
-  const state: RouteState = forcedState ?? (loading
-    ? 'PENDING'
-    : tracking && tracking.routing_data_source
-      ? 'SUCCESS'
-      : 'FAILED');
+function deriveRouteState(
+  loading: boolean,
+  tracking: PublicTrackingData | null | undefined,
+): RouteState {
+  if (loading) return 'PENDING';
+  if (!tracking) return 'FAILED';
+  if (parseLineStringToLatLng(tracking.routing_geometry)) return 'SUCCESS';
+  return 'FAILED';
+}
 
-  const stationLat = station?.lat ?? reportLat;
-  const stationLng = station?.lng ?? reportLng;
+/**
+ * Report Wizard receipt routing feedback.
+ *
+ * Renders a geographic Leaflet map (via RouteMap) with report and station
+ * markers. When valid road geometry exists the route line is a solid green
+ * polyline; otherwise a dashed amber estimated line is shown.
+ */
+export function RouteFeedback({
+  reportLat,
+  reportLng,
+  station,
+  tracking,
+  loading,
+}: RouteFeedbackProps) {
+  const state = deriveRouteState(loading, tracking);
 
-  // Map lat/lng to a small SVG viewport (simple linear projection).
-  const W = 320;
-  const H = 140;
-  const pad = 28;
-  const lats = [reportLat, stationLat];
-  const lngs = [reportLng, stationLng];
-  const minLat = Math.min(...lats);
-  const maxLat = Math.max(...lats);
-  const minLng = Math.min(...lngs);
-  const maxLng = Math.max(...lngs);
-  const spanLat = maxLat - minLat || 1;
-  const spanLng = maxLng - minLng || 1;
+  const stationName = station?.name;
+  const stationLat = station?.lat;
+  const stationLng = station?.lng;
 
-  const project = (lat: number, lng: number) => {
-    const x = pad + ((lng - minLng) / spanLng) * (W - 2 * pad);
-    const y = H - pad - ((lat - minLat) / spanLat) * (H - 2 * pad);
-    return { x, y };
-  };
-
-  const reportPt = project(reportLat, reportLng);
-  const stationPt = project(stationLat, stationLng);
-
-  const lineColor =
-    state === 'SUCCESS' ? '#16a34a' : state === 'PENDING' ? '#d97706' : '#dc2626';
+  // Missing station: do not invent a second endpoint.
+  const stationKnown = stationLat != null && stationLng != null;
 
   return (
     <div
@@ -86,40 +76,38 @@ export function RouteFeedback({ reportLat, reportLng, station, tracking, loading
         <RouteStateBadge state={state} />
       </div>
 
-      <svg
-        data-testid="route-line"
-        width="100%"
-        viewBox={`0 0 ${W} ${H}`}
-        role="img"
-        aria-label={`Straight-line route to ${station?.name ?? 'nearest station'} (state: ${state})`}
-        style={{ display: 'block' }}
-      >
-        {/* Straight line for ALL states (no road polyline available). */}
-        <line
-          x1={reportPt.x}
-          y1={reportPt.y}
-          x2={stationPt.x}
-          y2={stationPt.y}
-          stroke={lineColor}
-          strokeWidth={3}
-          strokeDasharray={state === 'SUCCESS' ? undefined : '6 5'}
-        />
-        {/* Report pin */}
-        <circle cx={reportPt.x} cy={reportPt.y} r={6} fill="#dc2626" />
-        {/* Station pin */}
-        <circle cx={stationPt.x} cy={stationPt.y} r={6} fill="#1d4ed8" />
-        <text x={reportPt.x} y={reportPt.y - 10} fontSize={9} textAnchor="middle" fill="var(--text-secondary)">
-          Report
-        </text>
-        <text x={stationPt.x} y={stationPt.y - 10} fontSize={9} textAnchor="middle" fill="var(--text-secondary)">
-          Station
-        </text>
-      </svg>
+      {/* Map area */}
+      <div data-testid="route-map-container" className="rounded-lg overflow-hidden">
+        {stationKnown ? (
+          <RouteMap
+            reportLat={reportLat}
+            reportLng={reportLng}
+            stationLat={stationLat}
+            stationLng={stationLng}
+            stationName={stationName}
+            geometry={tracking?.routing_geometry}
+            height={200}
+            accessibleLabel={
+              state === 'SUCCESS'
+                ? `Road route to ${stationName ?? 'nearest station'}`
+                : `Estimated route to ${stationName ?? 'nearest station'}`
+            }
+          />
+        ) : (
+          <div
+            className="flex items-center justify-center rounded-lg text-xs"
+            style={{ height: '200px', background: '#f8fafc', color: '#64748b' }}
+          >
+            <MapPin className="w-4 h-4 mr-2" />
+            Station location unavailable
+          </div>
+        )}
+      </div>
 
       <div className="mt-2 space-y-1 text-xs" style={{ color: 'var(--text-secondary)' }}>
         <div className="flex items-center gap-1.5">
           <MapPin className="w-3.5 h-3.5" />
-          <span>Nearest: {station?.name ?? '—'}</span>
+          <span>Nearest: {stationName ?? '—'}</span>
         </div>
         {state === 'PENDING' && (
           <div className="flex items-center gap-1.5" style={{ color: '#d97706' }}>
@@ -140,7 +128,7 @@ export function RouteFeedback({ reportLat, reportLng, station, tracking, loading
         {state === 'FAILED' && (
           <div className="flex items-center gap-1.5" style={{ color: '#dc2626' }}>
             <XCircle className="w-3.5 h-3.5" />
-            Route unavailable — showing straight-line distance.
+            Route unavailable — showing estimated distance.
           </div>
         )}
         {tracking?.routing_data_source && (
@@ -156,10 +144,23 @@ export function RouteFeedback({ reportLat, reportLng, station, tracking, loading
 
 function RouteStateBadge({ state }: { state: RouteState }) {
   const config = {
-    PENDING: { label: 'Calculating', color: '#d97706', icon: <Loader2 className="w-3 h-3 animate-spin" /> },
-    SUCCESS: { label: 'Routed', color: '#16a34a', icon: <CheckCircle2 className="w-3 h-3" /> },
-    FAILED: { label: 'No route', color: '#dc2626', icon: <AlertTriangle className="w-3 h-3" /> },
+    PENDING: {
+      label: 'Calculating',
+      color: '#d97706',
+      icon: <Loader2 className="w-3 h-3 animate-spin" />,
+    },
+    SUCCESS: {
+      label: 'Routed',
+      color: '#16a34a',
+      icon: <CheckCircle2 className="w-3 h-3" />,
+    },
+    FAILED: {
+      label: 'Estimated',
+      color: '#dc2626',
+      icon: <XCircle className="w-3 h-3" />,
+    },
   }[state];
+
   return (
     <span
       data-testid="route-state-badge"
