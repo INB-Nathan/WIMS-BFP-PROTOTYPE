@@ -31,12 +31,30 @@ vi.mock('@/components/civilian/PhotoUpload', () => ({
   PhotoUpload: () => <div data-testid="photo-upload" />,
 }));
 
+vi.mock('@/components/map/RouteMap', () => ({
+  default: ({ geometry }: { geometry?: Record<string, unknown> | null }) => (
+    <div data-testid="route-map" data-routed={geometry ? 'true' : 'false'} />
+  ),
+}));
+
 vi.mock('@/lib/useNetworkStatus', () => ({
   useNetworkStatus: () => ({ isOnline: true, isReconnecting: false, state: 'online', isChecking: false, lastCheckedAt: null }),
 }));
 
 vi.mock('@/lib/usePublicAutoSync', () => ({
   usePublicAutoSync: () => ({ syncing: false, lastSyncedAt: null, pendingCount: 0, failedCount: 0, syncNow: vi.fn() }),
+}));
+
+// AuthContext — controllable mock for the #680 auth-state indicator. Defaults to
+// anonymous so the existing report-wizard tests keep rendering. Tests reassign
+// `authState.state` to drive loading / authenticated / anonymous scenarios and
+// to simulate a session change without navigation.
+const authState = vi.hoisted(() => ({
+  state: { user: null, isAuthenticated: false, loading: false },
+}));
+
+vi.mock('@/context/AuthContext', () => ({
+  useAuth: () => authState.state,
 }));
 
 const offlineMocks = vi.hoisted(() => ({
@@ -63,8 +81,13 @@ vi.mock('@/lib/api', () => ({
   submitCivilianReportV2: vi.fn(),
 }));
 
+const validRoutingGeometry = {
+  type: 'LineString',
+  coordinates: [[121, 14.5], [121.01, 14.51]],
+};
+
 const trackingMocks = vi.hoisted(() => ({
-  // Default: response present with a routing source => SUCCESS.
+  // Default: valid geometry ends polling immediately.
   fetchPublicTracking: vi.fn().mockResolvedValue({
     report_id: 7,
     category: 'NON_STRUCTURAL',
@@ -80,7 +103,7 @@ const trackingMocks = vi.hoisted(() => ({
     nearest_station_phone: null,
     routing_distance_m: 1500,
     routing_duration_s: 300,
-    routing_geometry: null,
+    routing_geometry: { type: 'LineString', coordinates: [[121, 14.5], [121.01, 14.51]] },
     routing_data_source: 'osrm',
     photo_count: 0,
     submitter_type: 'ANONYMOUS',
@@ -125,6 +148,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   try { localStorage.clear(); } catch {}
   mapPicker.onChange = null;
+  // Reset auth mock to anonymous default for each test.
+  authState.state = { user: null, isAuthenticated: false, loading: false };
   offlineMocks.submitCivilianReportOfflineAware.mockResolvedValue({
     queued: false,
     response: { report_id: 7, status: 'PENDING', tracking_token: 'tok-7', tracking_url: '/tracking/v2/7/tok-7', latitude: 14.5, longitude: 121, category: 'NON_STRUCTURAL', created_at: '2026-07-15T10:00:00.000Z' },
@@ -135,12 +160,13 @@ beforeEach(() => {
     safety_status: 'UNKNOWN', status: 'PENDING', status_explanation: null, guidance: null,
     escalation_guidance: null, related_cluster_status: null, nearest_station_name: 'Station A',
     nearest_station_phone: null, routing_distance_m: 1500, routing_duration_s: 300,
-    routing_geometry: null, routing_data_source: 'osrm', photo_count: 0,
+    routing_geometry: validRoutingGeometry, routing_data_source: 'osrm', photo_count: 0,
     submitter_type: 'ANONYMOUS', link_count: 0, created_at: '2026-07-15T10:00:00.000Z',
   });
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   try { localStorage.clear(); } catch {}
 });
 
@@ -346,56 +372,92 @@ describe('Report Wizard — safety banner on all steps', () => {
   });
 });
 
-describe('Report Wizard — routing feedback 3-state (straight line)', () => {
-  it('shows PENDING while the tracking fetch is loading', async () => {
-    trackingMocks.fetchPublicTracking.mockImplementation(
-      () => new Promise(() => {}), // never resolves => loading
-    );
+describe('Report Wizard — bounded routing polling', () => {
+  it('keeps one request in flight and stops on unmount', async () => {
+    trackingMocks.fetchPublicTracking.mockImplementation(() => new Promise(() => {}));
+    const { default: ReportPage } = await import('../page');
+    const view = render(<ReportPage />);
+    await driveToReview();
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByTestId('submit-report'));
+    await act(async () => { await Promise.resolve(); });
+
+    expect(screen.getByTestId('route-feedback')).toHaveAttribute('data-state', 'PENDING');
+    expect(trackingMocks.fetchPublicTracking).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    expect(trackingMocks.fetchPublicTracking).toHaveBeenCalledTimes(1);
+
+    view.unmount();
+    await act(async () => { await vi.runOnlyPendingTimersAsync(); });
+    expect(trackingMocks.fetchPublicTracking).toHaveBeenCalledTimes(1);
+  });
+
+  it('polls immediately, then stops when a retry returns valid geometry', async () => {
+    trackingMocks.fetchPublicTracking
+      .mockResolvedValueOnce({
+        report_id: 7, category: 'NON_STRUCTURAL', sub_category: null, safety_status: 'UNKNOWN',
+        status: 'PENDING', guidance: null, escalation_guidance: null, nearest_station_name: 'Station A',
+        nearest_station_phone: null, routing_distance_m: null, routing_duration_s: null,
+        routing_geometry: null, routing_data_source: 'postgis_straight_line', photo_count: 0,
+        status_updates: [], created_at: '2026-07-15T10:00:00.000Z',
+      })
+      .mockResolvedValueOnce({
+        report_id: 7, category: 'NON_STRUCTURAL', sub_category: null, safety_status: 'UNKNOWN',
+        status: 'PENDING', guidance: null, escalation_guidance: null, nearest_station_name: 'Station A',
+        nearest_station_phone: null, routing_distance_m: 1500, routing_duration_s: 300,
+        routing_geometry: validRoutingGeometry, routing_data_source: 'osrm', photo_count: 0,
+        status_updates: [], created_at: '2026-07-15T10:00:00.000Z',
+      });
     const { default: ReportPage } = await import('../page');
     render(<ReportPage />);
     await driveToReview();
+    vi.useFakeTimers();
     fireEvent.click(screen.getByTestId('submit-report'));
-    const feedback = await screen.findByTestId('route-feedback');
-    expect(feedback).toHaveAttribute('data-state', 'PENDING');
-    expect(screen.getByText(/Calculating route/i)).toBeInTheDocument();
+    await act(async () => { await Promise.resolve(); });
+
+    expect(trackingMocks.fetchPublicTracking).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('route-feedback')).toHaveAttribute('data-state', 'PENDING');
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    expect(trackingMocks.fetchPublicTracking).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId('route-feedback')).toHaveAttribute('data-state', 'SUCCESS');
+    expect(screen.getByTestId('route-map')).toHaveAttribute('data-routed', 'true');
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    expect(trackingMocks.fetchPublicTracking).toHaveBeenCalledTimes(2);
   });
 
-  it('shows SUCCESS (straight line) when routing_data_source is present', async () => {
+  it('makes exactly one immediate request plus five retries before Estimated', async () => {
     trackingMocks.fetchPublicTracking.mockResolvedValue({
-      report_id: 7, category: 'NON_STRUCTURAL', sub_category: null, reporting_context: 'WITNESS',
-      safety_status: 'UNKNOWN', status: 'PENDING', status_explanation: null, guidance: null,
-      escalation_guidance: null, related_cluster_status: null, nearest_station_name: 'Station A',
-      nearest_station_phone: null, routing_distance_m: 1500, routing_duration_s: 300,
-      routing_geometry: null, routing_data_source: 'osrm', photo_count: 0,
-      submitter_type: 'ANONYMOUS', link_count: 0, created_at: '2026-07-15T10:00:00.000Z',
-    });
-    const { default: ReportPage } = await import('../page');
-    render(<ReportPage />);
-    await driveToReview();
-    fireEvent.click(screen.getByTestId('submit-report'));
-    const feedback = await screen.findByTestId('route-feedback');
-    await waitFor(() => expect(feedback).toHaveAttribute('data-state', 'SUCCESS'));
-    // Straight line is always rendered (no road polyline available).
-    expect(screen.getByTestId('route-line').querySelector('line')).toBeInTheDocument();
-    expect(screen.getByText(/Distance: 1.5 km/)).toBeInTheDocument();
-  });
-
-  it('shows FAILED (permanent straight line) when routing_data_source is absent', async () => {
-    trackingMocks.fetchPublicTracking.mockResolvedValue({
-      report_id: 7, category: 'NON_STRUCTURAL', sub_category: null, reporting_context: 'WITNESS',
-      safety_status: 'UNKNOWN', status: 'PENDING', status_explanation: null, guidance: null,
-      escalation_guidance: null, related_cluster_status: null, nearest_station_name: 'Station A',
+      report_id: 7, category: 'NON_STRUCTURAL', sub_category: null, safety_status: 'UNKNOWN',
+      status: 'PENDING', guidance: null, escalation_guidance: null, nearest_station_name: 'Station A',
       nearest_station_phone: null, routing_distance_m: null, routing_duration_s: null,
-      routing_geometry: null, routing_data_source: null, photo_count: 0,
-      submitter_type: 'ANONYMOUS', link_count: 0, created_at: '2026-07-15T10:00:00.000Z',
+      routing_geometry: null, routing_data_source: 'postgis_straight_line', photo_count: 0,
+      status_updates: [], created_at: '2026-07-15T10:00:00.000Z',
+    });
+    const { default: ReportPage } = await import('../page');
+    render(<ReportPage />);
+    await driveToReview();
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByTestId('submit-report'));
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+
+    expect(trackingMocks.fetchPublicTracking).toHaveBeenCalledTimes(6);
+    expect(screen.getByTestId('route-feedback')).toHaveAttribute('data-state', 'FAILED');
+    expect(screen.getByTestId('route-state-badge')).toHaveTextContent('Estimated');
+  });
+
+  it('does not request tracking when the submission has no token', async () => {
+    offlineMocks.submitCivilianReportOfflineAware.mockResolvedValue({
+      queued: false,
+      response: { report_id: 8, status: 'PENDING', tracking_token: null, tracking_url: null, latitude: 14.5, longitude: 121, category: 'NON_STRUCTURAL', created_at: '2026-07-15T10:00:00.000Z' },
     });
     const { default: ReportPage } = await import('../page');
     render(<ReportPage />);
     await driveToReview();
     fireEvent.click(screen.getByTestId('submit-report'));
-    const feedback = await screen.findByTestId('route-feedback');
-    await waitFor(() => expect(feedback).toHaveAttribute('data-state', 'FAILED'));
-    expect(screen.getByText(/Route unavailable/i)).toBeInTheDocument();
+
+    expect(await screen.findByTestId('route-feedback')).toHaveAttribute('data-state', 'FAILED');
+    expect(trackingMocks.fetchPublicTracking).not.toHaveBeenCalled();
   });
 });
 
@@ -507,5 +569,99 @@ describe('Report Wizard — clipboard fallback', () => {
     fireEvent.click(screen.getByTestId('copy-token'));
     await waitFor(() => expect(execCommand).toHaveBeenCalledWith('copy'));
     expect(screen.getByText('Copied')).toBeInTheDocument();
+  });
+});
+
+describe('Report Wizard — auth-state indicator (#680)', () => {
+  it('shows a neutral loading state while auth resolves (no guest/identity flash)', async () => {
+    authState.state = { user: null, isAuthenticated: false, loading: true };
+    const { default: ReportPage } = await import('../page');
+    render(<ReportPage />);
+    const status = screen.getByTestId('report-auth-status');
+    expect(status).toHaveAttribute('data-auth-state', 'loading');
+    expect(status).toHaveTextContent('Checking your sign-in status');
+    // Must not reveal guest or signed-in content during loading.
+    expect(status).not.toHaveTextContent('Signed in');
+    expect(status).not.toHaveTextContent('guest');
+    expect(screen.queryByTestId('report-auth-signin')).not.toBeInTheDocument();
+  });
+
+  it('shows a signed-in indicator using preferred username, falling back to email', async () => {
+    authState.state = {
+      user: { id: 'u1', preferred_username: 'juan', email: 'juan@example.com' },
+      isAuthenticated: true,
+      loading: false,
+    };
+    const { default: ReportPage } = await import('../page');
+    const utils = render(<ReportPage />);
+    const status = screen.getByTestId('report-auth-status');
+    expect(status).toHaveAttribute('data-auth-state', 'authenticated');
+    expect(status).toHaveTextContent('Signed in as');
+    expect(status).toHaveTextContent('juan');
+
+    // Fallback to email when preferred_username is absent.
+    authState.state = {
+      user: { id: 'u2', email: 'ana@example.com' },
+      isAuthenticated: true,
+      loading: false,
+    };
+    utils.rerender(<ReportPage />);
+    const updated = screen.getByTestId('report-auth-status');
+    expect(updated).toHaveTextContent('ana@example.com');
+    expect(updated).not.toHaveTextContent('juan');
+  });
+
+  it('shows a guest-reporting indicator with a /login link when anonymous', async () => {
+    // Anonymous default from beforeEach.
+    const { default: ReportPage } = await import('../page');
+    render(<ReportPage />);
+    const status = screen.getByTestId('report-auth-status');
+    expect(status).toHaveAttribute('data-auth-state', 'anonymous');
+    expect(status).toHaveTextContent('Reporting as a guest');
+    const signIn = screen.getByTestId('report-auth-signin');
+    expect(signIn).toHaveAttribute('href', '/login');
+    expect(signIn).toHaveTextContent('Sign in');
+  });
+
+  it('keeps the wizard fully usable for anonymous reporters (no auth gate)', async () => {
+    const { default: ReportPage } = await import('../page');
+    render(<ReportPage />);
+    // Step 1 controls are present and offered, not gated by auth state.
+    expect(screen.getByText('Where is the fire?')).toBeInTheDocument();
+    expect(screen.getByText('Use my location')).toBeInTheDocument();
+    expect(screen.getByTestId('report-auth-signin')).toBeInTheDocument();
+    // Continue is disabled only by the existing location rule, not by auth.
+    expect(screen.getByText('Continue').closest('button')).toBeDisabled();
+  });
+
+  it('updates the indicator when the session changes without navigation', async () => {
+    const { default: ReportPage } = await import('../page');
+    const utils = render(<ReportPage />);
+    expect(screen.getByTestId('report-auth-status')).toHaveAttribute('data-auth-state', 'anonymous');
+
+    authState.state = {
+      user: { id: 'u1', preferred_username: 'juan' },
+      isAuthenticated: true,
+      loading: false,
+    };
+    utils.rerender(<ReportPage />);
+    const status = screen.getByTestId('report-auth-status');
+    expect(status).toHaveAttribute('data-auth-state', 'authenticated');
+    expect(status).toHaveTextContent('juan');
+  });
+
+  it('renders the indicator inside the draft-resume prompt', async () => {
+    localStorage.setItem(
+      'wims_report_wizard_draft_v1',
+      JSON.stringify({
+        stepIndex: 2, savedAt: Date.now(), latitude: 14.6, longitude: 121.1, landmark: 'near Jollibee',
+        photoPresent: false, category: 'NON_STRUCTURAL', observables: ['HEAVY_SMOKE'],
+        description: 'Smoke observed', contactName: '', contactPhone: '', notes: '',
+      }),
+    );
+    const { default: ReportPage } = await import('../page');
+    render(<ReportPage />);
+    expect(screen.getByTestId('continue-draft')).toBeInTheDocument();
+    expect(screen.getByTestId('report-auth-status')).toHaveAttribute('data-auth-state', 'anonymous');
   });
 });

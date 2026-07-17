@@ -1,7 +1,7 @@
 ---
 title: Security Baseline
 created: 2026-05-14
-updated: 2026-07-17
+updated: 2026-07-17-osrm
 type: security
 tags: [wims-bfp, security, auth, rbac, rls, audit-log, ids, xai, privacy, fail-closed]
 sources: [raw/frs/frs-auth.md, raw/frs/frs-complianceanddataprivacy.md, raw/frs/frs-intrusiondetectionandnetworkingmonitoring.md, raw/frs/frs-threatdetectionwithexplainableai.md, raw/codebase/codebase-snapshot-2026-05-14.md, src/keycloak/demo-otp-provider, src/keycloak/bfp-realm.json, src/keycloak/import/bfp-realm.json, src/postgres-init/82_civilian_report_photos.sql, src/postgres-init/87_photo_preupload_schema.sql, src/postgres-init/88_anonymous_photo_ownership.sql, src/postgres-init/89_anonymous_pending_photo_insert.sql, src/postgres-init/90_registered_photo_ownership.sql, src/postgres-init/91_community_content_schema.sql, src/backend/alembic/versions/0008_photo_preupload_schema.py, src/backend/alembic/versions/0009_anonymous_photo_ownership_helpers.py, src/backend/alembic/versions/0010_anonymous_pending_photo_insert.py, src/backend/alembic/versions/0011_registered_photo_ownership_helper.py, src/backend/alembic/versions/0012_community_content_schema.py, src/backend/services/anonymous_sessions.py, src/backend/services/report_photos.py, src/backend/auth.py, src/backend/utils/exif.py, src/suricata/suricata.yaml, src/suricata/rules/custom.rules, src/backend/tasks/suricata.py, .github/workflows/ci.yml]
@@ -505,6 +505,18 @@ All write paths updated: `services/afor_import/commit.py` (AFOR commit), `api/ro
 - **Smoke script:** intentionally skipped — the integration tests cover the same surface and can be invoked with a single `pytest` command; a separate smoke script would be redundant.
 - **No-secret logging verified:** all existing code paths (client, rotation, migration, backup_crypto, rewrap) log only operation metadata; no ciphertext, plaintext, nonces, keys, or tokens appear in log statements.
 - **Overall GH #152 status:** Phases 1-8 code paths, runbook, and test hooks implemented. **Live environment validation remains pending** — until live OpenBao is available in this environment and the integration tests pass against it, #152 is PARTIAL. Do not claim #152 or FRS Module 6 fully closed until the live backup restore drill and integration tests are executed in the target environment.
+
+## Controlled Road Routing Egress (issues #552 and #668, 2026-07-17)
+
+Civilian nearest-station routing now uses an internal OSRM service instead of a public endpoint. The browser and Nginx never reach OSRM; only backend (`services/routing.py`) and Celery (`tasks/routing.py`) call `http://osrm:5000` over `wims_internal`.
+
+- **No public egress:** the production OSRM service (`src/docker-compose.prod.yml`) has no published port and no Nginx route; only the internal bridge attaches it at `172.18.0.9`.
+- **Controlled service:** the Metro Manila dataset comes from a pinned OSM extract with a committed SHA-256 in `src/osrm/metro-manila.env`, preprocessed by a pinned `osrm/osrm-backend` image via `scripts/provision-osrm-metro-manila.sh`. Routine deploys never download map data.
+- **Coordinate hygiene:** OSRM is queried with only the two route endpoints; no report coordinates or full request URL enter application logs, metrics, health checks, or audit payloads. `services/routing.py` logs only the configured host and exception type.
+- **`osrm-routed` verbosity:** the container runs at `WARNING` so normal request paths are not retained in OSRM access logs.
+- **Fail-safe:** a missing/unreachable OSRM or Metro Manila coverage gap returns the existing straight-line estimate with null geometry; report submission is unaffected.
+- **Residual basemap egress:** the public OpenStreetMap tile layer remains an explicitly accepted boundary — tile requests disclose requested tile areas, not the OSRM route request. See [[architecture/infrastructure-config]] and [[operations/osrm-routing]].
+- **Live verification:** the controlled routing pipeline is configured and unit/contract-tested, but end-to-end road routing on production data requires an authorized provisioned dataset and VPS validation; treat #552 as partially closed until that runbook is executed against live data.
 
 ## OpenBao KMS Production Lifecycle Fixes (2026-06-11)
 
