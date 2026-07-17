@@ -83,8 +83,8 @@ def _count_active_rules(container: "docker.models.containers.Container") -> int:
 @celery_app.task(name="tasks.suricata.update_rules")
 def update_suricata_rules() -> dict:
     """
-    Run suricata-update in the Suricata container to fetch latest ET Open rules,
-    merge with local BFP custom rules (via --local), and trigger a live rule reload.
+    Run suricata-update in the Suricata container to fetch latest ET Open rules
+    and trigger a live rule reload. WIMS custom rules load directly from YAML.
 
     Runs weekly via Celery beat (Sunday 03:00 UTC).
     Returns dict with rules_before, rules_after, and any errors.
@@ -112,9 +112,7 @@ def update_suricata_rules() -> dict:
         rules_before = _count_active_rules(container)
         logger.info("Suricata rules before update: %d loaded", rules_before)
 
-        update_result = container.exec_run(
-            "suricata-update --local /var/lib/suricata/rules/custom.rules", timeout=120
-        )
+        update_result = container.exec_run("suricata-update", timeout=120)
         update_output = update_result.output.decode(errors="replace")
 
         if update_result.exit_code != 0:

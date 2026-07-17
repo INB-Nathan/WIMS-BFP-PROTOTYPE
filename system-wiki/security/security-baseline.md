@@ -1,10 +1,10 @@
 ---
 title: Security Baseline
 created: 2026-05-14
-updated: 2026-07-14
+updated: 2026-07-17
 type: security
 tags: [wims-bfp, security, auth, rbac, rls, audit-log, ids, xai, privacy, fail-closed]
-sources: [raw/frs/frs-auth.md, raw/frs/frs-complianceanddataprivacy.md, raw/frs/frs-intrusiondetectionandnetworkingmonitoring.md, raw/frs/frs-threatdetectionwithexplainableai.md, raw/codebase/codebase-snapshot-2026-05-14.md, src/keycloak/demo-otp-provider, src/keycloak/bfp-realm.json, src/keycloak/import/bfp-realm.json, src/postgres-init/82_civilian_report_photos.sql, src/postgres-init/87_photo_preupload_schema.sql, src/postgres-init/88_anonymous_photo_ownership.sql, src/postgres-init/89_anonymous_pending_photo_insert.sql, src/postgres-init/90_registered_photo_ownership.sql, src/postgres-init/91_community_content_schema.sql, src/backend/alembic/versions/0008_photo_preupload_schema.py, src/backend/alembic/versions/0009_anonymous_photo_ownership_helpers.py, src/backend/alembic/versions/0010_anonymous_pending_photo_insert.py, src/backend/alembic/versions/0011_registered_photo_ownership_helper.py, src/backend/alembic/versions/0012_community_content_schema.py, src/backend/services/anonymous_sessions.py, src/backend/services/report_photos.py, src/backend/auth.py, src/backend/utils/exif.py]
+sources: [raw/frs/frs-auth.md, raw/frs/frs-complianceanddataprivacy.md, raw/frs/frs-intrusiondetectionandnetworkingmonitoring.md, raw/frs/frs-threatdetectionwithexplainableai.md, raw/codebase/codebase-snapshot-2026-05-14.md, src/keycloak/demo-otp-provider, src/keycloak/bfp-realm.json, src/keycloak/import/bfp-realm.json, src/postgres-init/82_civilian_report_photos.sql, src/postgres-init/87_photo_preupload_schema.sql, src/postgres-init/88_anonymous_photo_ownership.sql, src/postgres-init/89_anonymous_pending_photo_insert.sql, src/postgres-init/90_registered_photo_ownership.sql, src/postgres-init/91_community_content_schema.sql, src/backend/alembic/versions/0008_photo_preupload_schema.py, src/backend/alembic/versions/0009_anonymous_photo_ownership_helpers.py, src/backend/alembic/versions/0010_anonymous_pending_photo_insert.py, src/backend/alembic/versions/0011_registered_photo_ownership_helper.py, src/backend/alembic/versions/0012_community_content_schema.py, src/backend/services/anonymous_sessions.py, src/backend/services/report_photos.py, src/backend/auth.py, src/backend/utils/exif.py, src/suricata/suricata.yaml, src/suricata/rules/custom.rules, src/backend/tasks/suricata.py, .github/workflows/ci.yml]
 status: draft
 ---
 
@@ -183,8 +183,7 @@ does not expose host traffic to containers in host network mode.
 
 ### Suricata Detection Rules (M7b)
 
-All rules combined in `src/suricata/rules/suricata.rules` (~136k lines). Loaded via the base image's
-default `rule-files` configuration — no custom suricata.yaml override needed.
+ET Open rules are generated in `src/suricata/rules/suricata.rules`; the 53 committed WIMS signatures remain in `src/suricata/rules/custom.rules`. `src/suricata/suricata.yaml` directly loads both files, so the weekly ET Open refresh does not duplicate local SIDs.
 
 | Tier | Source | SID Range | Lines | Update Cadence |
 |---|---|---|---|---|
@@ -196,9 +195,10 @@ default `rule-files` configuration — no custom suricata.yaml override needed.
 | 6 | Recon + SSRF + method tamper + redirect + CRLF | 1000122–1000134 | 13 | Manual, committed to repo |
 
 Weekly update: Celery beat task `update-suricata-rules-weekly` (Sunday 03:00 UTC) executes
-`suricata-update` inside the Suricata container via Docker SDK, sends `kill -USR2` for
-live rule reload. Rules before/after counts logged and compared for regressions.
-Docker socket mounted in celery-worker for container exec access.
+`suricata-update` for ET Open rules only inside the Suricata container, then sends `kill -USR2` for
+live rule reload. Rules before/after counts are logged and compared for regressions. CI also runs
+`suricata -T` against the committed config and read-only rules mounts. Docker socket remains mounted
+in celery-worker for container exec access.
 
 ### Nginx Edge Rate Limiting for Keycloak (2026-06-23)
 

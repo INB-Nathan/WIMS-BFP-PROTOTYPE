@@ -3,15 +3,16 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
+import { QRCodeSVG } from 'qrcode.react';
 import {
   AlertTriangle,
   CheckCircle2,
+  Copy,
   MapPin,
   PhoneCall,
   RefreshCw,
   Route,
 } from 'lucide-react';
-import { EmergencyReferenceCard } from '@/components/EmergencyReferenceCard';
 import { parseLineStringToLatLng } from '@/components/map/RoutePolyline';
 import { ApiRequestError } from '@/lib/api/errors';
 import {
@@ -82,23 +83,21 @@ function TimelineEntry({ update, fallbackPhone }: {
   const outcome = metadataText(metadata, 'outcome_summary') ?? metadataText(metadata, 'reason');
 
   return (
-    <li className="relative border-l-2 border-slate-200 pb-5 pl-5 last:pb-0" data-testid="tracking-timeline-entry">
-      <span className="absolute -left-[6px] top-1 h-2.5 w-2.5 rounded-full bg-[#991B1B]" aria-hidden="true" />
+    <li className="ps-tracking-timeline-entry" data-testid="tracking-timeline-entry">
+      <span className="ps-tracking-timeline-dot" aria-hidden />
       <div className="flex flex-wrap items-center gap-2">
-        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-700">
-          {stage}
-        </span>
-        <time className="text-xs text-slate-500">{formatTimestamp(update.created_at)}</time>
+        <span className="ps-pill ps-pill-slate">{stage}</span>
+        <time className="ps-muted text-xs">{formatTimestamp(update.created_at)}</time>
       </div>
       {station && (
-        <div className="mt-2 text-sm text-slate-700">
-          <p className="font-medium text-slate-800">{station}</p>
-          {jurisdiction && <p className="text-xs text-slate-500">{jurisdiction}</p>}
-          {phone && <a className="text-xs font-medium text-[#991B1B]" href={`tel:${phone}`}>{phone}</a>}
+        <div className="mt-2 text-sm ps-secondary">
+          <p className="font-medium text-[var(--text-primary)]">{station}</p>
+          {jurisdiction && <p className="ps-muted text-xs">{jurisdiction}</p>}
+          {phone && <a className="ps-tracking-link text-xs font-medium" href={`tel:${phone}`}>{phone}</a>}
         </div>
       )}
-      {arrivedAt && <p className="mt-2 text-sm text-slate-700">Arrived: {formatTimestamp(arrivedAt)}</p>}
-      {outcome && <p className="mt-2 text-sm text-slate-700">{outcome}</p>}
+      {arrivedAt && <p className="mt-2 text-sm ps-secondary">Arrived: {formatTimestamp(arrivedAt)}</p>}
+      {outcome && <p className="mt-2 text-sm ps-secondary">{outcome}</p>}
     </li>
   );
 }
@@ -110,6 +109,12 @@ export default function TrackingV2Page() {
   const [data, setData] = useState<PublicTrackingData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const trackingUrl = `/tracking/v2/${reportId}/${trackingToken}`;
+  const absoluteTrackingUrl = typeof window === 'undefined'
+    ? trackingUrl
+    : new URL(trackingUrl, window.location.origin).toString();
 
   const fetchTracking = useCallback(async () => {
     if (!reportId || !trackingToken) {
@@ -135,8 +140,25 @@ export default function TrackingV2Page() {
 
   useEffect(() => { void fetchTracking(); }, [fetchTracking]);
   useEffect(() => {
-    if (reportId && trackingToken) storeTrackingLink(reportId, `/tracking/v2/${reportId}/${trackingToken}`);
-  }, [reportId, trackingToken]);
+    if (reportId && trackingToken) storeTrackingLink(reportId, trackingUrl);
+  }, [reportId, trackingToken, trackingUrl]);
+
+  const copyToken = async () => {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(trackingToken);
+      } else {
+        const input = document.createElement('textarea');
+        input.value = trackingToken;
+        document.body.appendChild(input);
+        input.select();
+        document.execCommand('copy');
+        document.body.removeChild(input);
+      }
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {}
+  };
 
   const timeline = data?.status_updates?.length
     ? data.status_updates
@@ -146,58 +168,105 @@ export default function TrackingV2Page() {
     : null;
 
   return (
-    <main className="min-h-screen bg-slate-100 px-4 py-6 text-slate-800 sm:px-6">
-      <div className="mx-auto max-w-6xl">
-        <header className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Civilian report tracking</p>
-            <h1 className="mt-1 text-xl font-bold">Track Emergency Report</h1>
+    <div className="ps-tracking-receipt ps-has-mesh">
+      <div className="ps-tracking-hero">
+        <div className="ps-intent-bg" aria-hidden />
+        <div className="ps-tracking-hero-content">
+          <p className="ps-tracking-eyebrow">Official incident receipt</p>
+          <h1>Track emergency report</h1>
+          <p className="ps-secondary">Keep this secure link or scan the QR code to return to your report.</p>
+        </div>
+      </div>
+
+      <div className="ps-tracking-inner">
+        {loading && (
+          <div className="ps-card ps-tracking-state" role="status">
+            <RefreshCw className="h-5 w-5 animate-spin" /> Loading your report…
           </div>
-          <EmergencyReferenceCard compact />
-        </header>
-
-        {loading && <div className="flex min-h-64 items-center justify-center gap-3 rounded-lg bg-white text-slate-600 shadow-sm"><RefreshCw className="h-5 w-5 animate-spin" /> Loading your report…</div>}
-        {error && !loading && <div className="rounded-lg bg-white p-8 text-center shadow-sm"><AlertTriangle className="mx-auto h-8 w-8 text-amber-600" /><p className="mt-3 text-sm text-slate-600">{error}</p><Link className="mt-4 inline-block text-sm font-semibold text-[#991B1B]" href="/">Submit a new emergency report</Link></div>}
-
-        {data && !loading && (
-          <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm lg:grid lg:grid-cols-[minmax(0,1fr)_23rem]">
-            <section className="min-h-[420px] border-b border-slate-200 lg:border-b-0 lg:border-r">
-              {routeGeometry ? (
-                <TrackingRouteMap geometry={routeGeometry} />
-              ) : (
-                <div className="flex h-full min-h-[420px] flex-col items-center justify-center gap-3 bg-slate-50 p-8 text-center" data-testid="routing-text-fallback">
-                  <Route className="h-8 w-8 text-slate-400" />
-                  <p className="font-medium text-slate-700">Road route unavailable</p>
-                  <p className="max-w-sm text-sm text-slate-500">Route information will appear here when it becomes available.</p>
-                </div>
-              )}
-            </section>
-
-            <aside className="max-h-[calc(100vh-8rem)] overflow-y-auto">
-              <div className="border-b border-slate-200 px-5 py-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Emergency report</p><h2 className="mt-1 text-base font-bold">Report #{data.report_id}</h2></div>
-                  <span className="rounded-full bg-amber-100 px-2 py-1 text-[11px] font-bold text-amber-800">{STAGE_LABELS[timeline.at(-1)?.stage ?? ''] ?? data.status.replaceAll('_', ' ')}</span>
-                </div>
-                {data.guidance && <p className="mt-3 text-sm leading-5 text-slate-600">{data.guidance}</p>}
-              </div>
-
-              <div className="grid grid-cols-2 border-b border-slate-200">
-                <div className="border-r border-slate-200 px-5 py-4"><p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Distance</p><p className="mt-1 text-lg font-bold">{formatDistance(data.routing_distance_m)}</p></div>
-                <div className="px-5 py-4"><p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Travel time</p><p className="mt-1 text-lg font-bold">{formatTravelTime(data.routing_duration_s)}</p></div>
-              </div>
-
-              {data.nearest_station_name && <div className="flex gap-2 border-b border-slate-200 px-5 py-3"><MapPin className="mt-0.5 h-4 w-4 shrink-0 text-[#991B1B]" /><div className="text-sm"><p className="font-medium">{data.nearest_station_name}</p>{data.nearest_station_phone && <a className="inline-flex items-center gap-1 text-xs font-medium text-[#991B1B]" href={`tel:${data.nearest_station_phone}`}><PhoneCall className="h-3 w-3" />{data.nearest_station_phone}</a>}</div></div>}
-
-              <div className="p-5"><h3 className="mb-4 text-sm font-bold">Status timeline</h3><ol>{timeline.map((update, index) => <TimelineEntry key={`${update.stage}-${update.created_at}-${index}`} update={update} fallbackPhone={data.nearest_station_phone} />)}</ol></div>
-            </aside>
+        )}
+        {error && !loading && (
+          <div className="ps-card ps-tracking-state" role="alert">
+            <AlertTriangle className="h-8 w-8 text-[var(--orange)]" />
+            <p>{error}</p>
+            <Link className="ps-btn ps-btn-primary" href="/">Submit a new emergency report</Link>
           </div>
         )}
 
-        {data && OPEN_STATUSES.has(data.status) && <div className="mx-auto mt-4 flex max-w-6xl gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900"><AlertTriangle className="h-4 w-4 shrink-0" />For immediate danger, call 911. This report does not replace an emergency call.</div>}
-        {data?.status === 'ACTIONED' && <div className="mx-auto mt-4 flex max-w-6xl gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900"><CheckCircle2 className="h-4 w-4 shrink-0" />A response has been dispatched. Call 911 if the situation becomes immediately dangerous.</div>}
-        <div className="mt-5 text-center"><Link href="/" className="text-sm font-semibold text-[#991B1B]">← Submit a new emergency report</Link></div>
+        {data && !loading && (
+          <>
+            <section className="ps-card ps-tracking-receipt-card">
+              <header className="ps-tracking-receipt-header">
+                <p className="ps-tracking-eyebrow">Bureau of Fire Protection</p>
+                <h2>Report #{data.report_id}</h2>
+                <p className="ps-muted text-xs">Republic of the Philippines · Submitted {formatTimestamp(data.created_at)}</p>
+              </header>
+
+              <div className="ps-tracking-receipt-summary">
+                <div>
+                  <p className="ps-muted text-xs">Current status</p>
+                  <span className="ps-pill ps-pill-orange">{STAGE_LABELS[timeline.at(-1)?.stage ?? ''] ?? data.status.replaceAll('_', ' ')}</span>
+                </div>
+                <div>
+                  <p className="ps-muted text-xs">Distance</p>
+                  <p className="font-semibold">{formatDistance(data.routing_distance_m)}</p>
+                </div>
+                <div>
+                  <p className="ps-muted text-xs">Travel time</p>
+                  <p className="font-semibold">{formatTravelTime(data.routing_duration_s)}</p>
+                </div>
+              </div>
+
+              <div className="ps-receipt-split">
+                <div className="ps-receipt-info">
+                  {data.guidance && <p className="ps-secondary text-sm leading-5">{data.guidance}</p>}
+                  {data.nearest_station_name && (
+                    <div className="ps-tracking-station">
+                      <MapPin className="h-4 w-4 shrink-0" aria-hidden />
+                      <div>
+                        <p className="font-medium">{data.nearest_station_name}</p>
+                        {data.nearest_station_phone && <a className="ps-tracking-link text-xs font-medium" href={`tel:${data.nearest_station_phone}`}><PhoneCall className="h-3 w-3" />{data.nearest_station_phone}</a>}
+                      </div>
+                    </div>
+                  )}
+                  <p className="ps-muted text-xs">Tracking token</p>
+                  <div className="ps-tracking-token-row">
+                    <code data-testid="tracking-token" className="ps-receipt-token">{trackingToken}</code>
+                    <button type="button" className="ps-btn ps-btn-outline" onClick={() => void copyToken()} aria-label="Copy tracking token">
+                      <Copy className="h-3.5 w-3.5" aria-hidden />{copied ? 'Copied' : 'Copy'}
+                    </button>
+                  </div>
+                </div>
+                <div className="ps-receipt-qr-col">
+                  <div className="ps-receipt-qr">
+                    <QRCodeSVG value={absoluteTrackingUrl} size={120} title={`Track report ${data.report_id}`} aria-label={`Track report QR code for ${data.report_id}`} data-testid="qr-code" />
+                  </div>
+                  <p className="ps-muted text-xs">Scan to track</p>
+                </div>
+              </div>
+            </section>
+
+            <section className="ps-card ps-tracking-workspace">
+              <div className="ps-tracking-map">
+                {routeGeometry ? <TrackingRouteMap geometry={routeGeometry} /> : (
+                  <div className="ps-tracking-map-fallback" data-testid="routing-text-fallback">
+                    <Route className="h-8 w-8" aria-hidden />
+                    <p className="font-medium">Road route unavailable</p>
+                    <p className="ps-secondary text-sm">Route information will appear here when it becomes available.</p>
+                  </div>
+                )}
+              </div>
+              <aside className="ps-tracking-timeline">
+                <h3>Status timeline</h3>
+                <ol>{timeline.map((update, index) => <TimelineEntry key={`${update.stage}-${update.created_at}-${index}`} update={update} fallbackPhone={data.nearest_station_phone} />)}</ol>
+              </aside>
+            </section>
+          </>
+        )}
+
+        {data && OPEN_STATUSES.has(data.status) && <div className="ps-warning"><AlertTriangle className="ps-warning-icon h-5 w-5" />For immediate danger, call 911. This report does not replace an emergency call.</div>}
+        {data?.status === 'ACTIONED' && <div className="ps-tracking-success"><CheckCircle2 className="h-5 w-5" />A response has been dispatched. Call 911 if the situation becomes immediately dangerous.</div>}
+        <div className="text-center"><Link href="/" className="ps-btn ps-btn-outline">Submit a new emergency report</Link></div>
       </div>
-    </main>
+    </div>
   );
 }

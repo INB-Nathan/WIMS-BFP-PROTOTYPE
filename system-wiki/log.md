@@ -1,3 +1,17 @@
+## [2026-07-18] feat(tracking): public-surface capability receipt (#657)
+
+- **Scope:** The capability-token tracking page now uses the shared public-surface receipt layout that `LayoutShell` already supplies for `/tracking` routes; it does not add a page-local `PublicThemeProvider`. The receipt presents the secure token with copy control and QR code, then preserves the existing route workspace, text-only no-geometry fallback, timeline, and emergency guidance.
+- **Privacy:** The QR code encodes the already-issued capability URL only. No report/station coordinates, PII, or actor identities are added to the public projection.
+- **Tests:** Tracking page tests cover null/malformed geometry, map rendering, QR/token receipt controls, timeline metadata, errors, and clipboard fallback (7/7 passed). Lint reported 0 errors and 36 pre-existing warnings.
+- **Wiki:** Updated [[frontend/route-map]] and [[index]]. No FRS/code gap changed.
+
+## [2026-07-18] feat(profile): civilian public-surface profile (#656)
+
+- **Scope:** `/profile` now enters `PublicThemeProvider` only for authenticated `CIVILIAN_REPORTER` sessions. The existing shared route retains its sidebar/header staff shell for Regional Encoder, National Validator, National Analyst, and System Administrator sessions; no API, authorization, or profile-update contract changed.
+- **Presentation:** The civilian route reuses existing public-surface tokens for its account cards and forms, adds a decorative initial avatar, and exposes the existing `logout` action as Sign out. The shared public header supplies the persisted `landing-theme` toggle.
+- **Tests:** `LayoutShell.test.tsx` covers the role-aware shell split; profile tests cover civilian shell markup and sign-out while retaining profile update coverage (30/30 targeted tests passed). `npm run lint` reported 0 errors and 36 pre-existing warnings.
+- **Wiki:** Updated [[frontend/route-map]] and [[index]]. No FRS/code gap changed.
+
 ## [2026-07-17] feat(auth-ui): session-aware public navigation and Keycloak parity
 
 - **Navigation:** `PublicHeader` now consumes the existing `AuthContext` session state across `/`, `/information`, and the shared public shell. Anonymous users receive Home, Information, Fire Stations, Register, and Sign In only; authenticated users receive their role dashboard, avatar, and Report a Fire action.
@@ -690,6 +704,12 @@ Removed the AI incident narrative feature (PR #104 / #69) — backend-only featu
 - **Tests:** Updated `src/frontend/src/app/contributor/page.test.tsx` and `src/frontend/src/app/__tests__/public-header-single-banner.test.tsx`; added `src/frontend/src/app/__tests__/contributor-public-shell.test.tsx`. Focused contributor/header tests passed: 4 of 4 files and 36 of 36 tests. T3 reliability review also passed 3 of 3 repeated runs (2 of 2 files, 7 of 7 tests each).
 - **Manual QA:** Skipped because no authenticated CIVILIAN_REPORTER browser session/fixture was available. It remains required to inspect dark/light framing and reload persistence, 320px/480px report rows, keyboard focus, hydration, and map containment.
 - **Wiki:** Updated [[frontend/route-map]] and `system-wiki/index.md`. No FRS/code gap changed.
+
+## [2026-07-17] fix(security): validate Suricata rules without duplicate local signatures (#658)
+
+- **Scope:** `suricata-update` now refreshes ET Open rules only; `suricata.yaml` directly loads the 53 committed WIMS custom SIDs without merging them into generated `suricata.rules`. SID 1000133 now uses Suricata 8's `http.uri.raw` keyword.
+- **Validation:** `test_suricata_rules.py` checks the current `suricata -T` output instead of historical append-only logs, and CI validates the committed config with read-only mounts before the security scan.
+- **Wiki:** Updated [[security/security-baseline]] and `system-wiki/index.md`. No FRS/code gap changed.
 
 ## [2026-07-17] feat(public-map): civilian circles and verified perimeter overlays (#639)
 
