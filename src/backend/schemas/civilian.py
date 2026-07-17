@@ -91,6 +91,14 @@ class CivilianReportResponse(BaseModel):
     created_at: datetime
 
 
+class CivilianTrackingStatusUpdate(BaseModel):
+    """Public-safe status event for a capability-token tracking response."""
+
+    stage: str
+    metadata: dict | None = None
+    created_at: datetime
+
+
 class CivilianTrackingResponse(BaseModel):
     """Capability-token tracking response; deliberately excludes civilian location and PII."""
 
@@ -108,6 +116,7 @@ class CivilianTrackingResponse(BaseModel):
     routing_geometry: dict | None = None
     routing_data_source: str | None = None
     photo_count: int = 0
+    status_updates: list[CivilianTrackingStatusUpdate] = Field(default_factory=list)
     created_at: datetime
 
 

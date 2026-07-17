@@ -2,6 +2,7 @@
 
 import { useCallback, useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 import { TablerIconWrapper } from '@/components/TablerIcon';
 import { IconFlameFilled, IconCompassFilled } from '@tabler/icons-react';
 
@@ -65,7 +66,7 @@ export function IntentModal() {
 
   return (
     <>
-      {/* Injected style for responsive card stacking */}
+      {/* Injected style for responsive card stacking + reliable hover */}
       <style>{`
         @media (max-width: 480px) {
           .intent-cards-responsive {
@@ -73,6 +74,31 @@ export function IntentModal() {
           }
           .intent-overlay {
             padding: 16px !important;
+          }
+        }
+        .intent-card {
+          transition: border-color 180ms ease, transform 180ms ease, box-shadow 180ms ease, background 180ms ease;
+        }
+        .intent-card:hover {
+          transform: translateY(-1px);
+        }
+        .intent-card:focus-visible {
+          outline: 2px solid #3b82f6;
+          outline-offset: 2px;
+        }
+        .intent-card-report:hover {
+          border-color: #dc2626 !important;
+          box-shadow: 0 0 30px rgba(198,40,40,0.2);
+        }
+        .intent-card-browse:hover {
+          border-color: rgba(255,255,255,0.35) !important;
+          box-shadow: 0 0 30px rgba(255,255,255,0.06);
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .intent-card,
+          .intent-card:hover {
+            transition: none;
+            transform: none;
           }
         }
       `}</style>
@@ -100,8 +126,8 @@ export function IntentModal() {
             inset: 0,
             zIndex: 0,
             background: `
-              linear-gradient(160deg, rgba(10,10,14,0.95) 0%, rgba(10,10,14,0.9) 40%, rgba(59,130,246,0.2) 100%),
-              repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,0.012) 2px, rgba(255,255,255,0.012) 4px)
+              radial-gradient(120% 120% at 50% 30%, rgba(10,10,14,0.98) 0%, rgba(10,10,14,0.97) 55%, rgba(10,10,14,0.95) 100%),
+              linear-gradient(160deg, rgba(10,10,14,0.98) 0%, rgba(10,10,14,0.96) 60%, rgba(59,130,246,0.12) 100%)
             `,
           }}
         />
@@ -112,9 +138,10 @@ export function IntentModal() {
             position: 'absolute',
             inset: 0,
             zIndex: 0,
+            pointerEvents: 'none',
             background: `
-              radial-gradient(ellipse at 30% 70%, rgba(198,40,40,0.15) 0%, transparent 60%),
-              radial-gradient(ellipse at 70% 30%, rgba(234,88,12,0.08) 0%, transparent 50%)
+              radial-gradient(ellipse at 30% 70%, rgba(198,40,40,0.18) 0%, transparent 60%),
+              radial-gradient(ellipse at 70% 30%, rgba(234,88,12,0.10) 0%, transparent 50%)
             `,
           }}
         />
@@ -124,30 +151,37 @@ export function IntentModal() {
           className="intent-content"
           style={{
             position: 'relative',
-            zIndex: 1,
+            zIndex: 2,
             textAlign: 'center',
             maxWidth: 560,
             width: '100%',
           }}
         >
-          {/* Logo */}
+          {/* BFP logo — real Bureau of Fire Protection mark */}
           <div
             className="intent-logo"
             style={{
-              width: 56,
-              height: 56,
+              width: 72,
+              height: 72,
               margin: '0 auto 24px',
-              background: '#3b82f6',
-              borderRadius: 14,
+              borderRadius: 18,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              boxShadow: '0 0 40px rgba(59,130,246,0.3)',
+              background: 'rgba(255,255,255,0.04)',
+              border: '1px solid rgba(255,255,255,0.1)',
+              boxShadow: '0 0 40px rgba(0,0,0,0.5)',
+              overflow: 'hidden',
             }}
           >
-            <svg viewBox="0 0 24 24" fill="currentColor" width={32} height={32} style={{ color: '#fff' }} aria-hidden>
-              <path d="M12 2L4 5v6.09c0 5.05 3.41 9.76 8 10.91 4.59-1.15 8-5.86 8-10.91V5l-8-3z" />
-            </svg>
+            <Image
+              src="/bfp-logo.svg"
+              alt="Bureau of Fire Protection"
+              width={52}
+              height={52}
+              priority
+              style={{ width: 'auto', height: '72%' }}
+            />
           </div>
 
           {/* Heading */}
@@ -176,7 +210,7 @@ export function IntentModal() {
               lineHeight: 1.5,
             }}
           >
-            Wildfire Incident Management System · Bureau of Fire Protection
+            Web Incident Management System · Bureau of Fire Protection
           </p>
 
           {/* Cards */}
@@ -184,7 +218,7 @@ export function IntentModal() {
             className="intent-cards intent-cards-responsive"
             style={{
               display: 'grid',
-              gridTemplateColumns: '1.15fr 0.85fr',
+              gridTemplateColumns: '1fr 1fr',
               gap: 14,
               marginBottom: 18,
             }}
@@ -199,42 +233,31 @@ export function IntentModal() {
               style={{
                 padding: '28px 20px 24px',
                 borderRadius: 16,
-                border: '1.5px solid rgba(198,40,40,0.35)',
+                border: '1.5px solid rgba(239,68,68,0.55)',
                 cursor: 'pointer',
-                background: 'linear-gradient(145deg, rgba(198,40,40,0.25), rgba(160,30,30,0.15))',
-                color: '#ef4444',
+                background: 'linear-gradient(145deg, rgba(198,40,40,0.42), rgba(160,30,30,0.28))',
+                color: '#fecaca',
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
                 gap: 10,
-                transition: 'all 180ms ease',
                 fontFamily: 'inherit',
                 fontSize: '0.95rem',
                 fontWeight: 700,
                 position: 'relative',
                 overflow: 'hidden',
               }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.borderColor = '#dc2626';
-                e.currentTarget.style.transform = 'translateY(-1px)';
-                e.currentTarget.style.boxShadow = '0 0 30px rgba(198,40,40,0.2)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.borderColor = 'rgba(198,40,40,0.35)';
-                e.currentTarget.style.transform = 'none';
-                e.currentTarget.style.boxShadow = 'none';
-              }}
             >
               <span aria-hidden style={{ fontSize: '2rem' }}>
                 <TablerIconWrapper icon={IconFlameFilled} size={32} aria-hidden />
               </span>
-              <span className="intent-card-label" style={{ color: '#ef4444' }}>Report a Fire</span>
+              <span className="intent-card-label" style={{ color: '#fecaca' }}>Report a Fire</span>
               <span
                 className="intent-card-hint"
                 style={{
                   fontSize: '0.65rem',
                   fontWeight: 400,
-                  color: 'rgba(239,68,68,0.55)',
+                  color: 'rgba(254,202,202,0.8)',
                   lineHeight: 1.3,
                 }}
               >
@@ -251,42 +274,31 @@ export function IntentModal() {
               style={{
                 padding: '28px 20px 24px',
                 borderRadius: 16,
-                border: '1.5px solid rgba(255,255,255,0.1)',
+                border: '1.5px solid rgba(255,255,255,0.22)',
                 cursor: 'pointer',
-                background: 'rgba(255,255,255,0.04)',
-                color: '#e8e8ed',
+                background: 'rgba(255,255,255,0.08)',
+                color: '#f4f4f5',
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
                 gap: 10,
-                transition: 'all 180ms ease',
                 fontFamily: 'inherit',
                 fontSize: '0.95rem',
                 fontWeight: 700,
                 position: 'relative',
                 overflow: 'hidden',
               }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.borderColor = 'rgba(255,255,255,0.22)';
-                e.currentTarget.style.transform = 'translateY(-1px)';
-                e.currentTarget.style.boxShadow = '0 0 30px rgba(255,255,255,0.04)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)';
-                e.currentTarget.style.transform = 'none';
-                e.currentTarget.style.boxShadow = 'none';
-              }}
             >
               <span aria-hidden style={{ fontSize: '2rem' }}>
                 <TablerIconWrapper icon={IconCompassFilled} size={32} aria-hidden />
               </span>
-              <span className="intent-card-label" style={{ color: '#e8e8ed' }}>View Active Fires</span>
+              <span className="intent-card-label" style={{ color: '#f4f4f5' }}>View Active Fires</span>
               <span
                 className="intent-card-hint"
                 style={{
                   fontSize: '0.65rem',
                   fontWeight: 400,
-                  color: 'rgba(232,232,237,0.35)',
+                  color: 'rgba(244,244,245,0.65)',
                   lineHeight: 1.3,
                 }}
               >

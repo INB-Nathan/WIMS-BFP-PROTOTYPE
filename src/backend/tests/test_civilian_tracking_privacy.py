@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 
-from schemas.civilian import CivilianTrackingResponse
+from schemas.civilian import CivilianTrackingResponse, CivilianTrackingStatusUpdate
 
 
 def test_tracking_response_excludes_coordinates_pii_internal_notes_and_chain_ids():
@@ -24,3 +24,13 @@ def test_tracking_response_excludes_coordinates_pii_internal_notes_and_chain_ids
     # No chain IDs
     assert "link_count" not in fields
     assert "previous_report_id" not in fields
+
+
+def test_tracking_status_update_excludes_actor_identity():
+    update = CivilianTrackingStatusUpdate(
+        stage="HELP_DISPATCHED",
+        metadata={"station_name": "BFP Central"},
+        created_at=datetime.now(timezone.utc),
+    )
+
+    assert "actor_user_id" not in update.model_dump()

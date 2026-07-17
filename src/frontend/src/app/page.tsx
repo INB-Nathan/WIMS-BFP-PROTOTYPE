@@ -3,7 +3,7 @@
 import dynamic from 'next/dynamic';
 import Image from 'next/image';
 import Link from 'next/link';
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, type CSSProperties } from 'react';
 import { IntentModal } from '@/components/IntentModal';
 import { LandingSidebar } from '@/components/LandingSidebar';
 import { usePublicTheme } from '@/components/public/PublicThemeProvider';
@@ -62,9 +62,26 @@ export default function LandingPage() {
   // page is rendered inside it via LayoutShell, so the same persisted
   // 'landing-theme' key and toggle behavior are reused.
   const { theme, toggleTheme } = usePublicTheme();
+  const overlayThemeStyle = {
+    '--landing-overlay-background': theme === 'light' ? 'rgba(255,255,255,0.85)' : 'rgba(10,10,14,0.75)',
+    '--landing-overlay-border': theme === 'light' ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.15)',
+    '--landing-overlay-text': theme === 'light' ? 'rgba(26,24,21,0.62)' : 'rgba(232,232,237,0.65)',
+    '--landing-overlay-shadow': theme === 'light' ? '0 1px 4px rgba(0,0,0,0.12)' : '0 1px 4px rgba(0,0,0,0.3)',
+    '--landing-overlay-hover-text': theme === 'light' ? '#1a1815' : '#e8e8ed',
+    '--landing-overlay-hover-border': theme === 'light' ? 'rgba(0,0,0,0.22)' : 'rgba(255,255,255,0.3)',
+    '--landing-overlay-active-background': theme === 'light' ? 'rgba(198,40,40,0.12)' : 'rgba(198,40,40,0.2)',
+    '--landing-overlay-active-text': theme === 'light' ? '#b91c1c' : '#ef4444',
+    '--landing-trust-background': theme === 'light' ? 'rgba(255,255,255,0.82)' : 'rgba(10,10,14,0.72)',
+    '--landing-trust-border': theme === 'light' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.08)',
+    '--landing-trust-text': theme === 'light' ? 'rgba(26,24,21,0.38)' : 'rgba(232,232,237,0.38)',
+    '--map-location-background': theme === 'light' ? '#ffffff' : '#18181d',
+    '--map-location-border': theme === 'light' ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.2)',
+    '--map-location-text': theme === 'light' ? '#333333' : '#e8e8ed',
+    '--map-location-shadow': theme === 'light' ? '0 1px 5px rgba(0,0,0,0.2)' : '0 1px 5px rgba(0,0,0,0.45)',
+  } as CSSProperties;
 
   return (
-    <div className="scene-landing" data-theme={theme}>
+    <div className="scene-landing" data-testid="landing-scene" data-theme={theme} style={overlayThemeStyle}>
       <IntentModal />
 
       {/* ── Floating translucent header ───────────────────────────────── */}
@@ -80,7 +97,7 @@ export default function LandingPage() {
               priority
             />
           </div>
-          <span className="landing-header-title">WIMS-BFP</span>
+          <Link href="/" className="landing-header-title" aria-label="WIMS-BFP home">WIMS-BFP</Link>
         </div>
         <div className="landing-header-right">
           <button
@@ -340,30 +357,30 @@ export default function LandingPage() {
           gap: 6px;
           padding: 7px 12px;
           border-radius: 6px;
-          border: 1px solid rgba(255,255,255,0.15);
-          background: rgba(10,10,14,0.75);
+          border: 1px solid var(--landing-overlay-border, rgba(255,255,255,0.15));
+          background: var(--landing-overlay-background, rgba(10,10,14,0.75));
           backdrop-filter: blur(10px);
           -webkit-backdrop-filter: blur(10px);
-          color: var(--text-secondary, rgba(232,232,237,0.65));
+          color: var(--landing-overlay-text, rgba(232,232,237,0.65));
           font-size: 0.72rem;
           font-weight: 600;
           cursor: pointer;
           font-family: inherit;
-          box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+          box-shadow: var(--landing-overlay-shadow, 0 1px 4px rgba(0,0,0,0.3));
           transition: all 180ms ease;
         }
         .landing-map-controls button:hover {
-          color: var(--text-primary, #e8e8ed);
-          border-color: rgba(255,255,255,0.3);
+          color: var(--landing-overlay-hover-text, #e8e8ed);
+          border-color: var(--landing-overlay-hover-border, rgba(255,255,255,0.3));
         }
         .landing-map-controls button:focus-visible {
           outline: 2px solid #3b82f6;
           outline-offset: 2px;
         }
         .landing-map-controls button[aria-pressed="true"] {
-          background: rgba(198,40,40,0.2);
+          background: var(--landing-overlay-active-background, rgba(198,40,40,0.2));
           border-color: rgba(198,40,40,0.4);
-          color: #ef4444;
+          color: var(--landing-overlay-active-text, #ef4444);
         }
 
         /* ── Map trust panel ───────────────────────────────────────────── */
@@ -377,12 +394,12 @@ export default function LandingPage() {
           gap: 6px;
           padding: 5px 10px;
           border-radius: 6px;
-          background: rgba(10,10,14,0.72);
+          background: var(--landing-trust-background, rgba(10,10,14,0.72));
           backdrop-filter: blur(8px);
           -webkit-backdrop-filter: blur(8px);
-          border: 1px solid rgba(255,255,255,0.08);
+          border: 1px solid var(--landing-trust-border, rgba(255,255,255,0.08));
           font-size: 0.62rem;
-          color: var(--text-muted, rgba(232,232,237,0.38));
+          color: var(--landing-trust-text, rgba(232,232,237,0.38));
           line-height: 1.4;
           max-width: 280px;
           pointer-events: none;

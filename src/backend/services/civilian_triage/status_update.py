@@ -42,9 +42,69 @@ _REQUIRED_METADATA_KEYS: dict[str, dict[str, type]] = {
 
 _STATUS_UPDATE_CHANNEL = "wims:events:status_update"
 
+# Status updates are a validator-to-civilian contract, not an internal-note
+# channel. Reject undeclared JSONB keys so an arbitrary staff-side value cannot
+# later become public through a shared tracking capability.
+_ALLOWED_METADATA_KEYS: dict[str, frozenset[str]] = {
+    "HELP_DISPATCHED": frozenset({"station_name", "station_phone", "jurisdiction", "eta"}),
+    "ON_SCENE": frozenset({"arrived_at"}),
+    "RESOLVED": frozenset({"outcome_summary"}),
+    "CLOSED_DUPLICATE": frozenset({"duplicate_of_report_id"}),
+    "CLOSED_INSUFFICIENT": frozenset({"reason"}),
+}
+
+# Tracking links are bearer capabilities and can be shared. Only metadata that
+# is explicitly citizen-facing may leave the protected status-update record.
+_PUBLIC_METADATA_KEYS: dict[str, tuple[str, ...]] = {
+    "HELP_DISPATCHED": ("station_name", "station_phone", "jurisdiction", "eta"),
+    "ON_SCENE": ("arrived_at",),
+    "RESOLVED": ("outcome_summary",),
+    "CLOSED_INSUFFICIENT": ("reason",),
+}
+
+
+def get_public_status_updates(db: Session, report_id: int) -> list[dict]:
+    """Return the ordered, public-safe status timeline for one report."""
+    rows = db.execute(
+        text(
+            """
+            SELECT stage, metadata, created_at
+            FROM wims.report_status_updates
+            WHERE report_id = :rid
+            ORDER BY created_at ASC, update_id ASC
+            """
+        ),
+        {"rid": report_id},
+    ).fetchall()
+
+    updates: list[dict] = []
+    for row in rows:
+        raw_metadata = dict(row.metadata) if row.metadata is not None else {}
+        metadata = {
+            key: raw_metadata[key]
+            for key in _PUBLIC_METADATA_KEYS.get(row.stage, ())
+            if isinstance(raw_metadata.get(key), str)
+        }
+        updates.append(
+            {
+                "stage": row.stage,
+                "metadata": metadata or None,
+                "created_at": row.created_at,
+            }
+        )
+    return updates
+
 
 def _validate_metadata(stage: str, metadata: dict | None) -> None:
-    """Reject when a required key is missing or has the wrong type for the stage."""
+    """Reject undeclared, missing, or wrongly typed public status metadata."""
+    if metadata is not None:
+        unexpected = set(metadata) - _ALLOWED_METADATA_KEYS.get(stage, frozenset())
+        if unexpected:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Stage '{stage}' does not allow metadata keys: {', '.join(sorted(unexpected))}",
+            )
+
     required = _REQUIRED_METADATA_KEYS.get(stage)
     if not required:
         return

@@ -11,7 +11,7 @@ export function SafetyBanner() {
     <div
       role="alert"
       data-testid="safety-banner"
-      className="flex items-center gap-2.5 px-4 py-2.5 text-sm font-medium"
+      className="flex items-center gap-2.5 px-4 py-2.5 text-sm font-medium relative z-10"
       style={{
         backgroundColor: '#1f2937', // dark slate base for high visibility
         color: '#ffffff',
@@ -21,8 +21,7 @@ export function SafetyBanner() {
       <ShieldCheck className="w-4 h-4 flex-shrink-0" style={{ color: '#fca5a5' }} />
       <AlertTriangle className="w-4 h-4 flex-shrink-0" style={{ color: '#fca5a5' }} />
       <span>
-        You are safe. If you are in danger, call 911 or your local BFP hotline
-        immediately.
+        If you are in immediate danger, call 911 or your local BFP hotline now.
       </span>
     </div>
   );

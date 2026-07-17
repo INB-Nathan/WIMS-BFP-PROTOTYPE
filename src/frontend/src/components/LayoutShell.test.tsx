@@ -112,7 +112,7 @@ describe('LayoutShell', () => {
   });
 
   describe('Anonymous user on civilian routes (isCivilianRoute)', () => {
-    const civilianPaths = ['/contributor', '/information'];
+    const civilianPaths = ['/contributor'];
 
     it.each(civilianPaths)(
       'renders PublicHeader for civilian pathname "%s"',
@@ -125,6 +125,14 @@ describe('LayoutShell', () => {
         expect(screen.queryByTestId('header')).not.toBeInTheDocument();
       },
     );
+
+    it('does NOT render the LayoutShell PublicHeader for /information (page owns its chrome)', () => {
+      mockUsePathname.mockReturnValue('/information');
+      render(<LayoutShell>content</LayoutShell>);
+
+      expect(screen.queryByTestId('public-header')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('sidebar')).not.toBeInTheDocument();
+    });
   });
 
   describe('Staff-authenticated user', () => {

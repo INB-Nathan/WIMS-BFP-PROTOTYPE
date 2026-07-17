@@ -1,10 +1,10 @@
 ---
 title: Civilian Reporting Phase 2 — Subsystem Deep-Dive
 created: 2026-05-20
-updated: 2026-07-13
+updated: 2026-07-17
 type: subsystem
 tags: [wims-bfp, subsystem, civilian-reporting, triage, validation, public-dmz, cluster, merge, map]
-sources: [system-wiki/prd/civilian-reporting-phase-2.md, system-wiki/decisions/0001-civilian-reporting-overhaul.md, src/backend/api/routes/triage.py, src/backend/api/routes/civilian.py, src/backend/api/routes/ref.py, src/backend/api/routes/public_dmz.py, src/backend/tasks/civilian_reports.py, src/backend/services/report_photos.py, src/backend/utils/exif.py, src/postgres-init/82_civilian_report_photos.sql, src/frontend/src/app/incidents/triage/page.tsx, src/frontend/src/components/triage/TriageInspectionModal.tsx, src/frontend/src/components/triage/triage-modal.css, src/frontend/src/app/page.tsx, src/frontend/src/components/civilian/PhotoUpload.tsx, src/frontend/src/app/tracking/page.tsx]
+sources: [system-wiki/prd/civilian-reporting-phase-2.md, system-wiki/decisions/0001-civilian-reporting-overhaul.md, src/backend/api/routes/triage.py, src/backend/api/routes/civilian.py, src/backend/api/routes/ref.py, src/backend/api/routes/public_dmz.py, src/backend/tasks/civilian_reports.py, src/backend/services/report_photos.py, src/backend/utils/exif.py, src/postgres-init/82_civilian_report_photos.sql, src/frontend/src/app/incidents/triage/page.tsx, src/frontend/src/components/triage/TriageInspectionModal.tsx, src/frontend/src/components/triage/triage-modal.css, src/frontend/src/app/page.tsx, src/frontend/src/components/civilian/PhotoUpload.tsx, src/frontend/src/app/tracking/page.tsx, src/backend/services/civilian_triage/status_update.py, src/frontend/src/app/tracking/v2/[report_id]/[tracking_token]/page.tsx]
 status: current
 related: [prd/civilian-reporting-phase-2, decisions/0001-civilian-reporting-overhaul, subsystems/references/triage-api-ref, frontend/validator-triage-shortcuts, frontend/route-map, operations/civilian-triage-hci-polish, gaps/frs-codebase-gap-register]
 ---
@@ -322,7 +322,7 @@ Does NOT touch rows with status `UNDER_REVIEW` at the row level, even if they ar
 - **CTA visual contract**: disabled CTAs must not use the active BFP red/gradient treatment. Disabled state uses visibly inactive/muted styling (e.g. gray background, not red/gradient). Enabled primary CTAs use high-contrast BFP red/gradient. This prevents stressed users from misreading a disabled button as active — a direct application of the stress-friendly cognitive-clarity mandate.
 
 ### `/tracking` and `/tracking/v2/[report_id]/[tracking_token]` — Public Tracking
-- `/tracking/v2/[report_id]/[tracking_token]` is the capability-token tracking route. It renders the safe tracking projection (status, guidance, station/routing summary, photo count) without civilian coordinates or PII.
+- `/tracking/v2/[report_id]/[tracking_token]` is the capability-token tracking route. It renders the safe tracking projection (status, guidance, station/routing summary, photo count) without civilian coordinates or PII. Its ordered status timeline returns only stage-specific allowlisted metadata (dispatch station/phone/jurisdiction/ETA, on-scene arrival, resolution summary, or insufficient-information reason), never validator identity or other stored JSONB keys. Validated `routing_geometry` renders as a Leaflet polyline; missing or malformed geometry receives text-only route feedback because the tracking contract intentionally withholds the endpoints required for a public straight-line fallback.
 - `/tracking` is a compatibility landing page. It does not perform report-ID lookup; instead it reopens a stored secure tracking link when one is available for the last report or for a notification-click `report_id`.
 - Notification opt-in remains report-bound, but notification clicks must resolve back to a previously stored secure tracking URL rather than a public report-ID lookup route.
 

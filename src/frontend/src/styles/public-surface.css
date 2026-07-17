@@ -64,17 +64,20 @@
 }
 
 .public-surface[data-theme='light'] {
-  /* ── Light tokens — "Cream Paper" (prototype) ────────────────── */
+  /* ── Light tokens — "Cream Paper" (prototype, contrast-hardened) ──
+   * Secondary/muted alphas raised so small help text clears WCAG AA on the
+   * cream surface instead of washing out. Card surface cooled slightly vs
+   * the mesh so content separates from the page background. */
   --bg-deep: #f0eee9;
   --bg-base: #faf8f4;
-  --bg-elevated: #f5f3ee;
-  --bg-surface: #eeebe5;
-  --bg-hover: rgba(0, 0, 0, 0.04);
+  --bg-elevated: #f2efe9;
+  --bg-surface: #e9e6df;
+  --bg-hover: rgba(0, 0, 0, 0.05);
   --text-primary: #1a1815;
-  --text-secondary: rgba(26, 24, 21, 0.62);
-  --text-muted: rgba(26, 24, 21, 0.38);
-  --border: rgba(0, 0, 0, 0.07);
-  --border-strong: rgba(0, 0, 0, 0.14);
+  --text-secondary: rgba(26, 24, 21, 0.78);
+  --text-muted: rgba(26, 24, 21, 0.58);
+  --border: rgba(0, 0, 0, 0.1);
+  --border-strong: rgba(0, 0, 0, 0.18);
 
   --primary: #2563eb;
   --primary-hover: #1d4ed8;
@@ -962,7 +965,11 @@
   text-decoration: underline;
 }
 
-/* ── Login split layout ── */
+/* ── Login split layout ──
+ * Redesigned so dark mode is intentional (layered token surfaces) rather than
+ * near-black, and light mode reads as a formal service portal. SSO flow and the
+ * single login() action are untouched — this is presentation only.
+ */
 .public-surface .ps-auth-split {
   display: flex;
   min-height: calc(100vh - 52px - 52px);
@@ -974,22 +981,26 @@
 }
 .public-surface .ps-auth-branding {
   position: relative;
-  width: 45%;
+  width: 42%;
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  background:
-    linear-gradient(160deg, rgba(10, 10, 14, 0.96) 0%, rgba(10, 10, 14, 0.88) 40%, rgba(220, 38, 38, 0.18) 100%),
-    repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(255, 255, 255, 0.008) 3px, rgba(255, 255, 255, 0.008) 4px);
-  clip-path: polygon(0 0, 90% 0, 70% 100%, 0 100%);
   overflow: hidden;
   padding: 2rem;
+  /* Layered institutional brand field — token-derived, straight divider.
+     Upper edge: restrained blue field; lower edge: low-opacity red glow. */
+  background:
+    radial-gradient(120% 80% at 50% -10%, var(--primary-bg) 0%, transparent 60%),
+    radial-gradient(120% 90% at 50% 115%, var(--red-bg) 0%, transparent 55%),
+    linear-gradient(160deg, var(--bg-elevated) 0%, var(--bg-base) 100%);
+  border-right: 1px solid var(--border-strong);
 }
 .public-surface[data-theme='light'] .ps-auth-branding {
   background:
-    linear-gradient(160deg, rgba(250, 248, 244, 0.96) 0%, rgba(250, 248, 244, 0.9) 40%, rgba(220, 38, 38, 0.08) 100%),
-    repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(0, 0, 0, 0.006) 3px, rgba(0, 0, 0, 0.006) 4px);
+    radial-gradient(120% 80% at 50% -10%, var(--primary-bg) 0%, transparent 60%),
+    radial-gradient(120% 90% at 50% 115%, var(--red-bg) 0%, transparent 55%),
+    linear-gradient(160deg, var(--bg-base) 0%, var(--bg-deep) 100%);
 }
 .public-surface .ps-branding-content {
   position: relative;
@@ -999,15 +1010,23 @@
   align-items: center;
   text-align: center;
   max-width: 380px;
-  margin-right: -5%;
 }
 .public-surface .ps-auth-logo {
-  width: 120px;
-  height: 120px;
+  position: relative;
+  box-sizing: border-box;
+  width: 128px;
+  height: 128px;
   margin-bottom: 1.5rem;
-  filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.2));
+  /* Official mark kept immutable; a token badge gives it guaranteed separation. */
+  background: var(--bg-base);
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  padding: 16px;
+  box-shadow: var(--shadow-soft);
+  overflow: hidden;
 }
 .public-surface .ps-auth-logo img {
+  position: static;
   width: 100%;
   height: 100%;
   object-fit: contain;
@@ -1027,7 +1046,7 @@
 }
 .public-surface .ps-brand-tagline {
   font-size: 0.8rem;
-  color: var(--text-muted);
+  color: var(--text-secondary);
   letter-spacing: 0.05em;
   text-transform: uppercase;
   display: flex;
@@ -1047,24 +1066,50 @@
   max-width: 380px;
   display: flex;
   flex-direction: column;
-  gap: 2rem;
+  gap: 1.5rem;
+}
+.public-surface .ps-form-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.public-surface .ps-form-eyebrow {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--primary);
+  margin: 0;
 }
 .public-surface .ps-form-title {
   font-size: 1.75rem;
   font-weight: 700;
   color: var(--text-primary);
-  margin: 0 0 0.25rem 0;
+  margin: 0;
 }
 .public-surface .ps-form-subtitle {
   font-size: 0.875rem;
   color: var(--text-secondary);
-  margin: 0 0 1.5rem 0;
+  margin: 0;
+}
+.public-surface .ps-form-foot {
+  text-align: center;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+.public-surface .ps-form-link {
+  color: var(--primary);
+  font-weight: 600;
+  text-decoration: none;
+}
+.public-surface .ps-form-link:hover {
+  text-decoration: underline;
 }
 .public-surface .ps-form-card {
   background: var(--bg-elevated);
-  border-radius: var(--radius);
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-soft);
   padding: 1.5rem;
   display: flex;
   flex-direction: column;
@@ -1076,7 +1121,7 @@
   gap: 0.75rem;
   padding: 0.75rem;
   border-radius: var(--radius-sm);
-  background: var(--bg-base);
+  background: var(--primary-bg);
   font-size: 0.75rem;
   color: var(--text-secondary);
   line-height: 1.5;
@@ -1088,7 +1133,7 @@
 .public-surface .ps-copyright {
   text-align: center;
   font-size: 0.75rem;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 .public-surface .ps-registration-banner {
   display: flex;
@@ -1101,4 +1146,19 @@
   padding: 10px 14px;
   font-size: 0.85rem;
   font-weight: 600;
+}
+
+/* Auth CTA — calm blue (authentication is a safe action, not an emergency).
+   Distinct from .ps-btn-primary which stays red for Report/emergency semantics. */
+.public-surface .ps-btn-auth {
+  background: var(--primary);
+  color: #fff;
+  min-height: 48px;
+  font-size: 0.95rem;
+  justify-content: center;
+  gap: 0.5rem;
+}
+.public-surface .ps-btn-auth:hover {
+  background: var(--primary-hover);
+  box-shadow: 0 0 16px rgba(59, 130, 246, 0.3);
 }

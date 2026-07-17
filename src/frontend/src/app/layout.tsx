@@ -11,7 +11,7 @@ const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "WIMS-BFP Prototype",
-  description: "Wildfire Incident Management System - Bureau of Fire Protection",
+  description: "Web Incident Management System - Bureau of Fire Protection",
   icons: {
     icon: "/bfp-logo.ico",
     shortcut: "/bfp-logo.ico",

@@ -1,7 +1,7 @@
 ---
 title: Backend API Route Map
 created: 2026-05-14
-updated: 2026-07-14
+updated: 2026-07-17
 type: backend
 tags: [wims-bfp, backend, api, implementation-map]
 sources: [raw/codebase/codebase-snapshot-2026-05-14.md, src/backend/api/routes]
@@ -21,7 +21,7 @@ FastAPI route ownership snapshot from `src/backend/api/routes`.
 | `civilian.py` | `GET` | `/contributor/reports` | `get_contributor_reports_route` | Authenticated `CIVILIAN_REPORTER` only; 401 without a user and 403 for other roles. Uses an RLS-scoped session and returns the caller's paginated reports. |
 | `civilian.py` | `GET` | `/contributor/stats` | `get_contributor_stats_route` | Authenticated `CIVILIAN_REPORTER` only; 401 without a user and 403 for other roles. Uses an RLS-scoped session and returns the caller's private statistics. |
 | `civilian.py` | `PATCH` | `/reports/{report_id}/append` | `append_civilian_report` |
-| `civilian.py` | `GET` | `/reports/{report_id}/track/{tracking_token}` | `get_civilian_report_by_tracking_token` | Capability-token public tracking route. Returns only the safe projection (status, guidance, station/routing summary, photo count) and neutral `404` for missing, mismatched, expired, or revoked capabilities. |
+| `civilian.py` | `GET` | `/reports/{report_id}/track/{tracking_token}` | `get_civilian_report_by_tracking_token` | Capability-token public tracking route. Returns the safe projection (status, guidance, station/routing summary, photo count) plus an ordered status timeline whose metadata is allowlisted by stage; it excludes civilian coordinates, PII, internal metadata, and status-update actor identities. Missing, mismatched, expired, or revoked capabilities receive a neutral `404`. |
 | `civilian.py` | `GET` | `/reports/{report_id}` | `get_civilian_report` |
 | `civilian.py` | `GET` | `/reports/{report_id}/timeline` | `get_civilian_report_timeline` |
 | `civilian.py` | `POST` | `/reports/{report_id}/notify` | `register_notification` |

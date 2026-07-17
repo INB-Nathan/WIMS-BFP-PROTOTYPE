@@ -181,6 +181,9 @@ export function ReportWizard() {
     setStepIndex(next);
   }
 
+  // Location is required: either valid coordinates or a non-empty landmark.
+  const locationProvided = latitude !== null && longitude !== null ? true : landmark.trim().length > 0;
+
   function goBack() {
     setStepIndex((s) => Math.max(0, s - 1));
   }
@@ -551,6 +554,7 @@ export function ReportWizard() {
 
             {/* Navigation (Review step has its own buttons) */}
             {stepIndex < STEPS.length - 1 && (
+              <>
               <div className="flex gap-3 pt-2">
                 {stepIndex > 0 && (
                   <button
@@ -564,12 +568,18 @@ export function ReportWizard() {
                 <button
                   type="button"
                   onClick={stepIndex === 3 ? handleReviewEnterThenNext : goNext}
-                  disabled={stepIndex === 3 && description.trim().length === 0}
+                  disabled={(stepIndex === 0 && !locationProvided) || (stepIndex === 3 && description.trim().length === 0)}
                   className="ps-btn ps-btn-primary flex-1 justify-center disabled:opacity-40"
                 >
                   {stepIndex === STEPS.length - 2 ? 'Review' : 'Continue'}
                 </button>
               </div>
+              {stepIndex === 0 && !locationProvided && (
+                <p className="text-xs flex items-center gap-1.5 pt-1" style={{ color: '#b91c1c' }}>
+                  <AlertTriangle className="w-3.5 h-3.5" /> Add a location - drop a pin, use your location, or enter a nearby landmark.
+                </p>
+              )}
+              </>
             )}
           </div>
         </div>

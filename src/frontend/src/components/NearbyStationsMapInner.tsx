@@ -5,6 +5,7 @@ import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import type { FireStation } from '@/lib/api';
 import { firePinIcon } from './map/leafletIcons';
+import { usePublicTheme } from '@/components/public/PublicThemeProvider';
 
 // Fix default marker icons in react-leaflet (webpack/Next.js)
 // Self-hosted under /leaflet/ to avoid connect-src CSP violations.
@@ -42,15 +43,27 @@ export interface NearbyStationsMapInnerProps {
 }
 
 export function NearbyStationsMapInner({ reportLat, reportLon, stations }: NearbyStationsMapInnerProps) {
+    const { theme } = usePublicTheme();
     const reportPos: [number, number] = [reportLat, reportLon];
     const allPoints: [number, number][] = [
         reportPos,
         ...stations.map((s): [number, number] => [s.latitude, s.longitude]),
     ];
 
+    // Theme-aware base tiles: dark scheme in dark mode (was always light OSM),
+    // standard OSM in light mode. CartoDB dark_all is attribution-compatible.
+    const tileUrl =
+        theme === 'dark'
+            ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+            : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+    const tileAttribution =
+        theme === 'dark'
+            ? '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
+            : '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
+
     return (
         <div className="space-y-3">
-            <div style={{ borderRadius: '0.5rem', overflow: 'hidden', border: '1px solid var(--border-color)' }}>
+            <div style={{ borderRadius: '0.5rem', overflow: 'hidden', border: '1px solid var(--border-strong)' }}>
                 <MapContainer
                     center={reportPos}
                     zoom={13}
@@ -59,8 +72,8 @@ export function NearbyStationsMapInner({ reportLat, reportLon, stations }: Nearb
                     scrollWheelZoom={false}
                 >
                     <TileLayer
-                        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-                        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                        attribution={tileAttribution}
+                        url={tileUrl}
                     />
                     <FitBounds points={allPoints} />
                     <Marker position={reportPos} icon={IncidentIcon}>

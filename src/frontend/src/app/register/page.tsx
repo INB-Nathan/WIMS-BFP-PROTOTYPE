@@ -5,7 +5,6 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Turnstile, type TurnstileInstance } from '@marsidev/react-turnstile';
 import { registerCivilian } from '@/lib/api/civilian';
-import { PublicThemeProvider } from '@/components/public/PublicThemeProvider';
 import '@/styles/public-surface.css';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -442,9 +441,5 @@ function PwReq({ met, label }: { met: boolean; label: string }) {
 }
 
 export default function RegisterPage() {
-  return (
-    <PublicThemeProvider>
-      <RegisterInner />
-    </PublicThemeProvider>
-  );
+  return <RegisterInner />;
 }

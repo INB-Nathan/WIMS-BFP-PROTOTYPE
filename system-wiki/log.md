@@ -1,3 +1,11 @@
+## [2026-07-17] feat(tracking): public status timeline and light route workspace (#638)
+
+- **Scope:** The capability-token tracking endpoint now returns an ordered `status_updates` projection alongside its existing route/station summary. `services/civilian_triage/status_update.py::get_public_status_updates` explicitly allowlists only citizen-facing metadata by lifecycle stage; validator identities and arbitrary JSONB keys remain absent. The tracking-v2 UI uses the shared typed client, displays the timeline in a light map/inspector workspace, renders valid GeoJSON road routes through the existing SSR-safe Leaflet path, and puts the zoom control top-right.
+- **Privacy deviation:** #638 requested a straight-line fallback for null geometry, but the capability tracking contract intentionally withholds report and station coordinates. The implementation therefore renders text-only route feedback rather than disclose those endpoints or fabricate a line. This also satisfies the issue's null-geometry text-only test acceptance.
+- **Public-surface fold:** The current public changes are included: first-time public theme is light (saved preferences remain honored), landing overlays/maps consume the shared theme, report Location cannot advance without coordinates or a landmark, and public-shell/header/auth presentation refinements remain in the same worktree.
+- **Tests:** Tracking page tests cover valid route rendering, null geometry text fallback, and Help Dispatched / On Scene / Resolved metadata. Backend unit privacy tests pass; the Postgres/Redis integration suite requires the Compose network and could not run locally (`postgres` hostname unavailable). Frontend targeted tests passed (79/79), lint reported 0 errors, and the production build passed.
+- **Wiki:** Updated [[frontend/route-map]], [[backend/api-route-map]], and [[subsystems/civilian-reporting-phase2]]. No FRS/code gap changed.
+
 ## [2026-07-16] fix(public-landing): seven accessibility and UX refinements
 
 - **Scope:** `app/page.tsx`, `components/LandingSidebar.tsx`, `components/IntentModal.tsx`, plus their tests.

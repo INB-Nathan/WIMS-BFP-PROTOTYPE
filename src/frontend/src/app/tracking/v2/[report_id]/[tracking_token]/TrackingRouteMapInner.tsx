@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
-import { MapContainer, TileLayer, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, useMap, ZoomControl } from 'react-leaflet';
 import L from 'leaflet';
 import { RoutePolyline, parseLineStringToLatLng } from '@/components/map/RoutePolyline';
 
@@ -39,18 +39,19 @@ export function TrackingRouteMapInner({ geometry }: TrackingRouteMapInnerProps) 
     <MapContainer
       center={center}
       zoom={13}
-      style={{ height: '220px', width: '100%' }}
+      style={{ height: '420px', width: '100%' }}
       className="z-0"
       scrollWheelZoom={false}
-      dragging={false}
+      dragging
       zoomControl={false}
     >
       <TileLayer
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
       />
+      <ZoomControl position="topright" />
       {positions.length > 0 && <FitToRoute positions={positions} />}
-      <RoutePolyline geometry={geometry} />
+      <RoutePolyline geometry={geometry} color="#991B1B" weight={4} />
     </MapContainer>
   );
 }
