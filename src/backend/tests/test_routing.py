@@ -213,6 +213,39 @@ class TestRoutingGeometry:
         assert result.geometry["type"] == "LineString"
         assert len(result.geometry["coordinates"]) == 3
 
+    def test_malformed_osrm_geometry_is_not_returned_for_persistence(self, monkeypatch):
+        routing = _reload(monkeypatch, "http://self-hosted-osrm:5000")
+
+        mock_resp = AsyncMock(spec=httpx.Response)
+        mock_resp.raise_for_status = lambda: None
+        mock_resp.json = lambda: {
+            "routes": [
+                {
+                    "distance": 1200.0,
+                    "duration": 180.0,
+                    "geometry": {"type": "Point", "coordinates": [121.0, 14.6]},
+                }
+            ]
+        }
+
+        with patch.object(routing.httpx, "AsyncClient") as mock_client_cls:
+            mock_instance = AsyncMock()
+            mock_instance.get.return_value = mock_resp
+            mock_instance.__aenter__.return_value = mock_instance
+            mock_client_cls.return_value = mock_instance
+
+            result = asyncio.run(
+                routing.compute_routing(
+                    report_lat=14.6,
+                    report_lon=121.0,
+                    station_lat=14.61,
+                    station_lon=121.01,
+                )
+            )
+
+        assert result.data_source == "osrm"
+        assert result.geometry is None
+
     def test_fallback_returns_null_geometry(self, monkeypatch):
         routing = _reload(monkeypatch, None)
 

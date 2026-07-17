@@ -251,13 +251,14 @@ services:
     command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--limit-concurrency", "200", "--timeout-keep-alive", "5", "--lifespan", "off"]
     # Pen-test follow-up 2026-06-29 (deploy fix): see keycloak comment above
     # for rationale. Same Docker DNS unreliability after wims_internal
-    # network recreation. Inject the 4 hostnames the backend connects to
-    # (postgres, redis, keycloak, ollama) into /etc/hosts.
+    # network recreation. Inject the hostnames the backend connects to into
+    # /etc/hosts. OSRM is production-only; its entry is inert when routing is disabled.
     extra_hosts:
       - "postgres:172.18.0.3"
       - "redis:172.18.0.5"
       - "keycloak:172.18.0.7"
       - "ollama:172.18.0.4"
+      - "osrm:172.18.0.9"
     environment:
       - DATABASE_URL=postgresql://wims_app_user:wimsapp@postgres:5432/wims
       - DATABASE_ADMIN_URL=postgresql://postgres:${POSTGRES_PASSWORD:?error}@postgres:5432/wims
@@ -335,6 +336,7 @@ services:
       - "redis:172.18.0.5"
       - "keycloak:172.18.0.7"
       - "ollama:172.18.0.4"
+      - "osrm:172.18.0.9"
     environment:
       - DATABASE_URL=postgresql://wims_app_user:wimsapp@postgres:5432/wims
       - REDIS_URL=redis://redis:6379/0

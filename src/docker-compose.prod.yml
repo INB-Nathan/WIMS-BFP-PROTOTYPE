@@ -3,17 +3,41 @@ services:
     environment:
       KC_HOSTNAME_URL: ${PUBLIC_BASE_URL}/auth
 
+  osrm:
+    image: osrm/osrm-backend:v5.27.1
+    container_name: wims-osrm
+    command: ["osrm-routed", "--algorithm", "mld", "--verbosity", "WARNING", "/data/metro-manila.osrm"]
+    volumes:
+      - ${OSRM_DATA_DIR:?set OSRM_DATA_DIR}:/data:ro
+    networks:
+      wims_internal:
+        ipv4_address: 172.18.0.9
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /data/metro-manila.osrm.cells && test -f /data/metro-manila.osrm.partition"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1gb
+
   backend:
     environment:
       - KEYCLOAK_ISSUER=${PUBLIC_BASE_URL}/auth/realms/bfp
       - CSRF_TRUSTED_ORIGINS=${PUBLIC_BASE_URL}
       - NEXT_PUBLIC_APP_URL=${PUBLIC_BASE_URL}
       - WIMS_MASTER_KEY=${WIMS_MASTER_KEY}
+      - OSRM_BASE_URL=http://osrm:5000
 
   celery-worker:
     environment:
       - NEXT_PUBLIC_APP_URL=${PUBLIC_BASE_URL}
       - WIMS_MASTER_KEY=${WIMS_MASTER_KEY}
+      - OSRM_BASE_URL=http://osrm:5000
 
   frontend:
     build:

@@ -40,6 +40,7 @@ src/backend/firebase-service-account.json
 *.rdb
 .deploy_history
 src/suricata/logs/
+src/osrm/data/
 
 # OS
 .DS_Store

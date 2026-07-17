@@ -1,10 +1,10 @@
 ---
 title: Infrastructure Configuration
 created: 2026-05-16
-updated: 2026-06-14
+updated: 2026-07-17
 type: architecture
 tags: [wims-bfp, docker, nginx, suricata, keycloak, infrastructure]
-sources: [src/docker-compose.yml, src/docker-compose.prod.yml, src/.env.production.example, src/nginx/, src/suricata/, src/keycloak/import/bfp-realm.json, src/keycloak/Dockerfile, .github/workflows/ci.yml]
+sources: [src/docker-compose.yml, src/docker-compose.prod.yml, src/.env.production.example, src/osrm/metro-manila.env, scripts/provision-osrm-metro-manila.sh, src/nginx/, src/suricata/, src/keycloak/import/bfp-realm.json, src/keycloak/Dockerfile, .github/workflows/ci.yml]
 status: draft
 ---
 
@@ -32,6 +32,7 @@ status: draft
 | backend | wims-backend | Dockerfile at `./backend/Dockerfile` (python:3.11-slim) | 8000 (internal) |
 | frontend | wims-frontend | `./frontend/Dockerfile` (Next.js) | 3000 (internal) |
 | wims-suricata | wims-suricata | `jasonish/suricata:7.0.5` | (none) |
+| osrm (production overlay only) | wims-osrm | `osrm/osrm-backend:v5.27.1` | none |
 | nginx-gateway | wims-nginx-gateway | `nginx:1.27.3-alpine` | 80, 443 |
 
 **Health checks:** postgres (`pg_isready -U postgres -d wims`, interval 5s), redis (`redis-cli ping`, interval 5s), Keycloak (HTTP probe), and Suricata (`pgrep Suricata-Main`). Backend depends on healthy Postgres and Redis plus the completed Keycloak bootstrap.
@@ -63,6 +64,15 @@ status: draft
 | `SURICATA_EVE_PATH` | `/var/log/suricata/eve.json` |
 | `EXPORT_DIR` | `/app/storage/exports` |
 | `BACKUP_DIR` | `/app/storage/backups` |
+| `OSRM_BASE_URL` | Unset in base/local/CI; fixed to `http://osrm:5000` for backend and Celery in the production overlay |
+
+### Controlled Metro Manila routing
+
+`src/docker-compose.prod.yml` adds an internal-only OSRM service for issues #552 and #668. It has no published port or Nginx route, uses static internal address `172.18.0.9`, mounts `${OSRM_DATA_DIR}` read-only, and runs at `WARNING` verbosity to suppress normal coordinate-bearing access paths. Backend and Celery receive the internal URL but deliberately do not depend on OSRM health, preserving the existing estimated fallback during an outage. Production `compose up --wait` still treats an unhealthy OSRM container as a failed activation.
+
+The service uses a preprocessed Metro Manila MLD dataset. `scripts/provision-osrm-metro-manila.sh` downloads the source named in `src/osrm/metro-manila.env`, verifies its committed SHA-256, preprocesses it with the same pinned OSRM image, validates required files, and atomically switches an `active` symlink. Routine deploys never download map data. Local and CI Compose do not define the OSRM service and leave routing disabled by default. See `docs/operations/osrm-routing.md` for provisioning, refresh, privacy verification, and rollback.
+
+Coverage is intentionally Metro Manila only; outside or unroutable endpoints use the backend straight-line estimate. Public OpenStreetMap basemap tiles remain a documented external tile-area egress boundary. See [[security/security-baseline]] and [[frontend/route-map]].
 
 ---
 

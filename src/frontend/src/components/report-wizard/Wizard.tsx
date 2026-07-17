@@ -30,6 +30,7 @@ import {
 } from '@/lib/api/offlineCivilian';
 import { fetchCivilianDuplicateSuggestions, fetchNearbyStations } from '@/lib/api';
 import { fetchPublicTracking, type PublicTrackingData } from '@/lib/api/tracking';
+import { parseLineStringToLatLng } from '@/components/map/RoutePolyline';
 import { usePublicAutoSync } from '@/lib/usePublicAutoSync';
 
 const STEPS = ['Location', 'Photo', 'Category', 'Details', 'Review'] as const;
@@ -177,9 +178,70 @@ export function ReportWizard() {
   const [nearestStation, setNearestStation] = useState<{ name: string; phone: string | null; lat: number; lng: number } | null>(null);
   const [tracking, setTracking] = useState<PublicTrackingData | null>(null);
   const [trackingLoading, setTrackingLoading] = useState(false);
-  const [trackingState, setTrackingState] = useState<'PENDING' | 'SUCCESS' | 'FAILED'>('PENDING');
 
   const parentLocalIdRef = useRef<string>(crypto.randomUUID());
+
+  // ── Tracking polling ──────────────────────────────────────────────────────
+  // Bounded non-overlapping: immediate + 5 retries at 2s, stop on valid
+  // geometry, exhaustion, token absence, report replacement, or unmount.
+  const pollingRef = useRef<{
+    mounted: boolean;
+    generation: number;
+    timeout: ReturnType<typeof setTimeout> | null;
+  }>({ mounted: true, generation: 0, timeout: null });
+
+  function startTrackingPolling(reportId: number, token: string) {
+    const ctx = pollingRef.current;
+    ctx.generation++;
+    const generation = ctx.generation;
+    if (ctx.timeout) clearTimeout(ctx.timeout);
+
+    function isCurrent() {
+      return ctx.mounted && ctx.generation === generation;
+    }
+
+    function poll(attempt: number) {
+      if (!isCurrent()) return;
+      setTrackingLoading(true);
+
+      fetchPublicTracking(reportId, token)
+        .then((data) => {
+          if (!isCurrent()) return;
+          setTracking(data);
+
+          if (parseLineStringToLatLng(data.routing_geometry)) {
+            setTrackingLoading(false);
+            return;
+          }
+
+          if (attempt < 5) {
+            ctx.timeout = setTimeout(() => poll(attempt + 1), 2000);
+          } else {
+            setTrackingLoading(false);
+          }
+        })
+        .catch(() => {
+          if (!isCurrent()) return;
+          if (attempt < 5) {
+            ctx.timeout = setTimeout(() => poll(attempt + 1), 2000);
+          } else {
+            setTrackingLoading(false);
+          }
+        });
+    }
+
+    poll(0); // Immediate request, followed by at most five retries.
+  }
+
+  useEffect(() => {
+    const ctx = pollingRef.current;
+    ctx.mounted = true;
+    return () => {
+      ctx.mounted = false;
+      ctx.generation++;
+      if (ctx.timeout) clearTimeout(ctx.timeout);
+    };
+  }, []);
 
   // ── Entry: draft prompt ──────────────────────────────────────────────────
   useEffect(() => {
@@ -285,47 +347,23 @@ export function ReportWizard() {
     };
   }
 
-  const fetchTrackingAndStations = useCallback(async (resp: CivilianReportV2Response) => {
-    const token = resp.tracking_token ?? '';
-    const reportId = resp.report_id;
-    setTrackingState('PENDING');
-    setTrackingLoading(true);
-
-    // Nearest station line target (public stations endpoint).
-    if (latitude !== null && longitude !== null) {
-      fetchNearbyStations(latitude, longitude)
-        .then((stations) => {
-          if (stations.length > 0) {
-            const nearest = stations[0];
-            setNearestStation({
-              name: nearest.station_name,
-              phone: null,
-              lat: nearest.latitude,
-              lng: nearest.longitude,
-            });
-          }
-        })
-        .catch(() => {
-          // Non-fatal: route feedback still renders the straight line.
-        });
-    }
-
-    // Token-gated tracking fetch (drives PENDING->SUCCESS/FAILED).
-    if (token) {
-      fetchPublicTracking(reportId, token)
-        .then((data) => {
-          setTracking(data);
-          setTrackingState(data.routing_data_source ? 'SUCCESS' : 'FAILED');
-        })
-        .catch(() => {
-          setTrackingState('FAILED');
-        })
-        .finally(() => setTrackingLoading(false));
-    } else {
-      setTrackingLoading(false);
-      setTrackingState('FAILED');
-    }
-  }, [latitude, longitude]);
+  function fetchStation(lat: number, lng: number) {
+    fetchNearbyStations(lat, lng)
+      .then((stations) => {
+        if (stations.length > 0) {
+          const nearest = stations[0];
+          setNearestStation({
+            name: nearest.station_name,
+            phone: null,
+            lat: nearest.latitude,
+            lng: nearest.longitude,
+          });
+        }
+      })
+      .catch(() => {
+        // Non-fatal: route feedback still renders without station.
+      });
+  }
 
   async function handleSubmit() {
     if (turnstileEnabled && !turnstileToken) {
@@ -355,7 +393,21 @@ export function ReportWizard() {
       const resp = result.response;
       setSubmittedResponse(resp);
       clearDraft();
-      await fetchTrackingAndStations(resp);
+
+      // Independent station lookup (non-fatal).
+      if (latitude !== null && longitude !== null) {
+        fetchStation(latitude, longitude);
+      }
+
+      // Start bounded tracking polling.
+      const token = resp.tracking_token ?? '';
+      if (token) {
+        setTracking(null);
+        startTrackingPolling(resp.report_id, token);
+      } else {
+        setTrackingLoading(false);
+      }
+
       setMode('receipt');
       setSubmitting(false);
     } catch (err) {
@@ -436,7 +488,6 @@ export function ReportWizard() {
         }}
         tracking={tracking}
         trackingLoading={trackingLoading}
-        trackingState={trackingState}
       />
     );
   }
