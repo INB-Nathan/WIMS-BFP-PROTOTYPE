@@ -152,7 +152,7 @@ describe('IntentModal', () => {
     render(<IntentModal />);
 
     await waitFor(() => {
-      expect(screen.getByText(/Wildfire Incident Management System/i)).toBeInTheDocument();
+      expect(screen.getByText(/Web Incident Management System/i)).toBeInTheDocument();
     });
   });
 

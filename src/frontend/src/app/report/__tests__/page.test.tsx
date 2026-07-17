@@ -315,7 +315,7 @@ describe('Report Wizard — safety banner on all steps', () => {
     const { default: ReportPage } = await import('../page');
     render(<ReportPage />);
 
-    const bannerText = 'You are safe. If you are in danger, call 911 or your local BFP hotline immediately.';
+    const bannerText = 'If you are in immediate danger, call 911 or your local BFP hotline now.';
     expect(screen.getByTestId('safety-banner')).toHaveTextContent(bannerText);
 
     // Step 1
@@ -431,26 +431,23 @@ describe('Report Wizard — submit error / loading UX (#604 hardening)', () => {
     expect(screen.getByTestId('submit-report')).not.toBeDisabled();
   });
 
-  it('BLOCKER(b): blocks submit without a location and shows the validation message', async () => {
+  it('BLOCKER(b): blocks advancing past Location without a location and shows the validation message', async () => {
     const { default: ReportPage } = await import('../page');
     render(<ReportPage />);
-    // Reach Review WITH a description but WITHOUT dropping a pin (no lat/lng).
-    fireEvent.click(screen.getByText('Use my location'));
-    fireEvent.click(screen.getByText('Continue')); // step 0 -> 1, no pin
-    expect(await screen.findByText('Add a photo', { exact: false })).toBeInTheDocument();
-    fireEvent.click(screen.getByText('Continue')); // 1 -> 2
-    expect(await screen.findByText('What do you observe?')).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId('observable-HEAVY_SMOKE'));
-    fireEvent.click(screen.getByText('Continue')); // 2 -> 3
-    expect(await screen.findByTestId('description-input')).toBeInTheDocument();
-    await userEvent.type(screen.getByTestId('description-input'), 'Smoke but no pin.');
-    fireEvent.click(screen.getByText('Review')); // 3 -> 4
-    expect(await screen.findByText('Review your report')).toBeInTheDocument();
+    // On step 0 (Location) with no pin, no GPS, and no landmark.
+    expect(screen.getByText('Where is the fire?')).toBeInTheDocument();
+    // Continue must be disabled until a location is provided.
+    expect(screen.getByText('Continue').closest('button')).toBeDisabled();
+    // Clicking the disabled button is a no-op; the validation hint appears.
+    fireEvent.click(screen.getByText('Continue'));
+    expect(await screen.findByText(/Add a location/i)).toBeInTheDocument();
+    expect(screen.queryByText('Add a photo', { exact: false })).not.toBeInTheDocument();
 
-    // buildPayload returns null (no coordinates) -> validation error, no network call.
-    fireEvent.click(screen.getByTestId('submit-report'));
-    expect(await screen.findByText('A description and a location are required to submit.')).toBeInTheDocument();
-    expect(offlineMocks.submitCivilianReportOfflineAware).not.toHaveBeenCalled();
+    // After dropping a pin, Continue is enabled and the wizard advances.
+    dropPin();
+    expect(screen.getByText('Continue').closest('button')).not.toBeDisabled();
+    fireEvent.click(screen.getByText('Continue')); // step 0 -> 1
+    expect(await screen.findByText('Add a photo', { exact: false })).toBeInTheDocument();
   });
 
   it('LOADING: shows "Submitting…" label and disables submit while in-flight', async () => {

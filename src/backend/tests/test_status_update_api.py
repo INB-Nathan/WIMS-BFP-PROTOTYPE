@@ -218,6 +218,29 @@ def test_help_dispatched_missing_station_name(mock_audit, mock_publish, client):
 
 @patch("services.civilian_triage.status_update.publish_status_update_event_sync")
 @patch("services.civilian_triage.status_update.log_system_audit")
+def test_internal_metadata_key_rejected(mock_audit, mock_publish, client):
+    session = _make_session(report_exists=True, current_stage="RECEIVED")
+    _install_session(session, VALIDATOR_USER)
+    response = client.post(
+        URL,
+        json={
+            "stage": "HELP_DISPATCHED",
+            "metadata": {
+                "station_name": "BFP Central",
+                "jurisdiction": "Antipolo City",
+                "internal_note": "Do not publish",
+            },
+        },
+    )
+    assert response.status_code == 400, response.text
+    assert "internal_note" in response.text
+    assert not session.committed
+    mock_publish.assert_not_called()
+    mock_audit.assert_not_called()
+
+
+@patch("services.civilian_triage.status_update.publish_status_update_event_sync")
+@patch("services.civilian_triage.status_update.log_system_audit")
 def test_unknown_report_404(mock_audit, mock_publish, client):
     session = _make_session(report_exists=False)
     _install_session(session, VALIDATOR_USER)

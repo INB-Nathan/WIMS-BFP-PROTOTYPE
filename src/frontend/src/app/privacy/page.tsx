@@ -3,7 +3,7 @@ import Link from 'next/link';
 
 export const metadata: Metadata = {
   title: 'Data Retention Policy — WIMS-BFP',
-  description: 'Data Retention Policy for the WIMS-BFP Wildfire Incident Management System',
+  description: 'Data Retention Policy for the WIMS-BFP Web Incident Management System',
 };
 
 export default function PrivacyPage() {
@@ -37,7 +37,7 @@ export default function PrivacyPage() {
           Data Retention Policy
         </h1>
         <p className="text-sm text-white/50 mt-0.5">
-          WIMS-BFP — Wildfire Incident Management System
+          WIMS-BFP — Web Incident Management System
         </p>
         <span
           className="inline-block mt-3 px-3 py-1 rounded-full text-[0.675rem] font-medium tracking-wider text-white/70"
@@ -262,7 +262,7 @@ export default function PrivacyPage() {
           Bureau of Fire Protection · WIMS-BFP
         </p>
         <p className="text-[0.675rem] mt-0.5" style={{ color: 'var(--text-muted)' }}>
-          Wildfire Incident Management System — Republic of the Philippines
+          Web Incident Management System — Republic of the Philippines
         </p>
         <p className="text-[0.675rem] mt-1" style={{ color: 'var(--text-muted)' }}>
           Last updated: June 2026 ·{' '}

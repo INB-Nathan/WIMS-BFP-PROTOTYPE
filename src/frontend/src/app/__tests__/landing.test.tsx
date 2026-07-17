@@ -127,7 +127,7 @@ describe('LandingPage (public landing /)', () => {
     expect(screen.getByTestId('header-report')).toHaveAttribute('href', '/report');
   });
 
-  it('renders the theme-toggle button driven by the public theme provider (dark default label)', async () => {
+  it('renders the theme-toggle button driven by the public theme provider (light default label)', async () => {
     const { default: LandingPage } = await import('../page');
     // The landing page is rendered inside PublicThemeProvider by LayoutShell in
     // production; mirror that tree here so usePublicTheme() resolves correctly.
@@ -139,9 +139,9 @@ describe('LandingPage (public landing /)', () => {
     // The toggle must be present on the landing header.
     const toggle = screen.getByTestId('theme-toggle');
     expect(toggle).toBeInTheDocument();
-    // Default theme is dark -> label reads '🌙 Dark'.
-    expect(toggle).toHaveTextContent('🌙 Dark');
-    expect(toggle).toHaveAttribute('aria-label', 'Switch to light mode');
+    // Default theme is light -> label reads '☀️ Light'.
+    expect(toggle).toHaveTextContent('☀️ Light');
+    expect(toggle).toHaveAttribute('aria-label', 'Switch to dark mode');
   });
 
   it('toggles the theme and persists it to the shared landing-theme storage key', async () => {
@@ -154,11 +154,26 @@ describe('LandingPage (public landing /)', () => {
       </PublicThemeProvider>,
     );
     const toggle = screen.getByTestId('theme-toggle');
-    expect(toggle).toHaveTextContent('🌙 Dark');
+    const landingScene = screen.getByTestId('landing-scene');
+    expect(toggle).toHaveTextContent('☀️ Light');
+    expect(landingScene).toHaveStyle('--landing-overlay-background: rgba(255,255,255,0.85)');
+    expect(landingScene).toHaveStyle('--landing-trust-background: rgba(255,255,255,0.82)');
+    expect(landingScene).toHaveStyle('--map-location-background: #ffffff');
+
     await user.click(toggle);
-    // After toggle -> label flips to light and the shared key is written.
-    expect(screen.getByTestId('theme-toggle')).toHaveTextContent('☀️ Light');
-    expect(window.localStorage.getItem('landing-theme')).toBe('light');
+    // After toggle -> both overlay palettes update with the shared theme.
+    expect(screen.getByTestId('theme-toggle')).toHaveTextContent('🌙 Dark');
+    expect(window.localStorage.getItem('landing-theme')).toBe('dark');
+    expect(landingScene).toHaveAttribute('data-theme', 'dark');
+    expect(landingScene).toHaveStyle('--landing-overlay-background: rgba(10,10,14,0.75)');
+    expect(landingScene).toHaveStyle('--landing-trust-background: rgba(10,10,14,0.72)');
+    expect(landingScene).toHaveStyle('--map-location-background: #18181d');
+
+    await user.click(toggle);
+    expect(landingScene).toHaveAttribute('data-theme', 'light');
+    expect(landingScene).toHaveStyle('--landing-overlay-background: rgba(255,255,255,0.85)');
+    expect(landingScene).toHaveStyle('--landing-trust-background: rgba(255,255,255,0.82)');
+    expect(landingScene).toHaveStyle('--map-location-background: #ffffff');
   });
 
   it('renders the sidebar', async () => {

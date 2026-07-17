@@ -2,6 +2,7 @@
 
 import dynamic from 'next/dynamic';
 import type { ComponentType } from 'react';
+import { parseLineStringToLatLng } from '@/components/map/RoutePolyline';
 import type { TrackingRouteMapInnerProps } from './TrackingRouteMapInner';
 
 // SSR guard: react-leaflet breaks without window.
@@ -15,7 +16,7 @@ const MapInner = dynamic(
     loading: () => (
       <div
         className="flex items-center justify-center rounded-lg text-xs"
-        style={{ height: '220px', background: '#18181d', color: 'rgba(232,232,237,0.38)' }}
+        style={{ height: '420px', background: '#f8fafc', color: '#64748b' }}
       >
         Loading route map…
       </div>
@@ -34,11 +35,7 @@ export interface TrackingRouteMapProps {
  * once `routing_geometry` is truthy.
  */
 export function TrackingRouteMap({ geometry }: TrackingRouteMapProps) {
-  if (!geometry) return null;
+  if (!parseLineStringToLatLng(geometry)) return null;
 
-  return (
-    <div className="rounded-lg overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.06)' }}>
-      <MapInner geometry={geometry} />
-    </div>
-  );
+  return <MapInner geometry={geometry} />;
 }

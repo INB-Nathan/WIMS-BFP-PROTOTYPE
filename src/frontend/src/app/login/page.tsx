@@ -2,11 +2,11 @@
 
 import { Suspense, useEffect } from 'react';
 import Image from 'next/image';
+import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { defaultRouteForRole } from '@/lib/roleRedirect';
-import { ArrowRight, CheckCircle, Lock } from 'lucide-react';
-import { PublicThemeProvider } from '@/components/public/PublicThemeProvider';
+import { CheckCircle, Lock } from 'lucide-react';
 import '@/styles/public-surface.css';
 
 function RegistrationBanner() {
@@ -52,7 +52,8 @@ function LoginInner() {
                         <Image
                             src="/bfp-logo.svg"
                             alt="Bureau of Fire Protection"
-                            fill
+                            width={96}
+                            height={96}
                             className="ps-logo"
                             priority
                         />
@@ -75,10 +76,13 @@ function LoginInner() {
             {/* Right Panel — Login Form */}
             <div className="ps-auth-form">
                 <div className="ps-form-container">
-                    <h2 className="ps-form-title">Sign In</h2>
-                    <p className="ps-form-subtitle">
-                        Access the WIMS-BFP dashboard
-                    </p>
+                    <div className="ps-form-head">
+                        <p className="ps-form-eyebrow">Bureau of Fire Protection</p>
+                        <h2 className="ps-form-title">Sign in to your account</h2>
+                        <p className="ps-form-subtitle">
+                            Authorized access to the WIMS-BFP incident management system.
+                        </p>
+                    </div>
 
                     <Suspense fallback={null}>
                         <RegistrationBanner />
@@ -96,12 +100,19 @@ function LoginInner() {
                         <button
                             type="button"
                             onClick={handleLogin}
-                            className="ps-btn ps-btn-primary ps-btn-block"
+                            className="ps-btn ps-btn-auth ps-btn-block"
                         >
-                            Login with Keycloak
-                            <ArrowRight className="w-4 h-4" />
+                            <Lock className="w-4 h-4" aria-hidden />
+                            Continue to secure sign-in
                         </button>
                     </div>
+
+                    <p className="ps-form-foot">
+                        New to WIMS-BFP?{' '}
+                        <Link href="/register" className="ps-form-link">
+                            Create a reporter account
+                        </Link>
+                    </p>
 
                     <p className="ps-copyright">
                         &copy; 2026 Bureau of Fire Protection &mdash; All rights reserved.
@@ -113,9 +124,5 @@ function LoginInner() {
 }
 
 export default function LoginPage() {
-    return (
-        <PublicThemeProvider>
-            <LoginInner />
-        </PublicThemeProvider>
-    );
+    return <LoginInner />;
 }

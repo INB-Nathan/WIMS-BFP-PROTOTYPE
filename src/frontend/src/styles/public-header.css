@@ -31,20 +31,17 @@
 }
 
 .landing-header-logo {
-  width: 30px;
-  height: 30px;
-  background: var(--red, #dc2626);
-  border-radius: 8px;
+  width: 34px;
+  height: 34px;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
   flex-shrink: 0;
 }
 .landing-header-logo img,
 .landing-header-bfp-logo {
-  width: 22px;
-  height: 22px;
+  width: 34px;
+  height: 34px;
 }
 
 .landing-header-title {

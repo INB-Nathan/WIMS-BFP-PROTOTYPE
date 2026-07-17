@@ -19,9 +19,11 @@ export function usePublicTheme() {
 const STORAGE_KEY = 'landing-theme';
 
 function readInitialTheme(): Theme {
-  if (typeof window === 'undefined') return 'dark';
+  // Light-first: government service clarity for first-time visitors. A saved
+  // preference (landing-theme) is still honoured below.
+  if (typeof window === 'undefined') return 'light';
   const saved = window.localStorage.getItem(STORAGE_KEY);
-  return saved === 'light' || saved === 'dark' ? saved : 'dark';
+  return saved === 'light' || saved === 'dark' ? saved : 'light';
 }
 
 /**
@@ -34,10 +36,12 @@ export function PublicThemeProvider({
   children,
   showThemeToggle = true,
   showHeader = true,
+  showFooter = true,
 }: {
   children: React.ReactNode;
   showThemeToggle?: boolean;
   showHeader?: boolean;
+  showFooter?: boolean;
 }) {
   const [theme, setTheme] = useState<Theme>(readInitialTheme);
 
@@ -79,6 +83,7 @@ export function PublicThemeProvider({
 
         <main className="ps-content">{children}</main>
 
+        {showFooter && (
         <footer className="ps-footer">
           <p>
             <strong>WIMS-BFP</strong> · Bureau of Fire Protection · Republic of the Philippines
@@ -89,6 +94,7 @@ export function PublicThemeProvider({
             <Link href="/register">Register as a reporter</Link>
           </p>
         </footer>
+        )}
       </div>
     </ThemeContext.Provider>
   );

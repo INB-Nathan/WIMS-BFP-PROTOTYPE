@@ -164,16 +164,16 @@ function GeolocateButton({
         top: 10,
         right: 10,
         zIndex: 1000,
-        background: 'white',
-        border: '2px solid rgba(0,0,0,0.15)',
+        background: 'var(--map-location-background, white)',
+        border: '2px solid var(--map-location-border, rgba(0,0,0,0.15))',
         borderRadius: 6,
         padding: '5px 10px',
         cursor: 'pointer',
         fontSize: 12,
         fontWeight: 600,
         lineHeight: '18px',
-        color: '#333',
-        boxShadow: '0 1px 5px rgba(0,0,0,0.2)',
+        color: 'var(--map-location-text, #333)',
+        boxShadow: 'var(--map-location-shadow, 0 1px 5px rgba(0,0,0,0.2))',
       }}
     >
       <span role="img" aria-hidden="true">📍</span>{' '}

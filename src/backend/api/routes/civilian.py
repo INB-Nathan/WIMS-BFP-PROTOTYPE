@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from uuid import UUID
 
 from database import get_db
+from services.civilian_triage import get_public_status_updates
 from services.event_bus import publish_verification_event_sync
 from services.kms import get_crypto_provider
 from tasks.routing import compute_routing_task
@@ -41,6 +42,7 @@ from auth import (
     get_current_wims_user,
     get_national_validator,
     get_photo_db,
+    get_public_db_with_rls,
     optional_auth,
 )
 from schemas.civilian import (
@@ -768,8 +770,8 @@ async def submit_civilian_report(
 def get_civilian_report_by_tracking_token(
     report_id: int,
     tracking_token: str,
-    db: Annotated[Session, Depends(get_db)],
-) -> CivilianReportResponse:
+    db: Annotated[Session, Depends(get_public_db_with_rls)],
+) -> CivilianTrackingResponse:
     """Read-only tracking page API. Validates tracking token and returns
     Tier 1 report data (status, station info, coarse routing, photo count).
 
@@ -833,6 +835,7 @@ def get_civilian_report_by_tracking_token(
         routing_data_source=getattr(row, "routing_data_source", None),
         routing_geometry=getattr(row, "routing_geometry", None),
         photo_count=getattr(row, "photo_count", 0) or 0,
+        status_updates=get_public_status_updates(db, report_id),
         created_at=row.created_at,
     )
 

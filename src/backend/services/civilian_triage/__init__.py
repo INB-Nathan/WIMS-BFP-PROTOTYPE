@@ -15,4 +15,5 @@ from services.civilian_triage.workflow import (
 )
 from services.civilian_triage.status_update import (
     apply_status_update_command as apply_status_update_command,
+    get_public_status_updates as get_public_status_updates,
 )

@@ -55,7 +55,7 @@ export function StepLocation({ latitude, longitude, landmark, onChange }: StepLo
     <div className="space-y-4">
       <div>
         <p className="text-sm font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>
-          Where is the fire? <span className="text-xs font-normal" style={{ color: 'var(--text-secondary)' }}>(optional)</span>
+          Where is the fire? <span className="text-xs font-normal" style={{ color: 'var(--text-secondary)' }}>(required)</span>
         </p>
         <p className="text-xs mb-3" style={{ color: 'var(--text-secondary)' }}>
           Drop a pin on the map, use your location, or describe a nearby landmark.

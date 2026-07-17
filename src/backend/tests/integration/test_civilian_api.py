@@ -7,6 +7,7 @@ Run:
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 import uuid
@@ -64,6 +65,7 @@ def _clean_state():
         # references from incident_verification_history and other tables.
         db.execute(text("DELETE FROM wims.citizen_report_cluster_members"))
         db.execute(text("DELETE FROM wims.citizen_report_clusters"))
+        db.execute(text("DELETE FROM wims.report_status_updates"))
         db.execute(text("DELETE FROM wims.citizen_reports"))
         db.commit()
     finally:
@@ -423,6 +425,49 @@ class TestCivilianReportPublicSubmission:
             data["escalation_guidance"]
             == "Submit a new report if the emergency is ongoing, or call 911."
         )
+
+
+def test_tracking_returns_public_status_timeline_only(client, db_session):
+    report_id = _insert_report_raw_bypassing_encryption(db_session)
+    tracking_token = _issue_tracking_token(db_session, report_id)
+    db_session.execute(
+        text("""
+            INSERT INTO wims.report_status_updates (report_id, stage, metadata)
+            VALUES
+                (:rid, 'HELP_DISPATCHED', CAST(:dispatched AS jsonb)),
+                (:rid, 'ON_SCENE', CAST(:on_scene AS jsonb)),
+                (:rid, 'RESOLVED', CAST(:resolved AS jsonb))
+        """),
+        {
+            "rid": report_id,
+            "dispatched": json.dumps(
+                {
+                    "station_name": "BFP Antipolo Central",
+                    "station_phone": "0917-000-0000",
+                    "jurisdiction": "Antipolo City",
+                    "internal_note": "Do not expose this",
+                }
+            ),
+            "on_scene": json.dumps({"arrived_at": "2026-07-15T14:41:00Z"}),
+            "resolved": json.dumps({"outcome_summary": "Fire contained."}),
+        },
+    )
+    db_session.commit()
+
+    response = client.get(f"/api/civilian/reports/{report_id}/track/{tracking_token}")
+
+    assert response.status_code == 200, response.text
+    updates = response.json()["status_updates"]
+    assert [update["stage"] for update in updates] == ["HELP_DISPATCHED", "ON_SCENE", "RESOLVED"]
+    assert updates[0]["metadata"] == {
+        "station_name": "BFP Antipolo Central",
+        "station_phone": "0917-000-0000",
+        "jurisdiction": "Antipolo City",
+    }
+    assert updates[1]["metadata"] == {"arrived_at": "2026-07-15T14:41:00Z"}
+    assert updates[2]["metadata"] == {"outcome_summary": "Fire contained."}
+    assert "actor_user_id" not in updates[0]
+    assert "internal_note" not in updates[0]["metadata"]
 
 
 def _insert_cluster(db: Session, report_ids: list[int]) -> int:
