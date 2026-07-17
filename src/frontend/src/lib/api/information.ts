@@ -13,6 +13,13 @@ export interface EmergencyResponse {
   severity: EmergencySeverity;
   status: EmergencyStatus;
   promoted_from_incident_id: number | null;
+  latitude: number | null;
+  longitude: number | null;
+  perimeter: {
+    type: 'Feature';
+    geometry: { type: 'Polygon'; coordinates: number[][][] };
+    properties: { incident_id: number | null };
+  } | null;
   published: boolean;
   published_at: string | null;
   created_at: string;

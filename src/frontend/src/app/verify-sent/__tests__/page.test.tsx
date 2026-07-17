@@ -21,9 +21,9 @@ describe('VerifySentPage', () => {
     const { default: VerifySentPage } = await import('../page');
     render(<VerifySentPage />);
 
-    expect(await screen.findByText('Check Your Email')).toBeInTheDocument();
+    expect(await screen.findByText('Check your inbox')).toBeInTheDocument();
     expect(
-      screen.getByText(/We sent a verification code to juan@example.com/i),
+      screen.getByText(/We sent a verification code to the address below/i),
     ).toBeInTheDocument();
     expect(screen.getByTestId('verify-sent-email')).toHaveTextContent('juan@example.com');
   });
@@ -43,7 +43,7 @@ describe('VerifySentPage', () => {
     render(<VerifySentPage />);
 
     expect(
-      await screen.findByText(/Didn't receive the email\? Check your spam folder/i),
+      await screen.findByText(/Can't find the email\? Check your spam folder/i),
     ).toBeInTheDocument();
   });
 
@@ -52,7 +52,7 @@ describe('VerifySentPage', () => {
     const { default: VerifySentPage } = await import('../page');
     render(<VerifySentPage />);
 
-    expect(await screen.findByText('Check Your Email')).toBeInTheDocument();
+    expect(await screen.findByText('Check your inbox')).toBeInTheDocument();
     expect(
       screen.getByText(/We sent a verification code to your email\./i),
     ).toBeInTheDocument();

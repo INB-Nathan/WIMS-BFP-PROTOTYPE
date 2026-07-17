@@ -8,7 +8,7 @@ These are the API contract layer for the public reads in
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel
 
@@ -69,6 +69,9 @@ class EmergencyResponse(BaseModel):
     severity: str
     status: str
     promoted_from_incident_id: Optional[int] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    perimeter: Optional[dict[str, Any]] = None
     published: bool
     published_at: Optional[datetime] = None
     created_at: datetime

@@ -30,8 +30,11 @@ vi.mock('react-leaflet', () => ({
     <div data-testid="map-container">{children}</div>
   ),
   TileLayer: () => <div data-testid="tile-layer" />,
-  CircleMarker: ({ children }: { children?: React.ReactNode }) => (
-    <div data-testid="circle-marker">{children}</div>
+  Circle: ({ children }: { children?: React.ReactNode }) => (
+    <div data-testid="civilian-circle">{children}</div>
+  ),
+  Polygon: ({ children }: { children?: React.ReactNode }) => (
+    <div data-testid="incident-perimeter">{children}</div>
   ),
   Popup: ({ children }: { children: React.ReactNode }) => (
     <div data-testid="popup">{children}</div>
@@ -56,6 +59,11 @@ vi.mock('@/lib/api', () => ({
   fetchClusters: (...args: unknown[]) => mockFetchClusters(...args),
 }));
 
+const mockFetchEmergencies = vi.fn();
+vi.mock('@/lib/api/information', () => ({
+  fetchEmergencies: (...args: unknown[]) => mockFetchEmergencies(...args),
+}));
+
 const mockFetchStations = vi.fn();
 vi.mock('@/lib/api/map', () => ({
   fetchStations: (...args: unknown[]) => mockFetchStations(...args),
@@ -70,6 +78,7 @@ describe('PublicFireMapInner', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockFetchClusters.mockResolvedValue({ clusters: [] });
+    mockFetchEmergencies.mockResolvedValue([]);
   });
 
   it('renders TileLayer and MapContainer with required props', () => {
@@ -188,6 +197,34 @@ describe('PublicFireMapInner', () => {
     });
 
     expect(screen.getByText(/Could not get location/)).toBeInTheDocument();
+  });
+
+  it('renders civilian clusters as area circles', async () => {
+    mockFetchClusters.mockResolvedValue({
+      clusters: [{ lat: 14.6, lng: 121, count: 3, severity: 'low', latest_at: null }],
+    });
+    vi.useFakeTimers();
+    render(<PublicFireMapInner center={[14.6, 121.0]} zoom={10} />);
+    await act(async () => { vi.advanceTimersByTime(1000); });
+    expect(screen.getByTestId('civilian-circle')).toBeInTheDocument();
+    vi.useRealTimers();
+  });
+
+  it('renders a perimeter polygon and a point fallback for published incidents', async () => {
+    mockFetchEmergencies.mockResolvedValue([
+      {
+        id: 1, title: 'Perimeter incident', location: 'Loc', description: 'd', severity: 'high', status: 'ongoing',
+        promoted_from_incident_id: 10, latitude: 14.6, longitude: 121, published: true, published_at: null, created_at: '2026-07-17T00:00:00Z',
+        perimeter: { type: 'Feature', geometry: { type: 'Polygon', coordinates: [[[121, 14.6], [121.1, 14.6], [121.1, 14.7], [121, 14.6]]] }, properties: { incident_id: 10 } },
+      },
+      {
+        id: 2, title: 'Point incident', location: 'Loc', description: 'd', severity: 'moderate', status: 'ongoing',
+        promoted_from_incident_id: 11, latitude: 14.7, longitude: 121.1, published: true, published_at: null, created_at: '2026-07-17T00:00:00Z', perimeter: null,
+      },
+    ]);
+    render(<PublicFireMapInner center={[14.6, 121.0]} zoom={10} />);
+    expect(await screen.findByTestId('incident-perimeter')).toBeInTheDocument();
+    expect(screen.getAllByTestId('marker')).toHaveLength(1);
   });
 
   describe('fire station layer', () => {
