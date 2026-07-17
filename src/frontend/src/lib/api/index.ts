@@ -27,6 +27,7 @@ export * from './regional';
 export * from './triage';
 export * from './map';
 export * from './operations';
+export * from './perimeters';
 export * from './validator';
 export {
   fetchOperationalMapOfflineAware,

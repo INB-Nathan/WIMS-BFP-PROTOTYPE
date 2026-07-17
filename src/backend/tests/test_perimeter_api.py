@@ -244,6 +244,18 @@ def test_create_valid_201(mock_audit, client):
 
 
 @patch("api.routes.regional.perimeters.log_system_audit")
+def test_create_manual_draw_201(mock_audit, client):
+    session = _perimeter_row_session()
+    _install(session, VALIDATOR_USER)
+    resp = client.post(
+        "/api/regional/incidents/1/perimeter",
+        json={"geometry": _polygon(), "map_method": "MANUAL_DRAW"},
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["map_method"] == "MANUAL_DRAW"
+
+
+@patch("api.routes.regional.perimeters.log_system_audit")
 def test_create_duplicate_409(mock_audit, client):
     session = _perimeter_row_session(insert_mode="duplicate")
     _install(session, VALIDATOR_USER)
