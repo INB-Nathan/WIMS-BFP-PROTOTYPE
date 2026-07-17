@@ -83,16 +83,15 @@ export function LayoutShell({ children }: { children: ReactNode }) {
         );
     }
 
-    // Public surface (anonymous or civilian) — uses PublicHeader
-    // Landing page (/) uses its own immersive floating header from page.tsx.
-    // /information owns its full chrome (its own .ps-header + .ps-footer + theme
-    // toggle per InformationPage-icons test contract), so LayoutShell must not
-    // also inject PublicHeader/footer there — that would double the nav + footer.
-    const ownsChrome = pathname === '/information';
+    // Public surface — the landing page owns its overlay-positioned header.
+    // Login intentionally has no navigation/footer and provides only a return
+    // control, matching the Keycloak SSO screen.
     if (isPublicRoute(pathname) || isCivilianRoute(pathname)) {
+        const isLoginPage = pathname === '/login';
+        const pageOwnsFooter = isLoginPage || pathname === '/';
         return (
-            <PublicThemeProvider showHeader={false} showFooter={!ownsChrome}>
-                {!ownsChrome && pathname !== '/' && <PublicHeader />}
+            <PublicThemeProvider showHeader={false} showFooter={!pageOwnsFooter}>
+                {!isLoginPage && pathname !== '/' && <PublicHeader />}
                 {children}
             </PublicThemeProvider>
         );

@@ -1066,3 +1066,232 @@ p {
     font-size: 14px !important;
     line-height: 1 !important;
 }
+
+/* === Shared public-surface presentation (Next.js /login parity) === */
+body#keycloak-bg {
+    --bg-deep: #0a0a0e;
+    --bg-base: #111116;
+    --bg-elevated: #18181d;
+    --bg-surface: #202026;
+    --text-primary: #e8e8ed;
+    --text-secondary: rgba(232, 232, 237, 0.65);
+    --border: rgba(255, 255, 255, 0.06);
+    --border-strong: rgba(255, 255, 255, 0.12);
+    --primary: #3b82f6;
+    --primary-hover: #2563eb;
+    --primary-bg: rgba(59, 130, 246, 0.12);
+    --red-bg: rgba(220, 38, 38, 0.15);
+    --shadow-soft: 0 4px 24px rgba(0, 0, 0, 0.25);
+    background: var(--bg-deep) !important;
+    color: var(--text-primary) !important;
+}
+
+body#keycloak-bg[data-theme="light"] {
+    --bg-deep: #f0eee9;
+    --bg-base: #faf8f4;
+    --bg-elevated: #f2efe9;
+    --bg-surface: #e9e6df;
+    --text-primary: #1a1815;
+    --text-secondary: rgba(26, 24, 21, 0.78);
+    --border: rgba(0, 0, 0, 0.1);
+    --border-strong: rgba(0, 0, 0, 0.18);
+    --primary: #2563eb;
+    --primary-hover: #1d4ed8;
+    --primary-bg: rgba(37, 99, 235, 0.08);
+    --red-bg: rgba(220, 38, 38, 0.08);
+    --shadow-soft: 0 4px 24px rgba(0, 0, 0, 0.1);
+}
+
+body#keycloak-bg .pf-v5-c-login,
+body#keycloak-bg .pf-v5-c-login__container,
+body#keycloak-bg .pf-v5-c-login__main {
+    background: var(--bg-deep) !important;
+}
+
+body#keycloak-bg .wims-login-branding {
+    width: 42% !important;
+    clip-path: none !important;
+    border-right: 1px solid var(--border-strong) !important;
+    background:
+        radial-gradient(120% 80% at 50% -10%, var(--primary-bg) 0%, transparent 60%),
+        radial-gradient(120% 90% at 50% 115%, var(--red-bg) 0%, transparent 55%),
+        linear-gradient(160deg, var(--bg-elevated) 0%, var(--bg-base) 100%) !important;
+}
+
+body#keycloak-bg .wims-logo-wrap {
+    box-sizing: border-box !important;
+    width: 128px !important;
+    height: 128px !important;
+    padding: 16px !important;
+    border: 1px solid var(--border-strong) !important;
+    border-radius: 50% !important;
+    background: var(--bg-base) !important;
+    box-shadow: var(--shadow-soft) !important;
+}
+
+body#keycloak-bg .wims-brand-title,
+body#keycloak-bg h1,
+body#keycloak-bg h2,
+body#keycloak-bg h3,
+body#keycloak-bg .pf-v5-c-title {
+    color: var(--text-primary) !important;
+}
+
+body#keycloak-bg .wims-brand-subtitle,
+body#keycloak-bg .wims-brand-tagline,
+body#keycloak-bg p {
+    color: var(--text-secondary) !important;
+}
+
+body#keycloak-bg .pf-v5-c-login__main {
+    padding: 1.5rem 6% !important;
+}
+
+body#keycloak-bg .pf-v5-c-login__main-header {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 0.4rem !important;
+    width: 100% !important;
+    max-width: 380px !important;
+    margin: auto auto 0 !important;
+}
+
+body#keycloak-bg .pf-v5-c-login__main-header h1 {
+    margin: 0 !important;
+    font-size: 1.75rem !important;
+    line-height: 1.2 !important;
+}
+
+body#keycloak-bg .wims-form-eyebrow {
+    margin: 0 !important;
+    color: var(--primary) !important;
+    font-size: 0.72rem !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.08em !important;
+    text-transform: uppercase !important;
+}
+
+body#keycloak-bg .wims-form-subtitle {
+    margin: 0 !important;
+    font-size: 0.875rem !important;
+}
+
+body#keycloak-bg .pf-v5-c-login__main-body:not(:has(.wims-totp-setup)) {
+    flex: 0 1 auto !important;
+    width: 100% !important;
+    max-width: 380px !important;
+    margin: 1.5rem auto auto !important;
+}
+
+body#keycloak-bg .card-pf,
+body#keycloak-bg #kc-form {
+    max-width: 380px !important;
+    border: 1px solid var(--border-strong) !important;
+    border-radius: 16px !important;
+    background: var(--bg-elevated) !important;
+    box-shadow: var(--shadow-soft) !important;
+}
+
+body#keycloak-bg .pf-v5-c-form__label-text,
+body#keycloak-bg label {
+    color: var(--text-secondary) !important;
+}
+
+body#keycloak-bg .pf-v5-c-form-control,
+body#keycloak-bg input[type="text"],
+body#keycloak-bg input[type="password"],
+body#keycloak-bg input[type="email"] {
+    border-color: var(--border-strong) !important;
+    background: var(--bg-base) !important;
+    color: var(--text-primary) !important;
+}
+
+body#keycloak-bg .pf-v5-c-form-control input[type="text"],
+body#keycloak-bg .pf-v5-c-form-control input[type="password"],
+body#keycloak-bg .pf-v5-c-form-control input[type="email"] {
+    color: var(--text-primary) !important;
+}
+
+body#keycloak-bg .pf-v5-c-form-control:focus-within,
+body#keycloak-bg input[type="text"]:focus,
+body#keycloak-bg input[type="password"]:focus,
+body#keycloak-bg input[type="email"]:focus {
+    border-color: var(--primary) !important;
+    box-shadow: 0 0 0 3px var(--primary-bg) !important;
+}
+
+body#keycloak-bg .pf-v5-c-button.pf-m-control {
+    border-color: var(--border-strong) !important;
+    background: var(--bg-surface) !important;
+    color: var(--text-secondary) !important;
+}
+
+body#keycloak-bg .pf-v5-c-button.pf-m-primary,
+body#keycloak-bg #kc-login,
+body#keycloak-bg input[type="submit"] {
+    background: var(--primary) !important;
+    box-shadow: none !important;
+    text-transform: none !important;
+    letter-spacing: normal !important;
+}
+
+body#keycloak-bg .pf-v5-c-button.pf-m-primary:hover,
+body#keycloak-bg #kc-login:hover,
+body#keycloak-bg input[type="submit"]:hover {
+    background: var(--primary-hover) !important;
+    box-shadow: none !important;
+}
+
+body#keycloak-bg a {
+    color: var(--primary) !important;
+}
+
+body#keycloak-bg .wims-return-link {
+    position: absolute !important;
+    top: 20px !important;
+    left: 20px !important;
+    z-index: 2 !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+    padding: 8px 12px !important;
+    border: 1px solid var(--border-strong) !important;
+    border-radius: 6px !important;
+    background: var(--bg-elevated) !important;
+    color: var(--text-secondary) !important;
+    font-size: 0.78rem !important;
+    font-weight: 600 !important;
+}
+
+body#keycloak-bg .wims-return-link:hover,
+body#keycloak-bg .wims-return-link:focus {
+    border-color: var(--primary) !important;
+    color: var(--text-primary) !important;
+    text-decoration: none !important;
+}
+
+body#keycloak-bg .wims-return-link svg {
+    width: 1rem !important;
+    height: 1rem !important;
+    fill: none !important;
+    stroke: currentColor !important;
+    stroke-width: 2 !important;
+    stroke-linecap: round !important;
+    stroke-linejoin: round !important;
+}
+
+@media (max-width: 768px) {
+    body#keycloak-bg .wims-login-branding {
+        width: 100% !important;
+        clip-path: none !important;
+    }
+
+    body#keycloak-bg .wims-return-link {
+        top: 12px !important;
+        left: 12px !important;
+    }
+
+    body#keycloak-bg .pf-v5-c-login__main {
+        padding: 1rem !important;
+    }
+}

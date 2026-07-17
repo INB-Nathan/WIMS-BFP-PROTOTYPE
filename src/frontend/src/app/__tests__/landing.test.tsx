@@ -7,6 +7,11 @@ import { PublicThemeProvider } from '@/components/public/PublicThemeProvider';
 const mockPush = vi.fn();
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush }),
+  usePathname: () => '/',
+}));
+
+vi.mock('@/context/AuthContext', () => ({
+  useAuth: () => ({ user: null, loading: false }),
 }));
 
 // Mock next/link
@@ -119,12 +124,15 @@ describe('LandingPage (public landing /)', () => {
     expect(screen.getByText(/Verified BFP incidents/)).toBeInTheDocument();
   });
 
-  it('renders the floating header with Register, Sign In, and Report a Fire', async () => {
+  it('renders the auth-aware anonymous header with approved public destinations', async () => {
     const { default: LandingPage } = await import('../page');
     render(<LandingPage />);
+    expect(screen.getByRole('link', { name: 'Home' })).toHaveAttribute('href', '/');
+    expect(screen.getByRole('link', { name: 'Information' })).toHaveAttribute('href', '/information');
+    expect(screen.getByRole('link', { name: 'Fire Stations' })).toHaveAttribute('href', '/fire-stations');
     expect(screen.getByTestId('header-register')).toHaveAttribute('href', '/register');
     expect(screen.getByTestId('header-signin')).toHaveAttribute('href', '/login');
-    expect(screen.getByTestId('header-report')).toHaveAttribute('href', '/report');
+    expect(screen.queryByTestId('header-report')).not.toBeInTheDocument();
   });
 
   it('renders the theme-toggle button driven by the public theme provider (light default label)', async () => {

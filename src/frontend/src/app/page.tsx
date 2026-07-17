@@ -1,10 +1,10 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import Image from 'next/image';
 import Link from 'next/link';
 import { useState, useCallback, useRef, useEffect, type CSSProperties } from 'react';
 import { IntentModal } from '@/components/IntentModal';
+import { PublicHeader } from '@/components/PublicHeader';
 import { LandingSidebar } from '@/components/LandingSidebar';
 import { usePublicTheme } from '@/components/public/PublicThemeProvider';
 import { IconMapPinFilled, IconLayoutSidebar, IconShieldCheckFilled, IconFlameFilled } from '@tabler/icons-react';
@@ -61,7 +61,7 @@ export default function LandingPage() {
   // Theme now comes from the shared PublicThemeProvider (T2) — the landing
   // page is rendered inside it via LayoutShell, so the same persisted
   // 'landing-theme' key and toggle behavior are reused.
-  const { theme, toggleTheme } = usePublicTheme();
+  const { theme } = usePublicTheme();
   const overlayThemeStyle = {
     '--landing-overlay-background': theme === 'light' ? 'rgba(255,255,255,0.85)' : 'rgba(10,10,14,0.75)',
     '--landing-overlay-border': theme === 'light' ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.15)',
@@ -84,36 +84,8 @@ export default function LandingPage() {
     <div className="scene-landing" data-testid="landing-scene" data-theme={theme} style={overlayThemeStyle}>
       <IntentModal />
 
-      {/* ── Floating translucent header ───────────────────────────────── */}
-      <header className="landing-header">
-        <div className="landing-header-left">
-          <div className="landing-header-logo">
-            <Image
-              src="/bfp-logo.svg"
-              alt="Bureau of Fire Protection"
-              width={22}
-              height={22}
-              className="landing-header-bfp-logo"
-              priority
-            />
-          </div>
-          <Link href="/" className="landing-header-title" aria-label="WIMS-BFP home">WIMS-BFP</Link>
-        </div>
-        <div className="landing-header-right">
-          <button
-            type="button"
-            onClick={toggleTheme}
-            className="btn-theme-toggle"
-            data-testid="theme-toggle"
-            aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-          >
-            {theme === 'dark' ? '🌙 Dark' : '☀️ Light'}
-          </button>
-          <Link href="/register" className="btn-ghost" data-testid="header-register">Register</Link>
-          <Link href="/login" className="btn-outline" data-testid="header-signin">Sign In</Link>
-          <Link href="/report" className="btn-primary" data-testid="header-report">Report a Fire</Link>
-        </div>
-      </header>
+      {/* Overlay positioning remains page-owned; navigation/auth logic is shared. */}
+      <PublicHeader />
 
       {/* ── Map + Sidebar layout ───────────────────────────────────────── */}
       <div className="landing-layout">

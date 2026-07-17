@@ -66,33 +66,23 @@ describe('PublicHeader', () => {
     vi.mocked(AuthContext.useAuth).mockReturnValue(defaultAuth);
   });
 
-  describe('Staff roles', () => {
-    it('does not render for REGIONAL_ENCODER', () => {
-      vi.mocked(AuthContext.useAuth).mockReturnValue(staffUser('REGIONAL_ENCODER'));
-      const { container } = render(<PublicHeader />);
-      expect(screen.queryByRole('banner')).not.toBeInTheDocument();
-      expect(container.querySelector('.landing-header')).not.toBeInTheDocument();
-    });
+  describe('Authenticated staff on public routes', () => {
+    it.each([
+      ['REGIONAL_ENCODER', '/dashboard/regional'],
+      ['NATIONAL_VALIDATOR', '/dashboard/validator'],
+      ['NATIONAL_ANALYST', '/dashboard/analyst'],
+      ['SYSTEM_ADMIN', '/admin/system'],
+    ])('renders a role dashboard link for %s', (role, dashboardHref) => {
+      vi.mocked(AuthContext.useAuth).mockReturnValue(staffUser(role));
+      render(<PublicHeader />);
 
-    it('does not render for NATIONAL_VALIDATOR', () => {
-      vi.mocked(AuthContext.useAuth).mockReturnValue(staffUser('NATIONAL_VALIDATOR'));
-      const { container } = render(<PublicHeader />);
-      expect(screen.queryByRole('banner')).not.toBeInTheDocument();
-      expect(container.querySelector('.landing-header')).not.toBeInTheDocument();
-    });
-
-    it('does not render for NATIONAL_ANALYST', () => {
-      vi.mocked(AuthContext.useAuth).mockReturnValue(staffUser('NATIONAL_ANALYST'));
-      const { container } = render(<PublicHeader />);
-      expect(screen.queryByRole('banner')).not.toBeInTheDocument();
-      expect(container.querySelector('.landing-header')).not.toBeInTheDocument();
-    });
-
-    it('does not render for SYSTEM_ADMIN', () => {
-      vi.mocked(AuthContext.useAuth).mockReturnValue(staffUser('SYSTEM_ADMIN'));
-      const { container } = render(<PublicHeader />);
-      expect(screen.queryByRole('banner')).not.toBeInTheDocument();
-      expect(container.querySelector('.landing-header')).not.toBeInTheDocument();
+      expect(screen.getByRole('banner')).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'Dashboard' })).toHaveAttribute(
+        'href',
+        dashboardHref,
+      );
+      expect(screen.queryByTestId('header-register')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('header-signin')).not.toBeInTheDocument();
     });
   });
 
@@ -121,11 +111,15 @@ describe('PublicHeader', () => {
       expect(screen.getByText('WIMS-BFP')).toBeInTheDocument();
     });
 
-    it('renders header-register, header-signin, header-report links', () => {
+    it('renders only the approved public destinations plus sign-in', () => {
       render(<PublicHeader />);
+      expect(screen.getByRole('link', { name: 'WIMS-BFP home' })).toHaveAttribute('href', '/');
+      expect(screen.getByRole('link', { name: 'Home' })).toHaveAttribute('href', '/');
+      expect(screen.getByRole('link', { name: 'Information' })).toHaveAttribute('href', '/information');
+      expect(screen.getByRole('link', { name: 'Fire Stations' })).toHaveAttribute('href', '/fire-stations');
       expect(screen.getByTestId('header-register')).toHaveAttribute('href', '/register');
       expect(screen.getByTestId('header-signin')).toHaveAttribute('href', '/login');
-      expect(screen.getByTestId('header-report')).toHaveAttribute('href', '/report');
+      expect(screen.queryByTestId('header-report')).not.toBeInTheDocument();
     });
 
     it('renders theme-toggle button', () => {
@@ -135,11 +129,9 @@ describe('PublicHeader', () => {
       expect(toggle.tagName).toBe('BUTTON');
     });
 
-    it('does not render nav links for anonymous users', () => {
+    it('does not expose authenticated navigation to anonymous users', () => {
       render(<PublicHeader />);
-      expect(screen.queryByText('Home')).not.toBeInTheDocument();
       expect(screen.queryByText('Dashboard')).not.toBeInTheDocument();
-      expect(screen.queryByText('Information')).not.toBeInTheDocument();
     });
 
     it('does not render avatar for anonymous users', () => {
@@ -159,13 +151,14 @@ describe('PublicHeader', () => {
       expect(screen.getByRole('banner')).toBeInTheDocument();
     });
 
-    it('renders nav links: Home, Dashboard, Information', () => {
+    it('renders nav links: Home, Dashboard, Information, Fire Stations', () => {
       render(<PublicHeader />);
       const nav = screen.getByRole('navigation', { name: 'Primary navigation' });
       expect(nav).toBeInTheDocument();
       expect(screen.getByText('Home')).toHaveAttribute('href', '/');
       expect(screen.getByText('Dashboard')).toHaveAttribute('href', '/contributor');
       expect(screen.getByText('Information')).toHaveAttribute('href', '/information');
+      expect(screen.getByText('Fire Stations')).toHaveAttribute('href', '/fire-stations');
     });
 
     it('renders profile avatar with aria-label = email or username', () => {

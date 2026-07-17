@@ -33,7 +33,6 @@ import {
 } from '@/lib/api/information';
 
 type Tab = 'emergencies' | 'announcements' | 'guide';
-type Theme = 'dark' | 'light';
 
 const EMERGENCY_SEVERITY_COLOR: Record<string, string> = {
   critical: 'var(--red)',
@@ -116,12 +115,6 @@ function formatDate(value: string | null): string {
   return date.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
 }
 
-function readInitialTheme(): Theme {
-  if (typeof window === 'undefined') return 'dark';
-  const saved = window.localStorage.getItem('landing-theme');
-  return saved === 'light' || saved === 'dark' ? saved : 'dark';
-}
-
 /**
  * Information Hub (#614). Public, no auth required — anonymous and
  * CIVILIAN_REPORTER users see identical content (IA spec
@@ -131,17 +124,13 @@ function readInitialTheme(): Theme {
  * is no server-side gate to preserve here — this page previously added one
  * on the frontend, which this change removes.
  *
- * Styled with the shared public-surface design system (primitives in
- * public-surface.css). Uses a local theme toggle (persisted under the same
- * `landing-theme` key as PublicThemeProvider) rather than importing that
- * component, so we keep the page's own <header> immediately followed by the
- * tabs container (preserving the InformationPage-icons test contract) and
- * avoid the shared component's emoji toggle glyphs.
+ * Styled with the shared public-surface design system. LayoutShell supplies
+ * the same auth-aware header and persisted public theme used by the other
+ * anonymous/civilian routes.
  */
 export default function InformationPage() {
   const { user, loading } = useAuth();
   const [tab, setTab] = useState<Tab>('emergencies');
-  const [theme, setTheme] = useState<Theme>(readInitialTheme);
 
   const [emergencies, setEmergencies] = useState<EmergencyResponse[] | null>(null);
   const [announcements, setAnnouncements] = useState<AnnouncementResponse[] | null>(null);
@@ -156,14 +145,6 @@ export default function InformationPage() {
   const [severityFilter, setSeverityFilter] = useState('all');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') window.localStorage.setItem('landing-theme', theme);
-  }, [theme]);
-
-  const toggleTheme = useCallback(() => {
-    setTheme((t) => (t === 'dark' ? 'light' : 'dark'));
-  }, []);
 
   const loadEmergencies = useCallback(async () => {
     setEmergenciesBusy(true);
@@ -243,32 +224,17 @@ export default function InformationPage() {
   const urgencyPill = (urgency: string) => URGENCY_PILL[urgency] ?? 'ps-pill-slate';
 
   return (
-    <div className="public-surface ps-has-mesh" data-theme={theme} suppressHydrationWarning>
-      <div className="ps-header">
-        <Link href="/" className="ps-header-logo-link" aria-label="WIMS-BFP home">
-          <span className="ps-header-title">WIMS-BFP</span>
-        </Link>
-        <button
-          type="button"
-          onClick={toggleTheme}
-          className="ps-theme-toggle"
-          data-testid="theme-toggle"
-          aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-        >
-          {theme === 'dark' ? 'Light' : 'Dark'}
-        </button>
-      </div>
-
+    <div className="ps-has-mesh">
       {loading ? (
-        <main className="ps-content">
+        <div>
           <div className="ps-info-inner">
             <p className="ps-status-msg" role="status">
               Loading information…
             </p>
           </div>
-        </main>
+        </div>
       ) : (
-        <main className="ps-content">
+        <div>
           <div className="ps-info-inner">
             <header>
               <h1 className="ps-info-title">Information</h1>
@@ -570,23 +536,8 @@ export default function InformationPage() {
               </section>
             )}
           </div>
-        </main>
+        </div>
       )}
-
-      <footer className="ps-footer">
-        <p>
-          <strong>WIMS-BFP</strong> · Bureau of Fire Protection · Republic of the Philippines
-        </p>
-        <p>
-          <Link href="/privacy">Privacy Policy</Link>
-          {!user && (
-            <>
-              {' · '}
-              <Link href="/register">Register as a reporter</Link>
-            </>
-          )}
-        </p>
-      </footer>
     </div>
   );
 }
