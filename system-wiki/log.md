@@ -1,3 +1,9 @@
+## [2026-07-18] fix(public-header): expose authenticated sign-out
+
+- **Scope:** The shared `PublicHeader` now renders an explicit Sign out button for every authenticated session and calls the existing `AuthContext.logout` action. Its established server logout, cache cleanup, and identity-provider teardown remain unchanged.
+- **Tests:** `PublicHeader.test.tsx` verifies that the accessible control calls `logout`.
+- **Wiki:** Updated [[frontend/route-map]] and [[index]]. No FRS/code gap changed.
+
 ## [2026-07-18] feat(validator): wire verified incidents to perimeter workspace (#665)
 
 - **Scope:** Each VERIFIED row in `/dashboard/validator` now exposes a Perimeter action that opens `/dashboard/validator/perimeter-draw?incident_id={id}`. The action stops row-click propagation, so it opens the existing online, role-gated workspace rather than the regional incident detail route. Pending, rejected, and replaced records do not expose it.

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { PublicHeader } from './PublicHeader';
 import * as AuthContext from '@/context/AuthContext';
@@ -178,6 +178,15 @@ describe('PublicHeader', () => {
       render(<PublicHeader />);
       expect(screen.queryByTestId('header-register')).not.toBeInTheDocument();
       expect(screen.queryByTestId('header-signin')).not.toBeInTheDocument();
+    });
+
+    it('renders Sign out and calls logout', () => {
+      const logout = vi.fn();
+      vi.mocked(AuthContext.useAuth).mockReturnValue({ ...civilianUser, logout });
+      render(<PublicHeader />);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
+      expect(logout).toHaveBeenCalledOnce();
     });
   });
 
