@@ -1,7 +1,7 @@
 # WIMS-BFP Custom Detection Rules — SID range 1000000-1000999
 # M7b (#155): OWASP Top 10 + BFP-specific signatures.
-# This file is merged into suricata.rules by suricata-update --local,
-# preserving custom rules across weekly ET Open rule fetches.
+# Loaded directly by suricata.yaml so weekly ET Open refreshes do not
+# duplicate these WIMS-owned signatures in suricata.rules.
 
 # ===== OWASP Top 10 =====
 alert http any any -> any any (msg:"WIMS OWASP A03 SQLi UNION SELECT"; flow:established,to_server; http.uri; content:"union"; nocase; content:"select"; nocase; distance:0; within:100; classtype:web-application-attack; sid:1000001; rev:1;)
@@ -86,7 +86,7 @@ alert http any any -> any any (msg:"WIMS OWASP A01 open redirect protocol-relati
 alert http any any -> any any (msg:"WIMS OWASP A01 open redirect external URL"; flow:established,to_server; http.uri; pcre:"/(next|url|return|callback|continue|dest|destination|go|out)=(https?%3a|https?:\/\/)/i"; detection_filter:track by_src, count 5, seconds 60; classtype:web-application-attack; sid:1000132; rev:2;)
 
 # ===== CRLF Injection / Response Splitting Detection (SID 1000133-1000134) =====
-alert http any any -> any any (msg:"WIMS OWASP A03 CRLF injection URI"; flow:established,to_server; http.raw_uri; pcre:"/(%0d%0a|%0a%0d)(Set-Cookie|Location|Content-Type|HTTP\/)/i"; classtype:web-application-attack; sid:1000133; rev:3;)
+alert http any any -> any any (msg:"WIMS OWASP A03 CRLF injection URI"; flow:established,to_server; http.uri.raw; pcre:"/(%0d%0a|%0a%0d)(Set-Cookie|Location|Content-Type|HTTP\/)/i"; classtype:web-application-attack; sid:1000133; rev:3;)
 alert http any any -> any any (msg:"WIMS OWASP A03 CRLF injection body header injection"; flow:established,to_server; http.request_body; pcre:"/(%0d%0a|%0a%0d)(Set-Cookie|Location|Content-Type|HTTP\/)/i"; classtype:web-application-attack; sid:1000134; rev:1;)
 
 # ===== TD-02: Credential Spray (SID 1000135) =====

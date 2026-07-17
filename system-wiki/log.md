@@ -691,6 +691,12 @@ Removed the AI incident narrative feature (PR #104 / #69) — backend-only featu
 - **Manual QA:** Skipped because no authenticated CIVILIAN_REPORTER browser session/fixture was available. It remains required to inspect dark/light framing and reload persistence, 320px/480px report rows, keyboard focus, hydration, and map containment.
 - **Wiki:** Updated [[frontend/route-map]] and `system-wiki/index.md`. No FRS/code gap changed.
 
+## [2026-07-17] fix(security): validate Suricata rules without duplicate local signatures (#658)
+
+- **Scope:** `suricata-update` now refreshes ET Open rules only; `suricata.yaml` directly loads the 53 committed WIMS custom SIDs without merging them into generated `suricata.rules`. SID 1000133 now uses Suricata 8's `http.uri.raw` keyword.
+- **Validation:** `test_suricata_rules.py` checks the current `suricata -T` output instead of historical append-only logs, and CI validates the committed config with read-only mounts before the security scan.
+- **Wiki:** Updated [[security/security-baseline]] and `system-wiki/index.md`. No FRS/code gap changed.
+
 ## [2026-07-17] feat(public-map): civilian circles and verified perimeter overlays (#639)
 
 - **Scope:** `GET /api/information/emergencies` now adds coordinates and a GeoJSON Feature perimeter only when a published emergency links to a VERIFIED incident. `PublicFireMapInner` renders aggregated civilian pressure signals as area circles, verified incident perimeters as polygons, and falls back to a point only when the verified incident has no perimeter.
