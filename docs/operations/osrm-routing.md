@@ -39,10 +39,10 @@ Prerequisites on the target host:
 From the repository root:
 
 ```bash
-sudo mkdir -p /opt/wims-bfp/osrm-data
-sudo chown "$(id -u):$(id -g)" /opt/wims-bfp/osrm-data
-./scripts/provision-osrm-metro-manila.sh /opt/wims-bfp/osrm-data
-readlink -f /opt/wims-bfp/osrm-data/active
+sudo mkdir -p /opt/wims-osrm-data
+sudo chown "$(id -u):$(id -g)" /opt/wims-osrm-data
+./scripts/provision-osrm-metro-manila.sh /opt/wims-osrm-data
+readlink -f /opt/wims-osrm-data/active
 ```
 
 The script downloads to a temporary directory, verifies SHA-256 before Docker preprocessing, runs OSRM extract/partition/customize with the pinned image, validates required MLD files, moves the complete version into place, and atomically changes `active`. A failed run leaves the previous active version unchanged.
@@ -50,10 +50,10 @@ The script downloads to a temporary directory, verifies SHA-256 before Docker pr
 Set the uncommitted production environment value:
 
 ```dotenv
-OSRM_DATA_DIR=/opt/wims-bfp/osrm-data
+OSRM_DATA_DIR=/opt/wims-osrm-data
 ```
 
-`OSRM_DATA_DIR` must be the parent directory, not the `active` symlink itself. Compose mounts the parent so the container follows atomic `active` switches without Docker replacing the symlink with an empty bind-source directory.
+`OSRM_DATA_DIR` must be an external parent directory, not the `active` symlink or a path below `/opt/wims-bfp`. Compose mounts the parent so the container follows atomic `active` switches without Docker replacing the symlink with an empty bind-source directory; keeping it outside the repository prevents deployment's `git clean -fd` from deleting or blocking on runtime data.
 
 Do not set `OSRM_BASE_URL` in the host file; the production Compose overlay fixes it to the internal service URL for backend and Celery.
 
@@ -116,8 +116,8 @@ Retain at least the immediately previous complete version until the replacement 
 Select a retained complete version, atomically replace the active symlink, and recreate OSRM through the approved production Compose workflow:
 
 ```bash
-cd /opt/wims-bfp/osrm-data
-ln -s /opt/wims-bfp/osrm-data/PREVIOUS_VERSION .active.rollback
+cd /opt/wims-osrm-data
+ln -s /opt/wims-osrm-data/PREVIOUS_VERSION .active.rollback
 mv -Tf .active.rollback active
 ```
 
