@@ -1,5 +1,6 @@
 import { render, screen, waitFor, cleanup } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { PublicThemeProvider } from '@/components/public/PublicThemeProvider';
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
@@ -26,10 +27,12 @@ const summary = {
 
 const mockProfile = vi.fn();
 const mockReports = vi.fn();
+const mockStats = vi.fn();
 
 vi.mock('@/lib/api/contributor', () => ({
   fetchContributorProfile: (...args: unknown[]) => mockProfile(...args),
   fetchContributorReports: (...args: unknown[]) => mockReports(...args),
+  fetchContributorStats: (...args: unknown[]) => mockStats(...args),
 }));
 
 // Mock PublicFireMap (SSR-unsafe, same landing-page component reused here per #615)
@@ -43,9 +46,21 @@ vi.mock('@tabler/icons-react', () => ({
   IconPlus: () => <span data-testid="icon-plus" />,
   IconArrowRight: () => <span data-testid="icon-arrow-right" />,
   IconInbox: () => <span data-testid="icon-inbox" />,
+  IconShieldCheckFilled: () => <span data-testid="icon-shield-check" />,
+  IconFlameFilled: () => <span data-testid="icon-flame" />,
 }));
 
 import ContributorPage from './page';
+
+// The page is content-only; LayoutShell supplies the PublicThemeProvider +
+// PublicHeader wrapper in production. Mirror that tree here as a test harness.
+function renderContributor() {
+  return render(
+    <PublicThemeProvider showHeader={false}>
+      <ContributorPage />
+    </PublicThemeProvider>,
+  );
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -81,59 +96,83 @@ afterEach(() => {
 
 describe('Contributor dashboard (#615 restructure)', () => {
   it('reuses the existing contributor API endpoints and does not call fetchContributorStats', async () => {
-    render(<ContributorPage />);
-    await waitFor(() => expect(screen.getByText('Contributor dashboard')).toBeTruthy());
+    renderContributor();
+    await waitFor(() => expect(screen.getByText(/Welcome back/)).toBeTruthy());
     expect(mockProfile).toHaveBeenCalledTimes(1);
     expect(mockReports).toHaveBeenCalledTimes(1);
+    // The dashboard must stay on the profile/reports endpoints and never fetch
+    // the separate /contributor/stats breakdown.
+    expect(mockStats).not.toHaveBeenCalled();
   });
 
-  it('renders exactly the two spec stat cards: "Reports you filed" and "Verified reports"', async () => {
-    render(<ContributorPage />);
-    await waitFor(() => expect(screen.getByText('Contributor dashboard')).toBeTruthy());
+  it('renders exactly the two spec stat cards: "Reports you filed" and "Verification status"', async () => {
+    const { container } = renderContributor();
+    await waitFor(() => expect(screen.getByText(/Welcome back/)).toBeTruthy());
     expect(screen.getByText('Reports you filed')).toBeTruthy();
-    expect(screen.getByText('Verified reports')).toBeTruthy();
+    expect(screen.getByText('Verification status')).toBeTruthy();
+    expect(container.querySelectorAll('.ps-contributor-stat-card').length).toBe(2);
     // Verified reports shows count + percentage (9 of 12 -> 75%)
     expect(screen.getByText(/\(75%\)/)).toBeTruthy();
   });
 
+  it('renders a truthful verification breakdown (9 Verified / 3 Awaiting review / 0 Rejected)', async () => {
+    renderContributor();
+    await waitFor(() => expect(screen.getByText(/Welcome back/)).toBeTruthy());
+    expect(screen.getByText('Verification status')).toBeTruthy();
+    expect(screen.getByText(/9 Verified/)).toBeTruthy();
+    expect(screen.getByText(/3 Awaiting review/)).toBeTruthy();
+    expect(screen.getByText(/0 Rejected/)).toBeTruthy();
+    expect(screen.getByText(/\(75%\)/)).toBeTruthy();
+  });
+
   it('does NOT render the old 4-card grid labels (Trust score / Total reports / Actioned / Pending)', async () => {
-    render(<ContributorPage />);
-    await waitFor(() => expect(screen.getByText('Contributor dashboard')).toBeTruthy());
+    renderContributor();
+    await waitFor(() => expect(screen.getByText(/Welcome back/)).toBeTruthy());
     expect(screen.queryByText('Trust score')).not.toBeInTheDocument();
     expect(screen.queryByText('Total reports')).not.toBeInTheDocument();
     expect(screen.queryByText('Actioned', { selector: 'p' })).not.toBeInTheDocument();
   });
 
   it('does NOT render the trust-breakdown bar or monthly-reports grid', async () => {
-    render(<ContributorPage />);
-    await waitFor(() => expect(screen.getByText('Contributor dashboard')).toBeTruthy());
+    renderContributor();
+    await waitFor(() => expect(screen.getByText(/Welcome back/)).toBeTruthy());
     expect(screen.queryByText('Trust breakdown')).not.toBeInTheDocument();
     expect(screen.queryByText('Monthly reports')).not.toBeInTheDocument();
   });
 
   it('renders the BFP-red report CTA linking to /report', async () => {
-    render(<ContributorPage />);
+    renderContributor();
     const cta = await screen.findByText('Submit a report');
     expect(cta.closest('a')?.getAttribute('href')).toBe('/report');
   });
 
   it('renders report history cards with status indicators', async () => {
-    render(<ContributorPage />);
-    await waitFor(() => expect(screen.getByText('#10')).toBeTruthy());
-    expect(screen.getByText(/Fire/)).toBeTruthy();
+    renderContributor();
+    const verified = await screen.findByText('Verified', { selector: 'span' });
+    expect(verified).toBeTruthy();
+    expect(screen.getByText('Wildfire', { selector: 'span.ps-contributor-report-title' })).toBeTruthy();
     // ACTIONED -> "Verified" status label
     expect(screen.getByText('Verified', { selector: 'span' })).toBeTruthy();
   });
 
+  it('renders a bounded Activity snapshot derived from the loaded reports', async () => {
+    renderContributor();
+    await waitFor(() => expect(screen.getByText(/Current status: Verified/)).toBeTruthy());
+    // Activity is bounded to the first three loaded reports (fixture has 1).
+    expect(screen.getByText(/Report received/)).toBeTruthy();
+    expect(screen.getByText(/Current status: Verified/)).toBeTruthy();
+    expect(screen.getAllByText(/Current status:/).length).toBe(1);
+  });
+
   it('renders the scrollable report list container', async () => {
-    render(<ContributorPage />);
-    await waitFor(() => expect(screen.getByText('#10')).toBeTruthy());
-    const list = screen.getByText('#10').closest('ul');
-    expect(list?.className).toMatch(/overflow-y-auto/);
+    renderContributor();
+    await screen.findByText('Verified', { selector: 'span' });
+    const list = screen.getByText('Verified', { selector: 'span' }).closest('ul');
+    expect(list?.className).toMatch(/ps-contributor-report-list/);
   });
 
   it('renders the compact nearby-activity map reusing the landing PublicFireMap component', async () => {
-    render(<ContributorPage />);
+    renderContributor();
     await waitFor(() => expect(screen.getByText('Nearby activity')).toBeTruthy());
     const map = screen.getByTestId('public-fire-map');
     expect(map).toBeInTheDocument();

@@ -75,7 +75,7 @@ describe('Public surface — exactly one header per route (#654)', () => {
   });
 
   // Routes that previously double-rendered (provider ps-header + PublicHeader).
-  const singleHeaderPaths = ['/report', '/tracking', '/tracking/abc', '/login', '/register'];
+  const singleHeaderPaths = ['/report', '/tracking', '/tracking/abc', '/login', '/register', '/contributor'];
 
   it.each(singleHeaderPaths)(
     'renders exactly ONE <header> and no .ps-header duplicate on "%s"',

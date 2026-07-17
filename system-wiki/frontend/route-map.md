@@ -4,7 +4,7 @@ created: 2026-05-14
 updated: 2026-07-17
 type: frontend
 tags: [wims-bfp, frontend, routing, implementation-map]
-sources: [raw/codebase/codebase-snapshot-2026-05-14.md, src/frontend/src/app]
+sources: [raw/codebase/codebase-snapshot-2026-05-14.md, src/frontend/src/app/contributor/page.tsx, src/frontend/src/components/LayoutShell.tsx, src/frontend/src/components/public/PublicThemeProvider.tsx]
 status: draft
 ---
 
@@ -54,7 +54,7 @@ Next.js App Router pages detected under `src/frontend/src/app`.
 | `/community` | `community/page.tsx` | Public Community Safety Hub with urgent notices, plain-text published content cards, language selection, filtering, and accessible loading/error/empty states. |
 | `/admin/community` | `admin/community/page.tsx` | SYSTEM_ADMIN presentation-gated plain-text CMS editor with draft lifecycle actions; backend remains authoritative. |
 | `/community/[slug]` | `community/[slug]/page.tsx` | Shareable public plain-text community content detail route. |
-| `/contributor` | `contributor/page.tsx` | Authenticated CIVILIAN_REPORTER dashboard with private trust summary, monthly activity, and paginated report history. |
+| `/contributor` | `contributor/page.tsx` | Authenticated CIVILIAN_REPORTER dashboard in the shared civilian shell, with a two-card report/verification summary, a bounded current-status activity snapshot from loaded reports (not event history), a filterable/paginated private report list, and a compact station-enabled map. No contributor API or auth contract changes. |
 
 ## UI Surface Clusters
 - Auth/profile: `/login`, `/callback`, `/profile`, auth API routes. `/auth/login` is not a Next.js route; nginx redirects the exact legacy path to `/login`, while `/auth/` remains the Keycloak proxy namespace. Post-login routing uses `src/frontend/src/lib/roleRedirect.ts`: encoder roles land on `/dashboard/regional`, validator roles land on `/dashboard/validator`, system admins on `/admin/system`, and analysts on `/dashboard/analyst`; saved idle-session redirects are preserved only for specific same-origin workflow URLs, while generic `/home` or `/dashboard` redirects fall back to the role dashboard.

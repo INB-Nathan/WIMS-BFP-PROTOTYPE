@@ -675,3 +675,11 @@ Removed the AI incident narrative feature (PR #104 / #69) — backend-only featu
 - **Authority:** `MANUAL_DRAW` is now an allowed durable map method in the clean bootstrap and Alembic upgrade. GeoJSON validity and acreage remain PostGIS-authoritative; the browser calculation is labelled preview-only. The UI displays stored incident province/region metadata rather than the prototype's coarse client-side reverse-geocode boxes.
 - **Security:** UI presentation permits NATIONAL_VALIDATOR and SYSTEM_ADMIN, while the existing perimeter route and RLS policies remain the authorization boundary. The workspace rejects non-verified or unmapped incidents before drawing.
 - **Wiki:** Updated [[frontend/route-map]] and [[backend/api-route-map]]. No FRS/code gap changed.
+
+## [2026-07-17] feat(public-surface): migrate civilian contributor dashboard (#655)
+
+- **Scope:** Restyled `src/frontend/src/app/contributor/page.tsx` with scoped `ps-*` tokens and retained its existing contributor API/auth, filter, pagination, and compact `PublicFireMap` behavior. The dashboard now has exactly two report/verification cards, a truthful three-outcome legend, and a bounded current-status Activity snapshot from the loaded reports; it does not fabricate event history, locations, drafts, or report statistics.
+- **Shell:** `/contributor` remains content-only. The existing `LayoutShell` supplies `PublicThemeProvider showHeader={false}` and the real `PublicHeader`, preserving one civilian banner, Home/Dashboard/Information navigation, the Report a Fire CTA, and persisted `landing-theme` day/night state without nesting provider or page-owned chrome.
+- **Tests:** Updated `src/frontend/src/app/contributor/page.test.tsx` and `src/frontend/src/app/__tests__/public-header-single-banner.test.tsx`; added `src/frontend/src/app/__tests__/contributor-public-shell.test.tsx`. Focused contributor/header tests passed: 4 of 4 files and 36 of 36 tests. T3 reliability review also passed 3 of 3 repeated runs (2 of 2 files, 7 of 7 tests each).
+- **Manual QA:** Skipped because no authenticated CIVILIAN_REPORTER browser session/fixture was available. It remains required to inspect dark/light framing and reload persistence, 320px/480px report rows, keyboard focus, hydration, and map containment.
+- **Wiki:** Updated [[frontend/route-map]] and `system-wiki/index.md`. No FRS/code gap changed.
