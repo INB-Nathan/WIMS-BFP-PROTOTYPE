@@ -29,6 +29,12 @@ validate_dataset() {
 
 activate_dataset() {
   local temporary_link="$root/.active.$$"
+  if [[ -d "$active_link" && ! -L "$active_link" ]]; then
+    rmdir "$active_link" || {
+      echo "Active OSRM dataset path is a non-empty directory: $active_link" >&2
+      exit 1
+    }
+  fi
   ln -s "$version_dir" "$temporary_link"
   mv -Tf "$temporary_link" "$active_link"
 }

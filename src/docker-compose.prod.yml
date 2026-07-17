@@ -6,14 +6,14 @@ services:
   osrm:
     image: osrm/osrm-backend:v5.25.0
     container_name: wims-osrm
-    command: ["osrm-routed", "--algorithm", "mld", "--verbosity", "WARNING", "/data/metro-manila.osrm"]
+    command: ["osrm-routed", "--algorithm", "mld", "--verbosity", "WARNING", "/data/active/metro-manila.osrm"]
     volumes:
       - ${OSRM_DATA_DIR:?set OSRM_DATA_DIR}:/data:ro
     networks:
       wims_internal:
         ipv4_address: 172.18.0.9
     healthcheck:
-      test: ["CMD-SHELL", "test -f /data/metro-manila.osrm.cells && test -f /data/metro-manila.osrm.partition"]
+      test: ["CMD-SHELL", "test -f /data/active/metro-manila.osrm.cells && test -f /data/active/metro-manila.osrm.partition"]
       interval: 10s
       timeout: 5s
       retries: 5

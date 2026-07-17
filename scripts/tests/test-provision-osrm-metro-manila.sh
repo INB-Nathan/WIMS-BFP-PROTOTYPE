@@ -40,6 +40,9 @@ esac
 EOF
 chmod +x "$tmp/bin/curl" "$tmp/bin/docker" "$script"
 
+# Docker can create an empty bind-source directory where an active symlink belongs.
+mkdir -p "$tmp/data/active"
+
 PATH="$tmp/bin:$PATH" OSRM_METADATA_FILE="$tmp/metadata.env" "$script" "$tmp/data"
 test -L "$tmp/data/active"
 test "$(readlink "$tmp/data/active")" = "$tmp/data/test-version"

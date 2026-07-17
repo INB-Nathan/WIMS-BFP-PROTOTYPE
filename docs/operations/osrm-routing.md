@@ -50,8 +50,10 @@ The script downloads to a temporary directory, verifies SHA-256 before Docker pr
 Set the uncommitted production environment value:
 
 ```dotenv
-OSRM_DATA_DIR=/opt/wims-bfp/osrm-data/active
+OSRM_DATA_DIR=/opt/wims-bfp/osrm-data
 ```
+
+`OSRM_DATA_DIR` must be the parent directory, not the `active` symlink itself. Compose mounts the parent so the container follows atomic `active` switches without Docker replacing the symlink with an empty bind-source directory.
 
 Do not set `OSRM_BASE_URL` in the host file; the production Compose overlay fixes it to the internal service URL for backend and Celery.
 

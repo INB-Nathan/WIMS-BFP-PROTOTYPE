@@ -22,12 +22,15 @@ def test_osrm_is_production_only_and_internal():
         "mld",
         "--verbosity",
         "WARNING",
-        "/data/metro-manila.osrm",
+        "/data/active/metro-manila.osrm",
     ]
     assert "ports" not in osrm
     assert osrm["networks"] == {"wims_internal": {"ipv4_address": "172.18.0.9"}}
     assert osrm["volumes"] == ["${OSRM_DATA_DIR:?set OSRM_DATA_DIR}:/data:ro"]
-    assert "healthcheck" in osrm
+    assert osrm["healthcheck"]["test"] == [
+        "CMD-SHELL",
+        "test -f /data/active/metro-manila.osrm.cells && test -f /data/active/metro-manila.osrm.partition",
+    ]
 
 
 def test_production_apps_use_osrm_without_hard_health_dependency():
