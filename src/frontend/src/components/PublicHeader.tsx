@@ -23,7 +23,7 @@ import { defaultRouteForRole } from '@/lib/roleRedirect';
  * The "Report a Fire" CTA is authenticated-only and hidden on /report.
  */
 export function PublicHeader() {
-  const { user, loading } = useAuth();
+  const { user, loading, logout } = useAuth();
   const pathname = usePathname();
   const { theme, toggleTheme } = usePublicTheme();
 
@@ -106,6 +106,12 @@ export function PublicHeader() {
           >
             {avatarInitial}
           </div>
+        )}
+
+        {isAuthenticated && (
+          <button type="button" className="btn-ghost" onClick={() => void logout()}>
+            Sign out
+          </button>
         )}
 
         {isAuthenticated && !isReportPage && (

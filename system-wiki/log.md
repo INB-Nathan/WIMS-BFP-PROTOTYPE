@@ -1,3 +1,21 @@
+## [2026-07-18] feat(validator): link sidebar to perimeter workspace (#665)
+
+- **Scope:** NATIONAL_VALIDATOR now has a Perimeter Drawing sidebar link to the existing workspace. The workspace continues to require selecting a real verified incident before editing.
+- **Tests:** `Sidebar.test.tsx` verifies the role-scoped link and route.
+- **Wiki:** Updated [[frontend/route-map]] and [[index]]. No FRS/code gap changed.
+
+## [2026-07-18] fix(public-header): expose authenticated sign-out
+
+- **Scope:** The shared `PublicHeader` now renders an explicit Sign out button for every authenticated session and calls the existing `AuthContext.logout` action. Its established server logout, cache cleanup, and identity-provider teardown remain unchanged.
+- **Tests:** `PublicHeader.test.tsx` verifies that the accessible control calls `logout`.
+- **Wiki:** Updated [[frontend/route-map]] and [[index]]. No FRS/code gap changed.
+
+## [2026-07-18] feat(validator): wire verified incidents to perimeter workspace (#665)
+
+- **Scope:** Each VERIFIED row in `/dashboard/validator` now exposes a Perimeter action that opens `/dashboard/validator/perimeter-draw?incident_id={id}`. The action stops row-click propagation, so it opens the existing online, role-gated workspace rather than the regional incident detail route. Pending, rejected, and replaced records do not expose it.
+- **Authority:** This is navigation-only; the existing workspace and server perimeter endpoint remain responsible for verified-status checks, role authorization, GeoJSON validation, and PostGIS measurement.
+- **Tests:** `IncidentTableRow.test.tsx` verifies the verified-only action and that its click does not open the row detail.
+- **Wiki:** Updated [[frontend/route-map]] and [[index]]. No FRS/code gap changed.
 ## [2026-07-18] feat(report-wizard): add auth-state indicator to public report wizard (#680)
 
 - **Scope:** `components/report-wizard/Wizard.tsx` now renders a compact auth-state indicator above the report card in both the active 5-step wizard and the draft-resume prompt. The indicator reuses `AuthContext` via `useAuth()` — no second session fetch and no client-side HttpOnly JWT parsing. It shows a neutral loading state while auth resolves (no guest/identity flash), a signed-in row with the available `preferred_username`/email, or a guest-reporting row with a `/login` link. It is session awareness only.

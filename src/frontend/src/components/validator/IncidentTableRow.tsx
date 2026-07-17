@@ -1,7 +1,7 @@
 "use client";
 
 import type { MouseEvent } from "react";
-import { Archive } from "lucide-react";
+import { Archive, Map } from "lucide-react";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { formatIncidentDate } from "@/lib/incident-utils";
 import { formatClassification } from "@/lib/afor-utils";
@@ -25,6 +25,7 @@ interface Props {
   onUnarchive: (inc: ValidatorIncident) => void;
   onDelete: (inc: ValidatorIncident) => void;
   onArchive: (inc: ValidatorIncident) => void;
+  onDrawPerimeter: (inc: ValidatorIncident) => void;
   onReviewDuplicate: (inc: ValidatorIncident) => void;
   onAccept: (inc: ValidatorIncident) => void;
   onReject: (inc: ValidatorIncident) => void;
@@ -47,6 +48,7 @@ export function IncidentTableRow({
   onUnarchive,
   onDelete,
   onArchive,
+  onDrawPerimeter,
   onReviewDuplicate,
   onAccept,
   onReject,
@@ -162,15 +164,28 @@ export function IncidentTableRow({
               </button>
             </>
           ) : ["VERIFIED", "REPLACED", "REJECTED"].includes(inc.verification_status) ? (
-            <button
-              onClick={(e) => { e.stopPropagation(); onArchive(inc); }}
-              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs rounded-lg border border-gray-200 bg-white font-medium transition-colors hover:bg-gray-50"
-              style={{ color: 'var(--text-secondary)' }}
-              title="Archive this incident"
-            >
-              <Archive className="h-3.5 w-3.5" aria-hidden />
-              Archive
-            </button>
+            <>
+              {inc.verification_status === "VERIFIED" && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onDrawPerimeter(inc); }}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 text-xs rounded-lg border border-gray-200 bg-white font-medium transition-colors hover:bg-gray-50"
+                  style={{ color: 'var(--text-secondary)' }}
+                  title="Draw or update this verified incident's perimeter"
+                >
+                  <Map className="h-3.5 w-3.5" aria-hidden />
+                  Perimeter
+                </button>
+              )}
+              <button
+                onClick={(e) => { e.stopPropagation(); onArchive(inc); }}
+                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs rounded-lg border border-gray-200 bg-white font-medium transition-colors hover:bg-gray-50"
+                style={{ color: 'var(--text-secondary)' }}
+                title="Archive this incident"
+              >
+                <Archive className="h-3.5 w-3.5" aria-hidden />
+                Archive
+              </button>
+            </>
           ) : (
             <>
               {(inc.is_duplicate || runtimeDuplicates.has(inc.incident_id)) ? (

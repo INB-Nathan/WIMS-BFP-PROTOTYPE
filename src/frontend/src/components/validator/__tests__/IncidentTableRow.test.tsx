@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { IncidentTableRow } from '../IncidentTableRow';
 import type { ValidatorIncident } from '../types';
@@ -46,6 +46,7 @@ const baseProps = {
   onUnarchive: vi.fn(),
   onDelete: vi.fn(),
   onArchive: vi.fn(),
+  onDrawPerimeter: vi.fn(),
   onReviewDuplicate: vi.fn(),
   onAccept: vi.fn(),
   onReject: vi.fn(),
@@ -53,32 +54,48 @@ const baseProps = {
 
 describe('IncidentTableRow', () => {
   it('renders Accept and Reject buttons for a pending incident', () => {
-    render(<IncidentTableRow inc={makeIncident()} {...baseProps} />);
+    render(<table><tbody><IncidentTableRow inc={makeIncident()} {...baseProps} /></tbody></table>);
     expect(screen.getByText('Accept')).toBeInTheDocument();
     expect(screen.getByText('Reject')).toBeInTheDocument();
   });
 
   it('renders Queued badge instead of action buttons when incident has a pending queued op', () => {
     render(
-      <IncidentTableRow
+      <table><tbody><IncidentTableRow
         inc={makeIncident({ incident_id: 101 })}
         {...baseProps}
         queuedIncidentIds={new Set([101])}
-      />,
+      /></tbody></table>,
     );
     expect(screen.getByText('Queued')).toBeInTheDocument();
     expect(screen.queryByText('Accept')).not.toBeInTheDocument();
     expect(screen.queryByText('Reject')).not.toBeInTheDocument();
   });
 
+  it('opens the perimeter workspace action only for a verified incident', () => {
+    const onDrawPerimeter = vi.fn();
+    const { rerender } = render(
+      <table><tbody><IncidentTableRow inc={makeIncident({ verification_status: 'VERIFIED' })} {...baseProps} onDrawPerimeter={onDrawPerimeter} /></tbody></table>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Perimeter' }));
+    expect(onDrawPerimeter).toHaveBeenCalledWith(expect.objectContaining({ incident_id: 101 }));
+    expect(baseProps.onRowClick).not.toHaveBeenCalled();
+
+    rerender(
+      <table><tbody><IncidentTableRow inc={makeIncident({ verification_status: 'REJECTED' })} {...baseProps} /></tbody></table>,
+    );
+    expect(screen.queryByRole('button', { name: 'Perimeter' })).not.toBeInTheDocument();
+  });
+
   it('disables Delete button when offline', () => {
     render(
-      <IncidentTableRow
+      <table><tbody><IncidentTableRow
         inc={makeIncident({ verification_status: 'VERIFIED' })}
         {...baseProps}
         isArchiveView={true}
         isOnline={false}
-      />,
+      /></tbody></table>,
     );
     const deleteButton = screen.getByText('Delete').closest('button');
     expect(deleteButton).toBeDisabled();
