@@ -5,6 +5,7 @@
  * Verifies that:
  * - Public routes render PublicHeader except / (page-owned overlay) and /login.
  * - Civilian routes (/contributor, /information) render PublicHeader.
+ * - /profile uses the civilian shell only for CIVILIAN_REPORTER.
  * - Staff-authenticated routes render Sidebar+Header (not PublicHeader).
  */
 import { render, screen, cleanup } from '@testing-library/react';
@@ -124,6 +125,47 @@ describe('LayoutShell', () => {
         expect(screen.queryByTestId('header')).not.toBeInTheDocument();
       },
     );
+  });
+
+  describe('/profile role-aware shell', () => {
+    it('renders PublicHeader for a civilian reporter', () => {
+      mockUseAuth.mockReturnValue({
+        user: { id: 'civilian-1', preferred_username: 'reporter', role: 'CIVILIAN_REPORTER' },
+        isAuthenticated: true,
+        serverValidated: true,
+        canQueueOfflineWrites: true,
+        loading: false,
+        loggingOut: false,
+        login: vi.fn(),
+        logout: vi.fn(),
+        refreshSession: vi.fn(),
+      });
+      mockUsePathname.mockReturnValue('/profile');
+      render(<LayoutShell>content</LayoutShell>);
+
+      expect(screen.getByTestId('public-header')).toBeInTheDocument();
+      expect(screen.queryByTestId('sidebar')).not.toBeInTheDocument();
+    });
+
+    it('retains the staff shell for a non-civilian user', () => {
+      mockUseAuth.mockReturnValue({
+        user: { id: 'staff-1', preferred_username: 'analyst', role: 'NATIONAL_ANALYST' },
+        isAuthenticated: true,
+        serverValidated: true,
+        canQueueOfflineWrites: true,
+        loading: false,
+        loggingOut: false,
+        login: vi.fn(),
+        logout: vi.fn(),
+        refreshSession: vi.fn(),
+      });
+      mockUsePathname.mockReturnValue('/profile');
+      render(<LayoutShell>content</LayoutShell>);
+
+      expect(screen.getByTestId('sidebar')).toBeInTheDocument();
+      expect(screen.getByTestId('header')).toBeInTheDocument();
+      expect(screen.queryByTestId('public-header')).not.toBeInTheDocument();
+    });
   });
 
   describe('Staff-authenticated user', () => {

@@ -86,7 +86,12 @@ export function LayoutShell({ children }: { children: ReactNode }) {
     // Public surface — the landing page owns its overlay-positioned header.
     // Login intentionally has no navigation/footer and provides only a return
     // control, matching the Keycloak SSO screen.
-    if (isPublicRoute(pathname) || isCivilianRoute(pathname)) {
+    const usesPublicShell =
+        isPublicRoute(pathname) ||
+        isCivilianRoute(pathname) ||
+        (pathname === '/profile' && user?.role === 'CIVILIAN_REPORTER');
+
+    if (usesPublicShell) {
         const isLoginPage = pathname === '/login';
         const pageOwnsFooter = isLoginPage || pathname === '/';
         return (

@@ -28,6 +28,8 @@ export default function ProfilePage() {
         id?: string;
         assignedRegionId?: number | null;
     } | null;
+    const isCivilianProfile = typedUser?.role === 'CIVILIAN_REPORTER';
+    const profileInitial = typedUser?.username?.trim().charAt(0).toUpperCase() || 'U';
 
     // Resolve the assigned region to a human-readable label.
     // Analyst / admin have no single region; others show the PH_REGIONS name
@@ -212,7 +214,7 @@ export default function ProfilePage() {
     }
 
     return (
-        <div className="space-y-6 max-w-2xl mx-auto">
+        <div className={isCivilianProfile ? 'ps-profile-page ps-has-mesh space-y-6 max-w-2xl mx-auto' : 'space-y-6 max-w-2xl mx-auto'}>
             <div>
                 <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>My Profile</h1>
                 <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
@@ -227,6 +229,15 @@ export default function ProfilePage() {
                     <span>Account Information</span>
                 </div>
                 <div className="card-body">
+                    {isCivilianProfile && (
+                        <div className="ps-profile-identity">
+                            <span className="ps-profile-avatar" aria-hidden>{profileInitial}</span>
+                            <div>
+                                <p className="font-semibold" style={{ color: 'var(--text-primary)' }}>{typedUser?.username ?? 'Your account'}</p>
+                                <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Manage your civilian reporter account.</p>
+                            </div>
+                        </div>
+                    )}
                     <div className="grid grid-cols-2 gap-4 text-sm">
                         <div>
                             <p className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--text-muted)' }}>Username / Email</p>
@@ -586,6 +597,12 @@ export default function ProfilePage() {
                     </button>
                 </div>
             </section>
+
+            {isCivilianProfile && (
+                <button type="button" className="ps-btn ps-btn-outline ps-profile-sign-out" onClick={logout}>
+                    Sign out
+                </button>
+            )}
         </div>
     );
 }
