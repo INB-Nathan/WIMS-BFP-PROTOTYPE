@@ -1,5 +1,12 @@
 'use client';
 
+// Issue #655 — Contributor dashboard (CIVILIAN_REPORTER) public-surface migration.
+// The provider, shared civilian header, and footer are supplied centrally by
+// LayoutShell, which wraps this route in <PublicThemeProvider showHeader={false}>
+// and renders PublicHeader for every civilian route. This page is content-only:
+// it must not import, instantiate, or configure PublicThemeProvider, nor add
+// any page-owned chrome, theme toggle, or navigation.
+
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
@@ -8,11 +15,10 @@ import { ApiRequestError } from '@/lib/api/errors';
 import {
   fetchContributorProfile,
   fetchContributorReports,
-  type ContributorPrivateSummary,
   type ContributorProfile,
   type ContributorReportsResponse,
 } from '@/lib/api/contributor';
-import { IconPlus, IconArrowRight, IconInbox } from '@tabler/icons-react';
+import { IconPlus, IconArrowRight, IconInbox, IconShieldCheckFilled, IconFlameFilled } from '@tabler/icons-react';
 
 // SSR guard: react-leaflet breaks without window. Reuses the same map
 // component as the public landing page (#612), just rendered at a
@@ -42,25 +48,27 @@ function formatDate(value: string | null): string {
   return Number.isNaN(date.getTime()) ? 'Not yet available' : date.toLocaleDateString();
 }
 
-const MONO = "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace";
-
 type ReportFilter = 'all' | 'pending' | 'resolved';
 
-function reportStatusIndicator(status: string): { label: string; className: string; dotClassName: string } {
+type StatusPresentation = { label: string; toneClass: string; pillClass: string };
+
+// Centralized status mapping: text + pill (with a decorative dot, aria-hidden).
+// PENDING/UNDER_REVIEW/LINKED stay pending and ACTIONED is resolved downstream.
+function reportStatusIndicator(status: string): StatusPresentation {
   const s = status.toUpperCase();
   if (s === 'ACTIONED') {
-    return { label: 'Verified', className: 'bg-green-50 text-green-700', dotClassName: 'bg-green-600' };
+    return { label: 'Verified', toneClass: 'ps-contributor-tone-verified', pillClass: 'ps-pill-green' };
   }
   if (s.startsWith('REJECTED')) {
-    return { label: 'Rejected', className: 'bg-slate-100 text-slate-600', dotClassName: 'bg-slate-500' };
+    return { label: 'Rejected', toneClass: 'ps-contributor-tone-rejected', pillClass: 'ps-pill-red' };
   }
   if (s === 'LINKED') {
-    return { label: 'Linked', className: 'bg-cyan-50 text-cyan-700', dotClassName: 'bg-cyan-600' };
+    return { label: 'Linked', toneClass: 'ps-contributor-tone-linked', pillClass: 'ps-pill-cyan' };
   }
   if (s === 'UNDER_REVIEW') {
-    return { label: 'Under review', className: 'bg-amber-50 text-amber-700', dotClassName: 'bg-amber-500' };
+    return { label: 'Under review', toneClass: 'ps-contributor-tone-review', pillClass: 'ps-pill-orange' };
   }
-  return { label: 'Pending', className: 'bg-amber-50 text-amber-700', dotClassName: 'bg-amber-500' };
+  return { label: 'Pending', toneClass: 'ps-contributor-tone-pending', pillClass: 'ps-pill-yellow' };
 }
 
 function matchesFilter(status: string, filter: ReportFilter): boolean {
@@ -68,6 +76,14 @@ function matchesFilter(status: string, filter: ReportFilter): boolean {
   const s = status.toUpperCase();
   if (filter === 'pending') return ['PENDING', 'UNDER_REVIEW', 'LINKED'].includes(s);
   return s === 'ACTIONED';
+}
+
+function displayNameFor(user: { preferred_username?: string | null; email?: string | null } | null): string {
+  const preferred = user?.preferred_username?.trim();
+  if (preferred) return preferred;
+  const email = user?.email?.trim();
+  if (email) return email.split('@')[0] || 'reporter';
+  return 'reporter';
 }
 
 export default function ContributorPage() {
@@ -116,7 +132,7 @@ export default function ContributorPage() {
     if (!loading && user?.role !== 'CIVILIAN_REPORTER') setBusy(false);
   }, [loading, user, loadDashboard]);
 
-  const summary: ContributorPrivateSummary | null = reports ?? profile;
+  const summary = reports ?? profile;
 
   const verifiedPct =
     summary && summary.total_reports > 0
@@ -130,248 +146,312 @@ export default function ContributorPage() {
 
   if (loading || busy) {
     return (
-      <main className="mx-auto max-w-6xl p-6" aria-busy="true">
-        <p role="status">Loading contributor dashboard…</p>
-      </main>
+      <div className="ps-contributor-page ps-has-mesh">
+        <div className="ps-contributor-inner ps-contributor-state">
+          <p className="ps-status-msg" role="status" aria-busy="true">
+            Loading contributor dashboard…
+          </p>
+        </div>
+      </div>
     );
   }
   if (!user) {
     return (
-      <main className="mx-auto max-w-2xl p-6">
-        <section className="rounded border bg-white p-6" role="alert">
-          <h1 className="text-2xl font-semibold">Sign in required</h1>
-          <p className="mt-2">Sign in to view your contributor dashboard.</p>
-          <Link className="mt-4 inline-block rounded bg-blue-700 px-4 py-2 text-white" href="/login">
-            Sign in
-          </Link>
-        </section>
-      </main>
+      <div className="ps-contributor-page ps-has-mesh">
+        <div className="ps-contributor-inner ps-contributor-state">
+          <section className="ps-card" role="alert">
+            <h1 className="ps-contributor-section-heading">Sign in required</h1>
+            <p className="ps-secondary">Sign in to view your contributor dashboard.</p>
+            <Link className="ps-btn ps-btn-primary" href="/login">
+              Sign in
+            </Link>
+          </section>
+        </div>
+      </div>
     );
   }
   if (user.role !== 'CIVILIAN_REPORTER') {
     return (
-      <main className="mx-auto max-w-2xl p-6">
-        <section className="rounded border bg-white p-6" role="alert">
-          <h1 className="text-2xl font-semibold">Access restricted</h1>
-          <p className="mt-2">This dashboard is available to civilian reporters only.</p>
-          <Link className="mt-4 inline-block rounded border px-4 py-2" href="/">
-            Return to home
-          </Link>
-        </section>
-      </main>
+      <div className="ps-contributor-page ps-has-mesh">
+        <div className="ps-contributor-inner ps-contributor-state">
+          <section className="ps-card" role="alert">
+            <h1 className="ps-contributor-section-heading">Access restricted</h1>
+            <p className="ps-secondary">This dashboard is available to civilian reporters only.</p>
+            <Link className="ps-btn ps-btn-outline" href="/">
+              Return to home
+            </Link>
+          </section>
+        </div>
+      </div>
     );
   }
   if (error && !profile && !reports) {
     return (
-      <main className="mx-auto max-w-2xl p-6">
-        <section className="rounded border bg-white p-6" role="alert">
-          <h1 className="text-2xl font-semibold">
-            {error.kind === 'auth' ? 'Sign in required' : 'Dashboard unavailable'}
-          </h1>
-          <p className="mt-2">{error.message}</p>
-          {error.kind === 'auth' ? (
-            <Link className="mt-4 inline-block rounded bg-blue-700 px-4 py-2 text-white" href="/login">
-              Sign in again
-            </Link>
-          ) : (
-            <button className="mt-4 rounded bg-blue-700 px-4 py-2 text-white" onClick={() => void loadDashboard()}>
-              Try again
-            </button>
-          )}
-        </section>
-      </main>
+      <div className="ps-contributor-page ps-has-mesh">
+        <div className="ps-contributor-inner ps-contributor-state">
+          <section className="ps-card" role="alert">
+            <h1 className="ps-contributor-section-heading">
+              {error.kind === 'auth' ? 'Sign in required' : 'Dashboard unavailable'}
+            </h1>
+            <p className="ps-secondary">{error.message}</p>
+            {error.kind === 'auth' ? (
+              <Link className="ps-btn ps-btn-primary" href="/login">
+                Sign in again
+              </Link>
+            ) : (
+              <button className="ps-btn ps-btn-primary" onClick={() => void loadDashboard()}>
+                Try again
+              </button>
+            )}
+          </section>
+        </div>
+      </div>
     );
   }
 
   const totalReports = summary?.total_reports ?? 0;
   const isNewReporter = totalReports === 0;
+  const actionedReports = summary?.actioned_reports ?? 0;
+  const pendingReports = summary?.pending_reports ?? 0;
+  const verified = actionedReports;
+  const awaitingReview = pendingReports;
+  const rejected = Math.max(0, totalReports - actionedReports - pendingReports);
+
+  const reporterBadge = isNewReporter
+    ? 'New reporter'
+    : actionedReports > 0
+      ? 'Verified reporter'
+      : 'Active reporter';
+  const showVerifiedBadge = !isNewReporter && actionedReports > 0;
+
+  const displayName = displayNameFor(user);
+
+  // Activity snapshot: at most the first three currently loaded reports.
+  const activityReports = reports ? reports.reports.slice(0, 3) : [];
 
   return (
-    <main className="mx-auto max-w-6xl space-y-6 p-6">
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-semibold">Contributor dashboard</h1>
-          <p className="mt-1 text-gray-600">Your private reporting activity and reliability summary.</p>
-        </div>
-        <span className="inline-flex items-center gap-2 rounded border border-gray-200 bg-white px-3 py-1.5 text-sm font-semibold text-gray-600">
-          <span className="h-2 w-2 rounded-full bg-green-600" />
-          {isNewReporter ? 'New reporter' : 'Active reporter'}
-        </span>
-      </header>
-
-      {/* BFP red report CTA — "Report again" flow: location-first, matching Report Wizard order */}
-      <Link
-        href="/report"
-        className="flex items-center gap-4 rounded-lg bg-[#C62828] p-4 text-white no-underline transition-colors hover:bg-[#8E1B1B]"
-      >
-        <IconPlus size={24} aria-hidden className="flex-shrink-0" />
-        <span className="flex-1">
-          <span className="block text-base font-bold">Submit a report</span>
-          <span className="block text-sm opacity-80">
-            Your observations drive faster emergency response
+    <div className="ps-contributor-page ps-has-mesh">
+      <div className="ps-contributor-inner">
+        <header className="ps-contributor-heading">
+          <div>
+            <h1>Welcome back, {displayName}</h1>
+            <p>Civilian Reporter</p>
+          </div>
+          <span className="ps-contributor-reporter-badge">
+            {showVerifiedBadge && <IconShieldCheckFilled size={16} aria-hidden />}
+            {reporterBadge}
           </span>
-        </span>
-        <IconArrowRight size={20} aria-hidden className="flex-shrink-0 opacity-70" />
-      </Link>
+        </header>
 
-      {error && (
-        <div className="rounded border border-amber-300 bg-amber-50 p-4" role="alert">
-          <p>{error.message}</p>
-          <button className="mt-2 underline" onClick={() => void loadDashboard()}>
-            Retry dashboard
-          </button>
-        </div>
-      )}
+        {/* BFP red report CTA — complements the header's "Report a Fire" flow */}
+        <Link href="/report" className="ps-btn ps-btn-primary ps-contributor-report-cta">
+          <IconPlus size={24} aria-hidden className="flex-shrink-0" />
+          <span className="flex-1">
+            <span className="block">Submit a report</span>
+            <span className="block">Your observations drive faster emergency response</span>
+          </span>
+          <IconArrowRight size={20} aria-hidden className="flex-shrink-0" />
+        </Link>
 
-      {/* Two stat cards per IA spec (docs/superpowers/specs/2026-07-15-public-surface-ia-design.md #5) */}
-      <section aria-labelledby="summary-heading">
-        <h2 id="summary-heading" className="sr-only">
-          Contributor summary
-        </h2>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div className="rounded border bg-white p-4 shadow-sm">
-            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Reports you filed</p>
-            <p className="mt-2 text-4xl font-semibold" style={{ fontFamily: MONO }}>
-              {summary?.total_reports ?? '—'}
-            </p>
-            <p className="mt-1 text-xs text-gray-500">
+        {error && (
+          <div className="ps-alert" role="alert">
+            <p>{error.message}</p>
+            <button type="button" onClick={() => void loadDashboard()}>
+              Retry dashboard
+            </button>
+          </div>
+        )}
+
+        {/* Exactly two stat cards: report count and verification status */}
+        <section className="ps-contributor-stats" aria-labelledby="summary-heading">
+          <h2 id="summary-heading" className="ps-visually-hidden">
+            Contributor summary
+          </h2>
+
+          <div className="ps-contributor-stat-card">
+            <p className="ps-contributor-stat-label">Reports you filed</p>
+            <p className="ps-contributor-stat-value">{summary?.total_reports ?? '—'}</p>
+            <p className="ps-contributor-stat-detail">
               {summary?.active_months ? `${summary.active_months} mo active` : 'Lifetime'}
             </p>
           </div>
-          <div className="rounded border bg-white p-4 shadow-sm">
-            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Verified reports</p>
-            <p className="mt-2 text-4xl font-semibold" style={{ fontFamily: MONO, color: '#059669' }}>
-              {summary?.actioned_reports ?? '—'}
-              {verifiedPct !== null && (
-                <span className="text-base font-normal text-gray-400"> ({verifiedPct}%)</span>
-              )}
-            </p>
-            <p className="mt-1 text-xs text-gray-500">
-              {summary && summary.pending_reports > 0
-                ? `${summary.pending_reports} awaiting review`
-                : 'All reviewed'}
-            </p>
-          </div>
-        </div>
-      </section>
 
-      {/* Scrollable report list with status indicators */}
-      <section className="rounded border bg-white p-4 shadow-sm" aria-labelledby="reports-heading">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 id="reports-heading" className="text-xl font-semibold">
-            Your reports
-          </h2>
-          <div className="flex gap-1 rounded border border-gray-200 bg-gray-50 p-1">
-            {(['all', 'pending', 'resolved'] as ReportFilter[]).map((f) => (
-              <button
-                key={f}
-                type="button"
-                onClick={() => setReportFilter(f)}
-                className={`rounded px-3 py-1 text-xs font-semibold capitalize ${
-                  reportFilter === f ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'
-                }`}
-              >
-                {f}
-              </button>
-            ))}
+          <div className="ps-contributor-stat-card">
+            <p className="ps-contributor-stat-label">Verification status</p>
+            <p className="ps-contributor-stat-value">
+              {summary?.actioned_reports ?? '—'}
+              {verifiedPct !== null && <span className="ps-secondary"> ({verifiedPct}%)</span>}
+            </p>
+            {totalReports === 0 ? (
+              <p className="ps-contributor-stat-detail">No reports yet</p>
+            ) : (
+              <div className="ps-contributor-status-breakdown">
+                <div className="ps-contributor-status-bar" role="img" aria-label={`${verified} verified, ${awaitingReview} awaiting review, ${rejected} rejected`}>
+                  {verified > 0 && (
+                    <span className="ps-contributor-status-segment ps-contributor-tone-verified" style={{ flexGrow: verified }} />
+                  )}
+                  {awaitingReview > 0 && (
+                    <span className="ps-contributor-status-segment ps-contributor-tone-review" style={{ flexGrow: awaitingReview }} />
+                  )}
+                  {rejected > 0 && (
+                    <span className="ps-contributor-status-segment ps-contributor-tone-rejected" style={{ flexGrow: rejected }} />
+                  )}
+                </div>
+                <ul className="ps-contributor-status-legend">
+                  <li className="ps-contributor-status-key">
+                    <span className="ps-contributor-status-dot ps-contributor-tone-verified" aria-hidden />
+                    {verified} Verified
+                  </li>
+                  <li className="ps-contributor-status-key">
+                    <span className="ps-contributor-status-dot ps-contributor-tone-review" aria-hidden />
+                    {awaitingReview} Awaiting review
+                  </li>
+                  <li className="ps-contributor-status-key">
+                    <span className="ps-contributor-status-dot ps-contributor-tone-rejected" aria-hidden />
+                    {rejected} Rejected
+                  </li>
+                </ul>
+              </div>
+            )}
           </div>
+        </section>
+
+        {/* Impact strip — truthful generic claim derived from the report count */}
+        <div className="ps-contributor-impact">
+          <IconFlameFilled size={20} aria-hidden className="flex-shrink-0" />
+          <span>
+            {totalReports > 0
+              ? `Your ${totalReports} report${totalReports === 1 ? '' : 's'} help BFP assess fire activity and community safety.`
+              : 'Submit your first report to help BFP assess fire activity and community safety.'}
+          </span>
         </div>
+
+        {!isNewReporter && (
+          <section className="ps-contributor-section" aria-labelledby="activity-heading">
+            <h2 id="activity-heading" className="ps-contributor-section-heading">
+              Activity
+            </h2>
+            <div className="ps-contributor-activity-feed">
+              {activityReports.map((report) => {
+                const indicator = reportStatusIndicator(report.status);
+                const title = report.sub_category ?? report.category ?? 'Report';
+                return (
+                  <div key={report.report_id} className="ps-contributor-activity-group">
+                    <div className="ps-contributor-activity-head">
+                      <h3 className="ps-contributor-activity-title">{title}</h3>
+                      <span className="ps-contributor-activity-meta">#{report.report_id}</span>
+                    </div>
+                    <ul className="ps-contributor-timeline">
+                      <li className="ps-contributor-timeline-item">
+                        <span className="ps-contributor-status-dot" aria-hidden />
+                        Report received {formatDate(report.created_at)}
+                      </li>
+                      <li className="ps-contributor-timeline-item">
+                        <span className={`ps-contributor-status-dot ${indicator.toneClass}`} aria-hidden />
+                        Current status: {indicator.label}
+                      </li>
+                    </ul>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
 
         {isNewReporter ? (
-          <div className="mt-4 rounded-lg border-2 border-dashed border-gray-200 p-10 text-center">
-            <IconInbox size={32} className="mx-auto text-gray-300" aria-hidden />
-            <h3 className="mt-3 text-base font-semibold">Welcome, civilian reporter</h3>
-            <p className="mx-auto mt-2 max-w-sm text-sm text-gray-600">
-              Submit your first field report to activate your dashboard. Your report history and
-              verification status will appear here.
-            </p>
-          </div>
+          <section className="ps-contributor-section" aria-labelledby="reports-heading">
+            <h2 id="reports-heading" className="ps-contributor-section-heading">
+              Your reports
+            </h2>
+            <div className="ps-empty">
+              <div className="ps-empty-icon">
+                <IconInbox size={32} aria-hidden />
+              </div>
+              <h3 className="ps-empty-title">Welcome, civilian reporter</h3>
+              <p className="ps-empty-text">
+                Submit your first field report to activate your dashboard. Your report history and
+                verification status will appear here.
+              </p>
+            </div>
+          </section>
         ) : (
-          <>
+          <section className="ps-contributor-section" aria-labelledby="reports-heading">
+            <div className="ps-contributor-heading">
+              <h2 id="reports-heading" className="ps-contributor-section-heading">
+                Your reports
+              </h2>
+              <div className="ps-contributor-filter-tabs" role="group" aria-label="Filter reports">
+                {(['all', 'pending', 'resolved'] as ReportFilter[]).map((f) => (
+                  <button
+                    key={f}
+                    type="button"
+                    aria-pressed={reportFilter === f}
+                    onClick={() => setReportFilter(f)}
+                    className="ps-contributor-filter-tab"
+                  >
+                    {f === 'all' ? 'All' : f === 'pending' ? 'Pending' : 'Resolved'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {reportsBusy && (
-              <p className="mt-3" role="status">
+              <p className="ps-status-msg" role="status">
                 Loading reports…
               </p>
             )}
             {!reportsBusy && visibleReports.length === 0 && (
-              <p className="mt-3 text-gray-600">No reports match this filter.</p>
+              <p className="ps-secondary">No reports match this filter.</p>
             )}
             {!reportsBusy && visibleReports.length > 0 && (
-              <ul className="mt-3 flex max-h-96 flex-col gap-2 overflow-y-auto pr-1">
+              <ul className="ps-contributor-report-list">
                 {visibleReports.map((report) => {
                   const indicator = reportStatusIndicator(report.status);
                   return (
-                    <li
-                      key={report.report_id}
-                      className="grid grid-cols-[auto_auto_1fr_auto_auto] items-center gap-3 rounded border bg-white p-3 shadow-sm"
-                    >
-                      <span
-                        className={`h-2.5 w-2.5 flex-shrink-0 rounded-full ${indicator.dotClassName}`}
-                        aria-hidden
-                      />
-                      <span
-                        className="font-medium text-gray-400"
-                        style={{ fontFamily: MONO, minWidth: '52px' }}
-                      >
-                        #{report.report_id}
-                      </span>
-                      <span className="min-w-0">
-                        <span className="block truncate text-sm font-semibold text-gray-900">
+                    <li key={report.report_id} className="ps-contributor-report-row">
+                      <span className={`ps-contributor-status-dot ${indicator.toneClass}`} aria-hidden />
+                      <span className="ps-contributor-report-id">#{report.report_id}</span>
+                      <span className="ps-contributor-report-main">
+                        <span className="ps-contributor-report-title">
                           {report.sub_category ?? report.category ?? 'Report'}
                         </span>
-                        <span className="block text-xs text-gray-500">
-                          {formatDate(report.created_at)}
-                        </span>
+                        <span className="ps-contributor-report-meta">{formatDate(report.created_at)}</span>
                       </span>
-                      <span className="whitespace-nowrap rounded bg-gray-100 px-2 py-1 text-xs font-semibold text-gray-600">
+                      <span className="ps-contributor-report-category">
                         {report.category ?? '—'}
                         {report.sub_category ? ` · ${report.sub_category}` : ''}
                       </span>
-                      <span
-                        className={`whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${indicator.className}`}
-                      >
-                        {indicator.label}
-                      </span>
+                      <span className={`ps-pill ${indicator.pillClass}`}>{indicator.label}</span>
                     </li>
                   );
                 })}
               </ul>
             )}
             {reports && reports.pages > 1 && (
-              <nav className="mt-4 flex items-center justify-between" aria-label="Report pages">
-                <button
-                  className="rounded border px-3 py-2 disabled:opacity-50"
-                  disabled={page <= 1 || reportsBusy}
-                  onClick={() => void loadReports(page - 1)}
-                >
+              <nav className="ps-contributor-pagination" aria-label="Report pages">
+                <button type="button" disabled={page <= 1 || reportsBusy} onClick={() => void loadReports(page - 1)}>
                   Previous
                 </button>
-                <span aria-live="polite">
+                <span className="ps-contributor-page-status" aria-live="polite">
                   Page {page} of {reports.pages}
                 </span>
-                <button
-                  className="rounded border px-3 py-2 disabled:opacity-50"
-                  disabled={page >= reports.pages || reportsBusy}
-                  onClick={() => void loadReports(page + 1)}
-                >
+                <button type="button" disabled={page >= reports.pages || reportsBusy} onClick={() => void loadReports(page + 1)}>
                   Next
                 </button>
               </nav>
             )}
-          </>
+          </section>
         )}
-      </section>
 
-      {/* Compact nearby-activity map — same component as the landing page (#612),
-          rendered at a smaller viewport per the IA spec's "compact" requirement. */}
-      <section className="rounded border bg-white p-4 shadow-sm" aria-labelledby="nearby-map-heading">
-        <h2 id="nearby-map-heading" className="text-xl font-semibold">
-          Nearby activity
-        </h2>
-        <div className="mt-3">
-          <PublicFireMap height={220} zoom={11} showStations className="nearby-activity-map" />
-        </div>
-      </section>
-    </main>
+        {/* Compact nearby-activity map — same component as the landing page (#612),
+            rendered at a smaller viewport per the IA spec's "compact" requirement. */}
+        <section className="ps-contributor-section" aria-labelledby="nearby-map-heading">
+          <h2 id="nearby-map-heading" className="ps-contributor-section-heading">
+            Nearby activity
+          </h2>
+          <PublicFireMap height={220} zoom={11} showStations className="ps-contributor-map" />
+        </section>
+      </div>
+    </div>
   );
 }

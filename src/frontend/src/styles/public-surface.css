@@ -55,6 +55,7 @@
   --radius: 10px;
   --radius-lg: 16px;
   --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   --shadow: 0 2px 12px rgba(0, 0, 0, 0.5);
   --shadow-soft: 0 4px 24px rgba(0, 0, 0, 0.25);
   --transition: 180ms ease;
@@ -519,6 +520,10 @@
   background: var(--bg-hover);
   color: var(--text-secondary);
 }
+.public-surface .ps-pill-yellow {
+  background: var(--yellow-bg);
+  color: var(--yellow-light);
+}
 
 /* Emergency list */
 .public-surface .ps-list {
@@ -717,6 +722,419 @@
   text-decoration: underline;
   cursor: pointer;
   font-size: 0.85rem;
+}
+
+/* === Issue #655: Contributor dashboard public-surface styles === */
+/* Scoped under .public-surface; every color references an existing token.   */
+
+/* Accessible visually-hidden utility (positioning/clipping only, no color) */
+.public-surface .ps-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Page shell: sits inside the provider's .ps-content (provides max-width/padding) */
+.public-surface .ps-contributor-page {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  width: 100%;
+}
+.public-surface .ps-contributor-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+.public-surface .ps-contributor-state {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Welcome / heading / reporter badge */
+.public-surface .ps-contributor-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.public-surface .ps-contributor-heading h1 {
+  margin: 0;
+  font-family: var(--font);
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.public-surface .ps-contributor-heading p {
+  margin: 4px 0 0;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+.public-surface .ps-contributor-reporter-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  font-family: var(--font);
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.public-surface .ps-contributor-reporter-badge .ps-contributor-status-dot {
+  width: 8px;
+  height: 8px;
+  background: var(--green);
+}
+
+/* Report CTA */
+.public-surface .ps-contributor-report-cta {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  border-radius: var(--radius);
+  background: var(--red);
+  color: var(--text-primary);
+  text-decoration: none;
+  transition: background var(--transition);
+}
+.public-surface .ps-contributor-report-cta:hover {
+  background: var(--red-deep);
+  text-decoration: none;
+}
+
+/* Two-card stat grid */
+.public-surface .ps-contributor-stats {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+@media (min-width: 640px) {
+  .public-surface .ps-contributor-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+.public-surface .ps-contributor-stat-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  box-shadow: var(--shadow);
+}
+.public-surface .ps-contributor-stat-label {
+  margin: 0;
+  font-family: var(--font);
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+}
+.public-surface .ps-contributor-stat-value {
+  margin: 8px 0 4px;
+  font-family: var(--font-mono);
+  font-size: 2.5rem;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--text-primary);
+}
+.public-surface .ps-contributor-stat-detail {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+/* Verification status breakdown bar + legend */
+.public-surface .ps-contributor-status-breakdown {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.public-surface .ps-contributor-status-bar {
+  display: flex;
+  width: 100%;
+  height: 10px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--bg-surface);
+}
+.public-surface .ps-contributor-status-segment {
+  height: 100%;
+  background: var(--ps-contributor-status-color, var(--bg-hover));
+}
+.public-surface .ps-contributor-status-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+.public-surface .ps-contributor-status-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.public-surface .ps-contributor-status-key .ps-contributor-status-dot {
+  width: 10px;
+  height: 10px;
+}
+
+/* Tone modifiers — set ONLY the contributor status custom property */
+.public-surface .ps-contributor-tone-verified { --ps-contributor-status-color: var(--green); }
+.public-surface .ps-contributor-tone-rejected { --ps-contributor-status-color: var(--red); }
+.public-surface .ps-contributor-tone-linked   { --ps-contributor-status-color: var(--blue); }
+.public-surface .ps-contributor-tone-review   { --ps-contributor-status-color: var(--orange); }
+.public-surface .ps-contributor-tone-pending  { --ps-contributor-status-color: var(--yellow); }
+
+/* Decorative status dot — always paired with a text label; color via tone var */
+.public-surface .ps-contributor-status-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  flex-shrink: 0;
+  background: var(--ps-contributor-status-color, var(--border-strong));
+}
+
+/* Impact strip */
+.public-surface .ps-contributor-impact {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  border-radius: var(--radius);
+  background: var(--primary-bg);
+  border: 1px solid var(--primary);
+  color: var(--text-primary);
+  font-size: 0.88rem;
+}
+
+/* Generic section */
+.public-surface .ps-contributor-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.public-surface .ps-contributor-section-heading {
+  margin: 0;
+  font-family: var(--font);
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+/* Grouped activity feed + timeline */
+.public-surface .ps-contributor-activity-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.public-surface .ps-contributor-activity-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.public-surface .ps-contributor-activity-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.public-surface .ps-contributor-activity-title {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.public-surface .ps-contributor-activity-meta {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+.public-surface .ps-contributor-timeline {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.public-surface .ps-contributor-timeline-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-left: 4px;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+}
+.public-surface .ps-contributor-timeline-item .ps-contributor-status-dot {
+  width: 8px;
+  height: 8px;
+}
+
+/* Filter tabs */
+.public-surface .ps-contributor-filter-tabs {
+  display: flex;
+  gap: 4px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px;
+}
+.public-surface .ps-contributor-filter-tab {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  font-family: var(--font);
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.public-surface .ps-contributor-filter-tab:hover {
+  color: var(--text-secondary);
+  background: var(--bg-hover);
+}
+.public-surface .ps-contributor-filter-tab[aria-pressed='true'] {
+  background: var(--red);
+  color: var(--text-primary);
+}
+.public-surface .ps-contributor-filter-tab:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* Report list / rows */
+.public-surface .ps-contributor-report-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 24rem;
+  overflow-y: auto;
+}
+.public-surface .ps-contributor-report-row {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow);
+}
+.public-surface .ps-contributor-report-id {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  min-width: 52px;
+}
+.public-surface .ps-contributor-report-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.public-surface .ps-contributor-report-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.public-surface .ps-contributor-report-meta {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+.public-surface .ps-contributor-report-category {
+  white-space: nowrap;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+/* Keep the status text visible at 320px/480px: collapse to dot + id + main + status */
+@media (max-width: 640px) {
+  .public-surface .ps-contributor-report-row {
+    grid-template-columns: auto auto minmax(0, 1fr) auto;
+    gap: 10px;
+  }
+  .public-surface .ps-contributor-report-category {
+    display: none;
+  }
+}
+
+/* Pagination + page-status */
+.public-surface .ps-contributor-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+}
+.public-surface .ps-contributor-pagination button {
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-family: var(--font);
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background var(--transition);
+}
+.public-surface .ps-contributor-pagination button:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+.public-surface .ps-contributor-pagination button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.public-surface .ps-contributor-pagination button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.public-surface .ps-contributor-page-status {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+}
+
+/* Map caller frame — passable as className to PublicFireMap */
+.public-surface .ps-contributor-map {
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
 }
 
 /* ── Auth screens: register + login (issue #652) ──
