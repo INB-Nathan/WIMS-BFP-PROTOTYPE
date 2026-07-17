@@ -4,7 +4,7 @@ created: 2026-05-14
 updated: 2026-07-18
 type: frontend
 tags: [wims-bfp, frontend, routing, implementation-map]
-sources: [raw/codebase/codebase-snapshot-2026-05-14.md, src/frontend/src/app/contributor/page.tsx, src/frontend/src/app/profile/page.tsx, src/frontend/src/components/LayoutShell.tsx, src/frontend/src/components/PublicHeader.tsx, src/frontend/src/components/public/PublicThemeProvider.tsx, src/frontend/src/lib/routeUtils.ts, src/keycloak/themes/wims-bfp/login/template.ftl]
+sources: [raw/codebase/codebase-snapshot-2026-05-14.md, src/frontend/src/app/contributor/page.tsx, src/frontend/src/app/profile/page.tsx, src/frontend/src/app/tracking/v2/[report_id]/[tracking_token]/page.tsx, src/frontend/src/components/LayoutShell.tsx, src/frontend/src/components/PublicHeader.tsx, src/frontend/src/components/public/PublicThemeProvider.tsx, src/frontend/src/lib/routeUtils.ts, src/keycloak/themes/wims-bfp/login/template.ftl]
 status: draft
 ---
 
@@ -50,7 +50,7 @@ Next.js App Router pages detected under `src/frontend/src/app`.
 | `/` | `page.tsx` | Public incident-map landing page. Its overlay-positioned header reuses the shared auth-aware navbar, while the report workflow lives at `/report`. |
 | `/profile` | `profile/page.tsx` | Profile editing includes email/login-identity changes with current-password field, contact-number validation aligned to `^09\\d{9}$`, and warning/error display for backend partial profile-update responses. CIVILIAN_REPORTER sessions use the shared public-surface shell with a persisted theme, profile avatar, and sign-out; staff roles retain the staff shell. |
 | `/tracking` | `tracking/page.tsx` | Compatibility landing page for public tracking. It no longer accepts report-ID lookup; instead it offers the caller's last stored secure tracking link when available and otherwise explains that tracking requires the exact secure URL. |
-| `/tracking/v2/[report_id]/[tracking_token]` | `tracking/v2/[report_id]/[tracking_token]/page.tsx` | Capability-token public tracking page. Reads the safe projection from `GET /api/civilian/reports/{report_id}/track/{tracking_token}`, displays validated GeoJSON route geometry in a light map/inspector workspace, and renders a status timeline from a server-whitelisted metadata projection. It does not expose civilian coordinates, PII, or status-update actor identities. |
+| `/tracking/v2/[report_id]/[tracking_token]` | `tracking/v2/[report_id]/[tracking_token]/page.tsx` | Capability-token public tracking receipt in the shared public-surface shell. It provides a QR code and copyable capability token, validated GeoJSON route geometry, and a status timeline from a server-whitelisted metadata projection. It does not expose civilian coordinates, PII, or status-update actor identities. |
 | `/verify-sent` | `verify-sent/page.tsx` | Email-verification confirmation uses the shared public-surface card, preserves the supplied email in the code-entry link, and provides spam-folder guidance. |
 | `/fire-stations` | `fire-stations/page.tsx` | Public fire-station directory with an SSR-safe Leaflet station map. |
 | `/community` | `community/page.tsx` | Public Community Safety Hub with urgent notices, plain-text published content cards, language selection, filtering, and accessible loading/error/empty states. |

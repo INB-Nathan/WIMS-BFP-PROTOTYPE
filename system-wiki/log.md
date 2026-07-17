@@ -1,3 +1,10 @@
+## [2026-07-18] feat(tracking): public-surface capability receipt (#657)
+
+- **Scope:** The capability-token tracking page now uses the shared public-surface receipt layout that `LayoutShell` already supplies for `/tracking` routes; it does not add a page-local `PublicThemeProvider`. The receipt presents the secure token with copy control and QR code, then preserves the existing route workspace, text-only no-geometry fallback, timeline, and emergency guidance.
+- **Privacy:** The QR code encodes the already-issued capability URL only. No report/station coordinates, PII, or actor identities are added to the public projection.
+- **Tests:** Tracking page tests cover null/malformed geometry, map rendering, QR/token receipt controls, timeline metadata, errors, and clipboard fallback (7/7 passed). Lint reported 0 errors and 36 pre-existing warnings.
+- **Wiki:** Updated [[frontend/route-map]] and [[index]]. No FRS/code gap changed.
+
 ## [2026-07-18] feat(profile): civilian public-surface profile (#656)
 
 - **Scope:** `/profile` now enters `PublicThemeProvider` only for authenticated `CIVILIAN_REPORTER` sessions. The existing shared route retains its sidebar/header staff shell for Regional Encoder, National Validator, National Analyst, and System Administrator sessions; no API, authorization, or profile-update contract changed.
