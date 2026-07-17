@@ -1,3 +1,10 @@
+## [2026-07-18] feat(validator): wire verified incidents to perimeter workspace (#665)
+
+- **Scope:** Each VERIFIED row in `/dashboard/validator` now exposes a Perimeter action that opens `/dashboard/validator/perimeter-draw?incident_id={id}`. The action stops row-click propagation, so it opens the existing online, role-gated workspace rather than the regional incident detail route. Pending, rejected, and replaced records do not expose it.
+- **Authority:** This is navigation-only; the existing workspace and server perimeter endpoint remain responsible for verified-status checks, role authorization, GeoJSON validation, and PostGIS measurement.
+- **Tests:** `IncidentTableRow.test.tsx` verifies the verified-only action and that its click does not open the row detail.
+- **Wiki:** Updated [[frontend/route-map]] and [[index]]. No FRS/code gap changed.
+
 ## [2026-07-18] feat(tracking): public-surface capability receipt (#657)
 
 - **Scope:** The capability-token tracking page now uses the shared public-surface receipt layout that `LayoutShell` already supplies for `/tracking` routes; it does not add a page-local `PublicThemeProvider`. The receipt presents the secure token with copy control and QR code, then preserves the existing route workspace, text-only no-geometry fallback, timeline, and emergency guidance.

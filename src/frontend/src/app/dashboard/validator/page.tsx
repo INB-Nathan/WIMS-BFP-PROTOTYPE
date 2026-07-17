@@ -981,6 +981,7 @@ export default function ValidatorDashboard() {
                     onUnarchive={(inc) => void doUnarchive(inc)}
                     onDelete={(inc) => void doDelete(inc)}
                     onArchive={(inc) => void doArchive(inc)}
+                    onDrawPerimeter={(inc) => router.push(`/dashboard/validator/perimeter-draw?incident_id=${inc.incident_id}`)}
                     onReviewDuplicate={(inc) => {
                       setValidatorDupTarget(inc);
                       setValidatorDupMatchedId(inc.duplicate_of ?? runtimeDuplicates.get(inc.incident_id)!);
