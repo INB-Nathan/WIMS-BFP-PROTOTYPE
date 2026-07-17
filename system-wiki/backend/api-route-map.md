@@ -26,6 +26,7 @@ FastAPI route ownership snapshot from `src/backend/api/routes`.
 | `civilian.py` | `GET` | `/reports/{report_id}/timeline` | `get_civilian_report_timeline` |
 | `civilian.py` | `POST` | `/reports/{report_id}/notify` | `register_notification` |
 | `civilian.py` | `GET` | `/report-clusters` | `get_report_clusters` | Public-safe root-map areas from durable civilian report clusters; no raw cluster/report IDs. |
+| `information.py` | `GET` | `/information/emergencies` | `list_emergencies` | Published emergency cards plus location/perimeter geometry only for their linked VERIFIED incidents; unlinked or non-verified emergencies have no geometry. |
 | `civilian.py` | `POST` | `/reports/{report_id}/followup` | `submit_civilian_followup` | Public text follow-up linked to existing report (Issue #62). Terminal reports blocked. |
 | `civilian.py` | `POST` | `/reports/{report_id}/photos` | `upload_report_photo` | Post-submit multipart photo attachment; delegates validation, EXIF sanitization, encryption, ownership, RLS, and audit to `services.report_photos`. |
 | `civilian.py` | `POST` | `/photos/upload` | `upload_pending_civilian_photo` | Encrypted pending upload for a registered CIVILIAN_REPORTER or a bearer-capability owner; report/device IDs are not accepted. Anonymous ownership is derived by the fixed-search-path helper, with neutral 404 for missing/invalid capabilities. |

@@ -119,7 +119,10 @@ def test_emergencies_returns_published_only(client: TestClient):
         "description": "Active brush fire.",
         "severity": "high",
         "status": "ongoing",
-        "promoted_from_incident_id": None,
+        "promoted_from_incident_id": 7,
+        "latitude": 14.6,
+        "longitude": 121.0,
+        "perimeter_geometry": '{"type":"Polygon","coordinates":[[[121,14.6],[121.1,14.6],[121,14.7],[121,14.6]]]}',
         "published": True,
         "published_at": _PUBLISHED_AT,
         "created_at": _CREATED_AT,
@@ -132,12 +135,15 @@ def test_emergencies_returns_published_only(client: TestClient):
     assert len(body) == 1
     assert body[0]["id"] == 1
     assert body[0]["severity"] == "high"
-    assert body[0]["promoted_from_incident_id"] is None
+    assert body[0]["promoted_from_incident_id"] == 7
+    assert body[0]["latitude"] == 14.6
+    assert body[0]["perimeter"]["type"] == "Feature"
+    assert body[0]["perimeter"]["geometry"]["type"] == "Polygon"
 
     sql = _captured_sql(client)
     assert "information_emergencies" in sql
     assert "published = TRUE" in sql
-    assert "ORDER BY published_at DESC" in sql
+    assert "ORDER BY ie.published_at DESC" in sql
 
 
 def test_emergencies_excludes_unpublished_from_result(client: TestClient):

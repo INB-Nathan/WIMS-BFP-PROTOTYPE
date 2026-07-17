@@ -683,3 +683,10 @@ Removed the AI incident narrative feature (PR #104 / #69) — backend-only featu
 - **Tests:** Updated `src/frontend/src/app/contributor/page.test.tsx` and `src/frontend/src/app/__tests__/public-header-single-banner.test.tsx`; added `src/frontend/src/app/__tests__/contributor-public-shell.test.tsx`. Focused contributor/header tests passed: 4 of 4 files and 36 of 36 tests. T3 reliability review also passed 3 of 3 repeated runs (2 of 2 files, 7 of 7 tests each).
 - **Manual QA:** Skipped because no authenticated CIVILIAN_REPORTER browser session/fixture was available. It remains required to inspect dark/light framing and reload persistence, 320px/480px report rows, keyboard focus, hydration, and map containment.
 - **Wiki:** Updated [[frontend/route-map]] and `system-wiki/index.md`. No FRS/code gap changed.
+
+## [2026-07-17] feat(public-map): civilian circles and verified perimeter overlays (#639)
+
+- **Scope:** `GET /api/information/emergencies` now adds coordinates and a GeoJSON Feature perimeter only when a published emergency links to a VERIFIED incident. `PublicFireMapInner` renders aggregated civilian pressure signals as area circles, verified incident perimeters as polygons, and falls back to a point only when the verified incident has no perimeter.
+- **Privacy:** The public map continues to use aggregated civilian areas, not individual report markers. Unlinked or non-verified CMS emergencies expose no geometry.
+- **Public-surface fold:** `/verify-sent` now uses the shared formal public-surface card and preserves the supplied email in the verification-code link.
+- **Wiki:** Updated [[frontend/route-map]] and [[backend/api-route-map]]. No FRS/code gap changed.

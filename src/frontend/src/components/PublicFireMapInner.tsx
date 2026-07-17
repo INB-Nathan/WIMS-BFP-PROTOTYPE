@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   MapContainer,
   TileLayer,
-  CircleMarker,
+  Circle,
+  Polygon,
   Popup,
   useMapEvents,
   useMap,
@@ -12,19 +13,16 @@ import {
 } from 'react-leaflet';
 import L from 'leaflet';
 import { fetchClusters } from '@/lib/api';
+import { fetchEmergencies, type EmergencyResponse } from '@/lib/api/information';
 import { fetchStations } from '@/lib/api/map';
 import type { StationItem } from '@/lib/api/map';
 import { userLocationIcon, firePinIcon } from './map/leafletIcons';
-import type {
-  MapClusterItem,
-} from '@/lib/api';
+import type { MapClusterItem } from '@/lib/api';
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
 /** Polling interval in ms for new clusters */
 const POLL_INTERVAL_MS = 60_000;
-/** Minimum zoom for showing individual markers instead of clusters */
-const INDIVIDUAL_ZOOM = 15;
 /** Debounce delay before re-fetching clusters after viewport change */
 const VIEWPORT_DEBOUNCE_MS = 400;
 
@@ -65,9 +63,18 @@ function severityFillOpacity(count: number): number {
   return 0.25;
 }
 
-function markerRadius(count: number, zoom: number): number {
-  if (zoom >= INDIVIDUAL_ZOOM) return 8;
-  return Math.min(8 + count * 1.5, 30);
+function clusterRadiusMeters(severity: string, count: number): number {
+  const base = severity === 'high' ? 550 : severity === 'medium' ? 400 : 275;
+  return base + Math.min(count, 10) * 25;
+}
+
+function perimeterPositions(emergency: EmergencyResponse): [number, number][] | null {
+  const ring = emergency.perimeter?.geometry.coordinates[0];
+  if (!ring || ring.length < 4) return null;
+  const positions = ring.map(([lng, lat]) => [lat, lng] as [number, number]);
+  return positions.every(([lat, lng]) => Number.isFinite(lat) && Number.isFinite(lng))
+    ? positions
+    : null;
 }
 
 // ── Viewport change detector (debounced) ────────────────────────────────────
@@ -195,6 +202,7 @@ export default function PublicFireMapInner({
   locateOnLoad = false,
 }: PublicFireMapInnerProps) {
   const [clusters, setClusters] = useState<MapClusterItem[]>([]);
+  const [emergencies, setEmergencies] = useState<EmergencyResponse[]>([]);
   const [mapError, setMapError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [pinPosition, setPinPosition] = useState<[number, number] | null>(
@@ -203,6 +211,18 @@ export default function PublicFireMapInner({
   const [degraded, setDegraded] = useState(false);
   const [stations, setStations] = useState<StationItem[] | null>(null);
   const [stationError, setStationError] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchEmergencies()
+      .then((data) => {
+        if (!cancelled) setEmergencies(data);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // ── Fetch stations when layer is toggled on ─────────────────────────
   useEffect(() => {
@@ -432,39 +452,46 @@ export default function PublicFireMapInner({
           />
         )}
 
-        {/* Cluster circles */}
-        {clusters.map((c, i) => (
-          <CircleMarker
-            key={`${c.lat}-${c.lng}-${i}`}
-            center={[c.lat, c.lng]}
-            radius={markerRadius(c.count, lastZoom.current)}
+        {/* Aggregated civilian signals: area circles avoid exposing individual reports. */}
+        {clusters.map((cluster, index) => (
+          <Circle
+            key={`${cluster.lat}-${cluster.lng}-${index}`}
+            center={[cluster.lat, cluster.lng]}
+            radius={clusterRadiusMeters(cluster.severity, cluster.count)}
             pathOptions={{
-              color: severityColor(c.severity),
-              fillColor: severityColor(c.severity),
-              fillOpacity: severityFillOpacity(c.count),
+              color: severityColor(cluster.severity),
+              fillColor: severityColor(cluster.severity),
+              fillOpacity: severityFillOpacity(cluster.count),
               weight: 2,
             }}
           >
             <Popup>
-              <div className="text-xs min-w-[120px]">
-                <p className="font-semibold text-sm">
-                  {c.count} incident{c.count !== 1 ? 's' : ''}
-                </p>
-                <p className="text-slate-500 mt-0.5">
-                  Severity: <span className="font-medium">{c.severity}</span>
-                </p>
-                {c.latest_at && (
-                  <p className="text-slate-400 mt-0.5">
-                    Latest: {new Date(c.latest_at).toLocaleDateString()}
-                  </p>
-                )}
-                <p className="text-slate-400">
-                  {c.lat.toFixed(4)}, {c.lng.toFixed(4)}
-                </p>
+              <div className="min-w-[120px] text-xs">
+                <p className="text-sm font-semibold">{cluster.count} civilian signal{cluster.count !== 1 ? 's' : ''}</p>
+                <p className="mt-0.5 text-slate-500">Severity: <span className="font-medium">{cluster.severity}</span></p>
               </div>
             </Popup>
-          </CircleMarker>
+          </Circle>
         ))}
+
+        {/* Published, verified incidents use their authoritative perimeter when available. */}
+        {emergencies.map((emergency) => {
+          const positions = perimeterPositions(emergency);
+          const color = severityColor(emergency.severity);
+          if (positions) {
+            return (
+              <Polygon key={`perimeter-${emergency.id}`} positions={positions} pathOptions={{ color, fillColor: color, fillOpacity: 0.2, weight: 3 }}>
+                <Popup><div className="min-w-[150px] text-xs"><p className="text-sm font-semibold">{emergency.title}</p><p className="mt-0.5 text-slate-500">Validated fire perimeter</p></div></Popup>
+              </Polygon>
+            );
+          }
+          if (emergency.latitude == null || emergency.longitude == null) return null;
+          return (
+            <Marker key={`incident-${emergency.id}`} position={[emergency.latitude, emergency.longitude]} icon={PinIcon}>
+              <Popup><div className="min-w-[150px] text-xs"><p className="text-sm font-semibold">{emergency.title}</p><p className="mt-0.5 text-slate-500">Validated fire incident</p></div></Popup>
+            </Marker>
+          );
+        })}
 
         {/* Fire-station markers (togglable layer) */}
         {showStations && stationError && (
