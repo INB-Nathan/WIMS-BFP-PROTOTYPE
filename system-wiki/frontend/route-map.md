@@ -54,7 +54,7 @@ Next.js App Router pages detected under `src/frontend/src/app`.
 | `/tracking` | `tracking/page.tsx` | Compatibility landing page for public tracking. It no longer accepts report-ID lookup; instead it offers the caller's last stored secure tracking link when available and otherwise explains that tracking requires the exact secure URL. |
 | `/tracking/v2/[report_id]/[tracking_token]` | `tracking/v2/[report_id]/[tracking_token]/page.tsx` | Capability-token public tracking receipt in the shared public-surface shell. It provides a QR code and copyable capability token, validated GeoJSON route geometry, and a status timeline from a server-whitelisted metadata projection. It does not expose civilian coordinates, PII, or status-update actor identities. |
 | `/verify-sent` | `verify-sent/page.tsx` | Email-verification confirmation uses the shared public-surface card, preserves the supplied email in the code-entry link, and provides spam-folder guidance. |
-| `/fire-stations` | `fire-stations/page.tsx` | Public fire-station directory with an SSR-safe Leaflet station map. |
+| `/fire-stations` | `fire-stations/page.tsx` | Public-surface fire-station directory with responsive map/directory split view, searchable station list, emergency hotlines, and SSR-safe Leaflet loading. |
 | `/community` | `community/page.tsx` | Public Community Safety Hub with urgent notices, plain-text published content cards, language selection, filtering, and accessible loading/error/empty states. |
 | `/admin/community` | `admin/community/page.tsx` | SYSTEM_ADMIN presentation-gated plain-text CMS editor with draft lifecycle actions; backend remains authoritative. |
 | `/community/[slug]` | `community/[slug]/page.tsx` | Shareable public plain-text community content detail route. |
