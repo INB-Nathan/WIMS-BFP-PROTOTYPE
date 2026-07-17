@@ -29,6 +29,7 @@ import { useAuth, type User } from '@/context/AuthContext';
 const mockFetchMyProfile = vi.fn();
 const mockUpdateMyProfile = vi.fn();
 const mockChangeMyPassword = vi.fn();
+const mockLogout = vi.fn();
 
 vi.mock('@/lib/api', () => ({
   fetchMyProfile: () => mockFetchMyProfile(),
@@ -54,7 +55,7 @@ function mockAnalystUser(overrides: Record<string, unknown> = {}) {
     loggingOut: false,
     isAuthenticated: true,
     login: vi.fn(),
-    logout: vi.fn(),
+    logout: mockLogout,
     refreshSession: vi.fn(),
   } as ReturnType<typeof useAuth>);
 }
@@ -178,6 +179,37 @@ describe('ProfilePage', () => {
       await waitFor(() => {
         expect(screen.getByText('—')).toBeInTheDocument();
       });
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Civilian public-surface presentation
+  // ---------------------------------------------------------------------------
+  describe('civilian profile presentation', () => {
+    it('uses the public-surface profile shell and signs out', async () => {
+      const user = userEvent.setup();
+      mockAnalystUser({ role: 'CIVILIAN_REPORTER', username: 'reporter' });
+
+      const { container } = render(<ProfilePage />);
+
+      await waitFor(() => {
+        expect(container.querySelector('.ps-profile-page')).toBeInTheDocument();
+        expect(screen.getByText('Manage your civilian reporter account.')).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByRole('button', { name: 'Sign out' }));
+      expect(mockLogout).toHaveBeenCalledOnce();
+    });
+
+    it('keeps civilian-only chrome out of staff profiles', async () => {
+      const { container } = render(<ProfilePage />);
+
+      await waitFor(() => {
+        expect(screen.getByText('All Regions')).toBeInTheDocument();
+      });
+
+      expect(container.querySelector('.ps-profile-page')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Sign out' })).not.toBeInTheDocument();
     });
   });
 

@@ -1613,3 +1613,57 @@
   background: var(--primary-hover);
   box-shadow: 0 0 16px rgba(59, 130, 246, 0.3);
 }
+
+/* ── Civilian profile (issue #656) ──
+ * The shared /profile route keeps its existing staff presentation. These
+ * overrides apply only when LayoutShell identifies a CIVILIAN_REPORTER. */
+.public-surface .ps-profile-page {
+  --card-bg: var(--bg-elevated);
+  --border-color: var(--border);
+  --sidebar-bg: var(--red);
+  position: relative;
+  padding: 24px;
+  color: var(--text-primary);
+}
+.public-surface .ps-profile-page .card {
+  border-color: var(--border);
+  box-shadow: var(--shadow);
+}
+.public-surface .ps-profile-page .card-header {
+  background: var(--bg-surface);
+  border-bottom-color: var(--border);
+  color: var(--text-primary);
+}
+.public-surface .ps-profile-page input:focus-visible,
+.public-surface .ps-profile-page button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.public-surface .ps-profile-page .text-gray-400 {
+  color: var(--text-muted);
+}
+.public-surface .ps-profile-page .text-red-500,
+.public-surface .ps-profile-page .text-red-600 {
+  color: var(--red-light);
+}
+.public-surface .ps-profile-identity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.public-surface .ps-profile-avatar {
+  display: inline-grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--primary-bg);
+  color: var(--primary);
+  font-weight: 700;
+}
+.public-surface .ps-profile-sign-out {
+  margin-bottom: 24px;
+  color: var(--red-light);
+}

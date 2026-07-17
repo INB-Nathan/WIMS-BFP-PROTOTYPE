@@ -1,3 +1,10 @@
+## [2026-07-18] feat(profile): civilian public-surface profile (#656)
+
+- **Scope:** `/profile` now enters `PublicThemeProvider` only for authenticated `CIVILIAN_REPORTER` sessions. The existing shared route retains its sidebar/header staff shell for Regional Encoder, National Validator, National Analyst, and System Administrator sessions; no API, authorization, or profile-update contract changed.
+- **Presentation:** The civilian route reuses existing public-surface tokens for its account cards and forms, adds a decorative initial avatar, and exposes the existing `logout` action as Sign out. The shared public header supplies the persisted `landing-theme` toggle.
+- **Tests:** `LayoutShell.test.tsx` covers the role-aware shell split; profile tests cover civilian shell markup and sign-out while retaining profile update coverage (30/30 targeted tests passed). `npm run lint` reported 0 errors and 36 pre-existing warnings.
+- **Wiki:** Updated [[frontend/route-map]] and [[index]]. No FRS/code gap changed.
+
 ## [2026-07-17] feat(auth-ui): session-aware public navigation and Keycloak parity
 
 - **Navigation:** `PublicHeader` now consumes the existing `AuthContext` session state across `/`, `/information`, and the shared public shell. Anonymous users receive Home, Information, Fire Stations, Register, and Sign In only; authenticated users receive their role dashboard, avatar, and Report a Fire action.
