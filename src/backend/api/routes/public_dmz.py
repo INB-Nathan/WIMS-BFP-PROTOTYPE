@@ -14,7 +14,7 @@ import os
 import time
 from typing import Annotated
 
-import redis.asyncio as aioredis
+from prometheus_client import Counter
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -28,10 +28,25 @@ from utils.rate_limit import (
     RETRY_AFTER_CEILING_SECONDS,
     RETRY_AFTER_FLOOR_SECONDS,
 )
+from utils.redis_singleton import get_async_redis_client
 
 router = APIRouter(prefix="/api/v1/public", tags=["public-dmz"])
 
 logger = logging.getLogger("wims.public_dmz")
+
+# ---------------------------------------------------------------------------
+# Prometheus metrics (public DMZ abuse surface)
+# ---------------------------------------------------------------------------
+# Incremented on rate-limit outcomes so operators can observe public-surface
+# abuse pressure. These replace ad hoc inspection of Redis keys.
+PUBLIC_RATE_LIMITED_TOTAL = Counter(
+    "wims_public_rate_limited_total",
+    "Total public DMZ requests rejected by the 3/IP/hr rate limit (HTTP 429).",
+)
+PUBLIC_RATELIMIT_FAILCLOSED_TOTAL = Counter(
+    "wims_public_ratelimit_failclosed_total",
+    "Total public DMZ requests denied by fail-closed rate-limiter failure (HTTP 503).",
+)
 
 # ---------------------------------------------------------------------------
 # Redis Rate Limiter — 3 req/IP/hour (stricter than the auth callback limiter)
@@ -48,27 +63,24 @@ _REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
 
 async def _get_redis():
     """
-    Return a request-scoped async Redis client.
+    Return an async Redis client backed by the shared singleton pool.
 
-    Each call creates a fresh ConnectionPool to avoid cross-event-loop
-    failures when the rate limiter is called from different asyncio event
-    loops (e.g. FastAPI TestClient creates a new loop per request).
-    Caching the pool globally would bind it to the first request's event
-    loop, causing RuntimeError on subsequent requests in different loops.
+    Reuses the process-wide aioredis ConnectionPool from
+    ``utils.redis_singleton.get_async_redis_client`` so connections are pooled
+    across requests instead of building a fresh per-request pool (pool churn).
+    The pool is recreated only when the running event loop differs from the
+    loop it was created on, which avoids the cross-event-loop RuntimeError the
+    original per-request pool guarded against.
 
-    The caller closes the client/pool after the rate-limit script runs so
-    per-request pools do not accumulate idle sockets.
+    The caller closes the client in its ``finally`` block with
+    ``close_connection_pool=False`` so the connection returns to the shared
+    pool rather than disposing it.
+
+    Fail-open: returns None on connect failure so callers can skip rate
+    limiting (Redis down → no rate limit, preserving the previous behavior).
     """
     try:
-        pool = aioredis.ConnectionPool.from_url(
-            _REDIS_URL,
-            decode_responses=True,
-            max_connections=5,
-            socket_connect_timeout=0.5,
-            socket_timeout=0.5,
-            health_check_interval=30,
-        )
-        return aioredis.Redis(connection_pool=pool)
+        return await get_async_redis_client()
     except Exception:
         logger.warning(
             "Redis connection failed at %s — rate limiting disabled for this request",
@@ -162,6 +174,13 @@ async def rate_limit_public_dmz(request: Request) -> None:
         )
         blocked, retry_after = int(result[0]), int(result[1])
         if blocked:
+            ip_hash = hash_client_ip(client_ip)
+            logger.info(
+                "Public DMZ rate limit hit ip_hash=%s retry_after=%s",
+                ip_hash,
+                retry_after,
+            )
+            PUBLIC_RATE_LIMITED_TOTAL.inc()
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail=f"Rate limit exceeded. Max {_PUBLIC_RATE_LIMIT_THRESHOLD} submissions per hour per IP.",
@@ -171,13 +190,14 @@ async def rate_limit_public_dmz(request: Request) -> None:
         raise
     except Exception:
         logger.error("Redis eval failed for key=%s — fail-closed: denying request", key)
+        PUBLIC_RATELIMIT_FAILCLOSED_TOTAL.inc()
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Service temporarily unavailable — rate limiter unreachable",
         )
     finally:
         try:
-            await r.aclose(close_connection_pool=True)
+            await r.aclose(close_connection_pool=False)
         except Exception:
             pass
 

@@ -138,6 +138,58 @@ def test_public_detail_404_when_missing(client: TestClient):
     assert r.status_code == 404
 
 
+# ── A10: language filtering + expired/unpublished exclusion ─────────────────
+
+
+@pytest.mark.unit
+def test_public_hub_language_uk_filter_passed_to_service(client: TestClient):
+    """?language=uk must route to list_published and return uk-labelled items."""
+    item_uk = {
+        "content_id": "c_uk",
+        "slug": "slug-uk",
+        "content_type": "ANNOUNCEMENT",
+        "title": "UK Title",
+        "body": "UK Body",
+        "language": "uk",
+        "urgent_banner": False,
+        "expires_at": None,
+        "metadata_json": None,
+        "last_reviewed_at": None,
+        "updated_at": None,
+    }
+    with patch.object(svc, "list_published", return_value=[item_uk]) as mock_list:
+        r = client.get("/api/community/hub?language=uk")
+    assert r.status_code == 200
+    body = r.json()
+    assert isinstance(body["items"], list)
+    assert body["items"][0]["language"] == "uk"
+    # The route forwarded language=uk to the service layer.
+    assert mock_list.call_args.kwargs.get("language") == "uk"
+
+
+@pytest.mark.unit
+def test_public_hub_invalid_language_returns_422(client: TestClient):
+    """language outside the ^(en|uk)$ pattern must be rejected with 422."""
+    r = client.get("/api/community/hub?language=fr")
+    assert r.status_code == 422
+
+
+@pytest.mark.unit
+def test_expired_or_unpublished_item_is_omitted_or_404(client: TestClient):
+    """When the service returns no published/non-expired item, the detail route
+    returns 404 and the hub route omits it (stub service return)."""
+    # Detail route: service returns None -> 404 (expired/unpublished).
+    with patch.object(svc, "get_by_slug", return_value=None):
+        r = client.get("/api/community/expired-slug")
+    assert r.status_code == 404
+
+    # Hub route: service returns empty list -> no items surfaced.
+    with patch.object(svc, "list_published", return_value=[]):
+        r = client.get("/api/community/hub")
+    assert r.status_code == 200
+    assert r.json()["items"] == []
+
+
 # ── Admin writes ──────────────────────────────────────────────────────────────
 
 

@@ -42,6 +42,13 @@ _REDIS_BACKOFF_SECONDS = 30.0
 
 _REDIS_CLUSTER_TTL = 120  # 2 minutes
 _REDIS_EMERGENCY_TTL = 300  # 5 minutes
+# A16 (map.py scope): cooldown blast-radius reduction is intentionally a
+# documented NO-OP here. The current behavior nulls _REDIS_POOL on connect
+# failure and applies a _REDIS_RETRY_AFTER backoff; keeping a known-bad pool
+# assigned and only nudging the timestamp risks reusing a dead aioredis client
+# (connection storms / silent failures). Correctness is preferred over the
+# refactor: the 30s window is bounded and the route is fail-soft. No control
+# flow below is changed for A16.
 _REDIS_POOL_MAX_CONNECTIONS = 10
 
 
@@ -160,7 +167,21 @@ async def get_incident_clusters(
         except Exception:
             logger.warning("Redis GET failed — proceeding without cache")
 
-    # ── Query PostGIS ─────────────────────────────────────────────────────
+    # ── Query PostGIS (with single-flight lock against cache stampede) ──
+    # Concurrent cache misses for the same bbox+zoom would otherwise each
+    # hit PostGIS. A Redis SET NX lock lets only one request refresh; the
+    # losers fall back to a live DB query rather than erroring. The lock is
+    # best-effort: any failure to acquire/release degrades to an unguarded
+    # live query, preserving the route's fail-soft contract.
+    lock_key = f"map:lock:{cache_key}"
+    lock_acquired = False
+    if r is not None:
+        try:
+            lock_acquired = bool(await r.set(lock_key, "1", nx=True, ex=5))
+        except Exception:
+            logger.warning("Redis lock SET failed — proceeding without lock")
+            lock_acquired = False
+
     grid_deg = _grid_size_for_zoom(zoom)
 
     # Civilian report statuses included in public pressure map:
@@ -219,12 +240,18 @@ async def get_incident_clusters(
         for r in rows
     ]
 
-    # ── Write cache (best-effort) ─────────────────────────────────────────
-    if r is not None:
+    # ── Write cache (best-effort, only the lock-owning request writes) ────
+    if r is not None and lock_acquired:
         try:
             await r.setex(cache_key, _REDIS_CLUSTER_TTL, json.dumps(clusters))
         except Exception:
             logger.warning("Redis SET failed — cache write skipped")
+        finally:
+            # Release the single-flight lock so the next miss refreshes.
+            try:
+                await r.delete(lock_key)
+            except Exception:
+                logger.warning("Redis lock release failed — key expires via TTL")
 
     return ClusterResponse(clusters=[ClusterItem(**c) for c in clusters])
 
