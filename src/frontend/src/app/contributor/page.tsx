@@ -245,12 +245,12 @@ export default function ContributorPage() {
 
         {/* BFP red report CTA — complements the header's "Report a Fire" flow */}
         <Link href="/report" className="ps-btn ps-btn-primary ps-contributor-report-cta">
-          <IconPlus size={24} aria-hidden className="flex-shrink-0" />
-          <span className="flex-1">
-            <span className="block">Submit a report</span>
-            <span className="block">Your observations drive faster emergency response</span>
+          <IconPlus size={24} aria-hidden />
+          <span>
+            <span>Submit a report</span>
+            <span>Your observations drive faster emergency response</span>
           </span>
-          <IconArrowRight size={20} aria-hidden className="flex-shrink-0" />
+          <IconArrowRight size={20} aria-hidden />
         </Link>
 
         {error && (
@@ -318,7 +318,7 @@ export default function ContributorPage() {
 
         {/* Impact strip — truthful generic claim derived from the report count */}
         <div className="ps-contributor-impact">
-          <IconFlameFilled size={20} aria-hidden className="flex-shrink-0" />
+          <IconFlameFilled size={20} aria-hidden />
           <span>
             {totalReports > 0
               ? `Your ${totalReports} report${totalReports === 1 ? '' : 's'} help BFP assess fire activity and community safety.`
