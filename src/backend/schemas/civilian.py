@@ -59,6 +59,19 @@ class CivilianReportAppend(BaseModel):
     turnstile_token: str | None = Field(default=None, max_length=2048)
 
 
+class CivilianReportClaim(BaseModel):
+    """Claim an anonymous report into the authenticated CIVILIAN_REPORTER account.
+
+    The caller holds the secure tracking link (report_id + tracking_token),
+    issued at submit time. Claiming links contributor_user_id so the report
+    appears on the contributor dashboard. Idempotent: claiming an already-
+    linked report returns 409; an invalid/revoked token returns a neutral 404.
+    """
+
+    report_id: int = Field(ge=1)
+    tracking_token: str = Field(min_length=1)
+
+
 class CivilianReportResponse(BaseModel):
     """Response body for created civilian report."""
 
