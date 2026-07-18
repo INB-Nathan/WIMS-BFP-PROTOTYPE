@@ -26,6 +26,7 @@ import { syncPendingPhotos } from './civilianPhotoSync';
 import { validateOfflinePayload } from './validation/offlineIncident';
 import { refreshToken } from './auth-refresh';
 import { isReachable, markConnectivityOffline } from './connectivity';
+import { storeTrackingLink, LAST_REPORT_KEY } from './api/legacy';
 
 const MAX_RETRY = 5;
 const MAX_BACKOFF_MS = 64_000; // 64s cap on exponential backoff
@@ -923,6 +924,31 @@ export async function syncPublicOfflineOps(
 
       await markPublicOpSynced(op.localId, result.serverId);
       syncedServerIds.set(op.localId, result.serverId);
+      // ── Persist tracking link for queued/offline submissions ────────
+      // Mirrors submitCivilianReportV2(): a report filed offline then synced
+      // must keep its tracking link retrievable. The backend echoes
+      // tracking_url/tracking_token in the response body; without this, an
+      // offline reporter loses all access to their report after sync.
+      if (op.operation === 'submit') {
+        try {
+          const body = result.body as Record<string, unknown>;
+          const trackingUrl =
+            typeof body.tracking_url === 'string' ? body.tracking_url : null;
+          if (trackingUrl) {
+            localStorage.setItem(
+              LAST_REPORT_KEY,
+              JSON.stringify({
+                id: result.serverId,
+                category: (op.payload as Record<string, unknown>).category ?? null,
+                tracking_url: trackingUrl,
+              }),
+            );
+            storeTrackingLink(result.serverId, trackingUrl);
+          }
+        } catch {
+          // Non-fatal: tracking link is a convenience, never block sync.
+        }
+      }
       // Walk the linkedLocalId chain for this op: if a child was previously
       // deferred with parent_pending, the resolved serverId may now let it
       // complete on the next batch.

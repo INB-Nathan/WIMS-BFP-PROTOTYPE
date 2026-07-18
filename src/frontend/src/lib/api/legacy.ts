@@ -805,10 +805,10 @@ export interface CivilianReportV2Response {
   created_at: string;
 }
 
-const LAST_REPORT_KEY = 'wims_last_report';
-const TRACKING_LINKS_BY_REPORT_KEY = 'wims_tracking_links_by_report';
+export const LAST_REPORT_KEY = 'wims_last_report';
+export const TRACKING_LINKS_BY_REPORT_KEY = 'wims_tracking_links_by_report';
 
-function storeTrackingLink(reportId: number, trackingUrl: string | null | undefined): void {
+export function storeTrackingLink(reportId: number, trackingUrl: string | null | undefined): void {
   if (!trackingUrl) return;
   try {
     const raw = localStorage.getItem(TRACKING_LINKS_BY_REPORT_KEY);
@@ -852,6 +852,20 @@ export async function submitCivilianReportV2(payload: CivilianReportV2Payload): 
     storeTrackingLink(result.report_id, result.tracking_url);
   } catch {}
   return result;
+}
+
+/** Claim an anonymous report into the signed-in CIVILIAN_REPORTER account.
+ *  POST /api/civilian/reports/claim — secure handshake using the tracking token.
+ *  Returns the updated report; throws ApiRequestError (409 already linked, 404
+ *  invalid token, 401 not authenticated). */
+export async function claimCivilianReport(
+  reportId: number,
+  trackingToken: string,
+): Promise<CivilianReportV2Response> {
+  return fetchWithOptionalAuth<CivilianReportV2Response>('/civilian/reports/claim', {
+    method: 'POST',
+    body: JSON.stringify({ report_id: reportId, tracking_token: trackingToken }),
+  });
 }
 
 /** Append additional data to an existing civilian report — supports optional_auth. PATCH /api/civilian/reports/{reportId}/append */

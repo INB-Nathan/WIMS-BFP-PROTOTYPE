@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import React from 'react';
-import { ArrowLeft, AlertTriangle, RefreshCw } from 'lucide-react';
+import { ArrowLeft, AlertTriangle, RefreshCw, Link2 } from 'lucide-react';
 import { TurnstileInstance } from '@marsidev/react-turnstile';
 import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
@@ -125,6 +125,7 @@ function ReportAuthStatus() {
 
 export function ReportWizard() {
   usePublicAutoSync();
+  const { user } = useAuth();
 
   const [mode, setMode] = useState<Mode>('prompt');
   const [stepIndex, setStepIndex] = useState(0);
@@ -175,7 +176,27 @@ export function ReportWizard() {
   const [queuedLocalId, setQueuedLocalId] = useState<string | null>(null);
 
   const [submittedResponse, setSubmittedResponse] = useState<CivilianReportV2Response | null>(null);
+  const [lastReport, setLastReport] = useState<{ id: number; trackingUrl: string } | null>(null);
   const [nearestStation, setNearestStation] = useState<{ name: string; phone: string | null; lat: number; lng: number } | null>(null);
+
+  // Surface the user's most recent report so returning to the wizard shows
+  // what to track (Fix B). When authenticated as a civilian reporter the
+  // report is already linked server-side, so the banner also links the dashboard.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('wims_last_report');
+      if (raw) {
+        const parsed = JSON.parse(raw) as { id?: unknown; tracking_url?: unknown };
+        const id = typeof parsed.id === 'number' ? parsed.id : Number(parsed.id);
+        const trackingUrl = typeof parsed.tracking_url === 'string' ? parsed.tracking_url : null;
+        if (Number.isFinite(id) && id > 0 && trackingUrl) {
+          setLastReport({ id, trackingUrl });
+        }
+      }
+    } catch {
+      // ignore storage read failures
+    }
+  }, []);
   const [tracking, setTracking] = useState<PublicTrackingData | null>(null);
   const [trackingLoading, setTrackingLoading] = useState(false);
 
@@ -575,6 +596,33 @@ export function ReportWizard() {
 
       <div className="relative z-10 max-w-lg mx-auto px-4 mt-4 pb-8">
         <ReportAuthStatus />
+        {lastReport && (
+          <div
+            className="ps-card ps-contributor-impact"
+            data-testid="last-report-banner"
+            style={{ marginBottom: '16px' }}
+          >
+            <Link2 className="w-5 h-5 flex-shrink-0" aria-hidden />
+            <div className="min-w-0">
+              <p className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>
+                Your last report #{lastReport.id}
+              </p>
+              <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-secondary)' }}>
+                <Link href={lastReport.trackingUrl} className="underline break-all" style={{ color: 'var(--red)' }}>
+                  Track this report
+                </Link>
+                {user?.role === 'CIVILIAN_REPORTER' && (
+                  <>
+                    {' '}·{' '}
+                    <Link href="/contributor" className="underline" style={{ color: 'var(--red)' }}>
+                      View on your dashboard
+                    </Link>
+                  </>
+                )}
+              </p>
+            </div>
+          </div>
+        )}
         <div className="ps-card">
           <div className="p-6 space-y-5">
             {/* Progress */}

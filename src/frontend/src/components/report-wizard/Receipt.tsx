@@ -7,6 +7,8 @@ import { CheckCircle2, Copy, PhoneCall, ChevronDown, UserPlus, MapPin, Clock, Al
 import { QRCodeSVG } from 'qrcode.react';
 import { RouteFeedback } from './RouteFeedback';
 import { SafetyBanner } from './SafetyBanner';
+import { useAuth } from '@/context/AuthContext';
+import { claimCivilianReport } from '@/lib/api/legacy';
 import type { PublicTrackingData } from '@/lib/api/tracking';
 
 export interface ReceiptData {
@@ -36,6 +38,22 @@ export interface ReceiptProps {
 export function Receipt({ data, tracking, trackingLoading }: ReceiptProps) {
   const [copied, setCopied] = useState(false);
   const [showIncentive, setShowIncentive] = useState(false);
+  const { user } = useAuth();
+  const isReporter = user?.role === 'CIVILIAN_REPORTER';
+  const [claimState, setClaimState] = useState<'idle' | 'claiming' | 'claimed' | 'error'>('idle');
+  const [claimError, setClaimError] = useState<string | null>(null);
+
+  async function claimReport() {
+    setClaimState('claiming');
+    setClaimError(null);
+    try {
+      await claimCivilianReport(data.reportId, data.trackingToken);
+      setClaimState('claimed');
+    } catch (err) {
+      setClaimState('error');
+      setClaimError(err instanceof Error ? err.message : 'Could not claim report');
+    }
+  }
 
   const absoluteTrackingUrl =
     typeof window !== 'undefined'
@@ -204,41 +222,75 @@ export function Receipt({ data, tracking, trackingLoading }: ReceiptProps) {
             </p>
           </div>
 
-          {/* Additive registration incentive (progressive disclosure) */}
+          {/* Additive registration incentive / claim (progressive disclosure) */}
           <div className="px-5 pb-5">
-            <button
-              type="button"
-              onClick={() => setShowIncentive((v) => !v)}
-              data-testid="registration-incentive-toggle"
-              aria-expanded={showIncentive}
-              className="flex items-center gap-1.5 text-xs font-semibold"
-              style={{ color: 'var(--text-primary)' }}
-            >
-              <ChevronDown
-                className="w-4 h-4 transition-transform"
-                style={{ transform: showIncentive ? 'rotate(180deg)' : 'none' }}
-              />
-              Track all your reports — register as a reporter
-            </button>
-            {showIncentive && (
-              <div
-                data-testid="registration-incentive"
-                className="mt-2 rounded-lg p-3 text-xs"
-                style={{ backgroundColor: 'var(--bg-base)', color: 'var(--text-secondary)' }}
-              >
-                <ul className="space-y-1 mb-2">
-                  <li>• Track all your reports in one place</li>
-                  <li>• Get status updates</li>
-                  <li>• Contribute verified reports</li>
-                </ul>
-                <p className="mb-2">Your token keeps working even without an account — registering is optional.</p>
-                <Link
-                  href="/register"
-                  className="ps-btn ps-btn-primary inline-flex items-center gap-1.5"
-                >
-                  <UserPlus className="w-3.5 h-3.5" /> Register to unlock full tracking
-                </Link>
+            {isReporter ? (
+              <div data-testid="claim-section" className="rounded-lg p-3" style={{ backgroundColor: 'var(--bg-base)' }}>
+                <p className="text-xs font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
+                  Link this report to your account
+                </p>
+                {claimState === 'claimed' ? (
+                  <p className="text-xs flex items-center gap-1.5" style={{ color: 'var(--green)' }}>
+                    <CheckCircle2 className="w-4 h-4" /> Linked. View it on your{' '}
+                    <Link href="/contributor" className="underline font-semibold">dashboard</Link>.
+                  </p>
+                ) : (
+                  <>
+                    <p className="text-[11px] mb-2" style={{ color: 'var(--text-secondary)' }}>
+                      You&apos;re signed in as a reporter. Attach this report so it appears on your contributor dashboard.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => void claimReport()}
+                      disabled={claimState === 'claiming'}
+                      data-testid="claim-report"
+                      className="ps-btn ps-btn-primary inline-flex items-center gap-1.5"
+                    >
+                      {claimState === 'claiming' ? 'Linking…' : 'Link to my account'}
+                    </button>
+                    {claimState === 'error' && (
+                      <p className="text-[11px] mt-2" style={{ color: 'var(--red)' }}>{claimError}</p>
+                    )}
+                  </>
+                )}
               </div>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setShowIncentive((v) => !v)}
+                  data-testid="registration-incentive-toggle"
+                  aria-expanded={showIncentive}
+                  className="flex items-center gap-1.5 text-xs font-semibold"
+                  style={{ color: 'var(--text-primary)' }}
+                >
+                  <ChevronDown
+                    className="w-4 h-4 transition-transform"
+                    style={{ transform: showIncentive ? 'rotate(180deg)' : 'none' }}
+                  />
+                  Track all your reports — register as a reporter
+                </button>
+                {showIncentive && (
+                  <div
+                    data-testid="registration-incentive"
+                    className="mt-2 rounded-lg p-3 text-xs"
+                    style={{ backgroundColor: 'var(--bg-base)', color: 'var(--text-secondary)' }}
+                  >
+                    <ul className="space-y-1 mb-2">
+                      <li>• Track all your reports in one place</li>
+                      <li>• Get status updates</li>
+                      <li>• Contribute verified reports</li>
+                    </ul>
+                    <p className="mb-2">Your token keeps working even without an account — registering is optional.</p>
+                    <Link
+                      href="/register"
+                      className="ps-btn ps-btn-primary inline-flex items-center gap-1.5"
+                    >
+                      <UserPlus className="w-3.5 h-3.5" /> Register to unlock full tracking
+                    </Link>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>

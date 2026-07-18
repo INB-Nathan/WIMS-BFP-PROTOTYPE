@@ -49,6 +49,7 @@ from schemas.civilian import (
     CivilianFollowupCreate,
     CivilianFollowupResponse,
     CivilianReportAppend,
+    CivilianReportClaim,
     CivilianReportCreate,
     CivilianReportResponse,
     CivilianTrackingResponse,
@@ -761,6 +762,68 @@ async def submit_civilian_report(
     response.tracking_token = tracking_token
     response.tracking_url = f"/tracking/v2/{report_id}/{tracking_token}"
     return response
+
+
+@router.post(
+    "/reports/claim",
+    response_model=CivilianReportResponse,
+)
+async def claim_civilian_report(
+    body: CivilianReportClaim,
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[dict | None, Depends(optional_auth)] = None,
+) -> CivilianReportResponse:
+    """Claim an anonymous report into the caller's CIVILIAN_REPORTER account.
+
+    Implements the IA-spec secure handshake (spec #606 §211): an anonymous
+    reporter who later registers can attach their already-submitted report to
+    their account using the secure tracking token they were issued. Without
+    this, bad actors could scrape or claim arbitrary tokens.
+
+    Security:
+    - Requires an authenticated CIVILIAN_REPORTER (401 otherwise).
+    - Validates the token via the existing SECURITY DEFINER
+      wims.validate_tracking_token — neutral 404 for invalid/revoked/expired.
+    - Only claims reports where contributor_user_id IS NULL (409 if already
+      linked, so a user cannot hijack another reporter's report).
+    - The UPDATE is race-safe (WHERE contributor_user_id IS NULL) and returns
+      the updated report; if 0 rows changed, 409.
+    """
+    if user is None or user.get("role") != "CIVILIAN_REPORTER":
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    token_hash = hashlib.sha256(body.tracking_token.encode("utf-8")).hexdigest()
+    is_valid = db.execute(
+        text("SELECT wims.validate_tracking_token(:rid, :token_hash)"),
+        {"rid": body.report_id, "token_hash": token_hash},
+    ).scalar()
+    if not is_valid:
+        # Neutral 404 — do not reveal whether the report exists or the token is wrong.
+        raise HTTPException(status_code=404, detail="Report not found")
+
+    # Race-safe claim: only attach if still unlinked. contributor_user_id is
+    # the RLS-scoped application session column; no admin/superuser session used.
+    result = db.execute(
+        text(
+            """
+            UPDATE wims.citizen_reports
+            SET contributor_user_id = :uid
+            WHERE report_id = :rid
+              AND contributor_user_id IS NULL
+            """
+        ),
+        {"uid": user["user_id"], "rid": body.report_id},
+    )
+    db.commit()
+    if result.rowcount == 0:
+        # Either already claimed by this/another user, or report gone.
+        raise HTTPException(
+            status_code=409,
+            detail="Report already linked to an account",
+        )
+
+    return _fetch_report_response(db, body.report_id)
 
 
 @router.get(
