@@ -44,15 +44,24 @@ export interface PublicFireMapInnerProps {
   showStations?: boolean;
   /** Auto-request the user's location on mount and fly to it at barangay zoom */
   locateOnLoad?: boolean;
+  /** Shared emergencies payload (e.g. from usePublicEmergencies). When omitted,
+   *  the map fetches it independently to preserve isolated usage. */
+  emergencies?: EmergencyResponse[];
+  /** Called when a published incident feature (perimeter or point) is clicked. */
+  onEmergencySelect?: (emergency: EmergencyResponse) => void;
+  /** When set, the map flies to this [lat, lng] (e.g. a sidebar card click). */
+  focusLocation?: [number, number] | null;
 }
 
 // ── Cluster color helpers ───────────────────────────────────────────────────
 
 function severityColor(severity: string): string {
+  // Must match the backend EmergencySeverity enum (critical | high | moderate | low).
   switch (severity) {
-    case 'high':   return '#dc2626'; // red-600
-    case 'medium': return '#ea580c'; // orange-600
-    default:       return '#eab308'; // yellow-500
+    case 'critical': return '#dc2626'; // red-600
+    case 'high':     return '#ea580c'; // orange-600
+    case 'moderate': return '#d97706'; // amber-600
+    default:         return '#eab308'; // yellow-500
   }
 }
 
@@ -200,6 +209,9 @@ export default function PublicFireMapInner({
   onGeolocationAvailable,
   showStations = false,
   locateOnLoad = false,
+  emergencies: emergenciesProp,
+  onEmergencySelect,
+  focusLocation,
 }: PublicFireMapInnerProps) {
   const [clusters, setClusters] = useState<MapClusterItem[]>([]);
   const [emergencies, setEmergencies] = useState<EmergencyResponse[]>([]);
@@ -212,7 +224,15 @@ export default function PublicFireMapInner({
   const [stations, setStations] = useState<StationItem[] | null>(null);
   const [stationError, setStationError] = useState(false);
 
+  // When emergencies are supplied via props (shared hook), use them directly
+  // and skip the independent mount fetch. Otherwise fetch independently.
+  const usingSharedEmergencies = emergenciesProp !== undefined;
+
   useEffect(() => {
+    if (usingSharedEmergencies) {
+      setEmergencies(emergenciesProp ?? []);
+      return;
+    }
     let cancelled = false;
     fetchEmergencies()
       .then((data) => {
@@ -222,7 +242,7 @@ export default function PublicFireMapInner({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [usingSharedEmergencies, emergenciesProp]);
 
   // ── Fetch stations when layer is toggled on ─────────────────────────
   useEffect(() => {
@@ -265,6 +285,13 @@ export default function PublicFireMapInner({
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
   const [viewTarget, setViewTarget] = useState<[number, number] | null>(null);
   const [locationStatus, setLocationStatus] = useState<LocationStatus>('idle');
+
+  // Recenter toward a focus target driven from outside the map (sidebar select).
+  // Kept separate from geolocation viewTarget to avoid clobbering it.
+  const [externalTarget, setExternalTarget] = useState<[number, number] | null>(null);
+  useEffect(() => {
+    if (focusLocation) setExternalTarget(focusLocation);
+  }, [focusLocation]);
 
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -424,6 +451,9 @@ export default function PublicFireMapInner({
         {/* Recenter map when viewTarget changes */}
         <MapRecenter target={viewTarget} zoom={initialZoom >= 14 ? initialZoom : 14} />
 
+        {/* Recenter when an outside source (sidebar) requests focus */}
+        <MapRecenter target={externalTarget} zoom={14} />
+
         {/* Map click handler for selection mode */}
         {selectionMode && <MapClickHandler onClick={handleMapClick} />}
 
@@ -480,14 +510,24 @@ export default function PublicFireMapInner({
           const color = severityColor(emergency.severity);
           if (positions) {
             return (
-              <Polygon key={`perimeter-${emergency.id}`} positions={positions} pathOptions={{ color, fillColor: color, fillOpacity: 0.2, weight: 3 }}>
+              <Polygon
+                key={`perimeter-${emergency.id}`}
+                positions={positions}
+                pathOptions={{ color, fillColor: color, fillOpacity: 0.2, weight: 3 }}
+                eventHandlers={onEmergencySelect ? { click: () => onEmergencySelect(emergency) } : undefined}
+              >
                 <Popup><div className="min-w-[150px] text-xs"><p className="text-sm font-semibold">{emergency.title}</p><p className="mt-0.5 text-slate-500">Validated fire perimeter</p></div></Popup>
               </Polygon>
             );
           }
           if (emergency.latitude == null || emergency.longitude == null) return null;
           return (
-            <Marker key={`incident-${emergency.id}`} position={[emergency.latitude, emergency.longitude]} icon={PinIcon}>
+            <Marker
+              key={`incident-${emergency.id}`}
+              position={[emergency.latitude, emergency.longitude]}
+              icon={PinIcon}
+              eventHandlers={onEmergencySelect ? { click: () => onEmergencySelect(emergency) } : undefined}
+            >
               <Popup><div className="min-w-[150px] text-xs"><p className="text-sm font-semibold">{emergency.title}</p><p className="mt-0.5 text-slate-500">Validated fire incident</p></div></Popup>
             </Marker>
           );

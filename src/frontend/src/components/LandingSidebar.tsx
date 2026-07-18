@@ -1,8 +1,7 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
-import { publicApiFetch } from '@/lib/api/public-transport';
+import type { EmergencyResponse } from '@/lib/api/information';
 import {
   IconFlameFilled,
   IconMapPin,
@@ -11,14 +10,6 @@ import {
   IconClipboardList,
   IconRefresh,
 } from '@tabler/icons-react';
-
-interface Emergency {
-  id: number;
-  title: string;
-  location: string;
-  severity: string;
-  status: string;
-}
 
 function severityBadge(severity: string): { label: string; className: string } {
   switch (severity) {
@@ -37,51 +28,38 @@ interface LandingSidebarProps {
   onClose?: () => void;
   closeRef?: React.RefObject<HTMLButtonElement | null>;
   sidebarTitleId?: string;
+  /** Called when an active-fire card is activated; used to fly the map to it. */
+  onSelectEmergency?: (emergency: EmergencyResponse) => void;
+  /** The currently selected emergency id, for highlight sync with the map. */
+  selectedEmergencyId?: number | null;
+  /** Shared emergencies payload owned by the landing page (single fetch). */
+  emergencies: EmergencyResponse[];
+  /** True during the initial fetch. */
+  loading: boolean;
+  /** True when the fetch rejected. */
+  error: boolean;
+  /** Retry the shared fetch. */
+  retry: () => void;
 }
 
-export function LandingSidebar({ onClose, closeRef, sidebarTitleId }: LandingSidebarProps) {
-  const [items, setItems] = useState<Emergency[] | null>(null);
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    publicApiFetch<Emergency[]>('/information/emergencies')
-      .then((data) => {
-        if (cancelled) return;
-        setItems(data ?? []);
-        setFailed(false);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setItems([]);
-        setFailed(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const handleRetry = useCallback(() => {
-    setItems(null);
-    setFailed(false);
-    publicApiFetch<Emergency[]>('/information/emergencies')
-      .then((data) => {
-        setItems(data ?? []);
-        setFailed(false);
-      })
-      .catch(() => {
-        setItems([]);
-        setFailed(true);
-      });
-  }, []);
-
+export function LandingSidebar({
+  onClose,
+  closeRef,
+  sidebarTitleId,
+  onSelectEmergency,
+  selectedEmergencyId,
+  emergencies,
+  loading,
+  error,
+  retry,
+}: LandingSidebarProps) {
   return (
     <>
       <div className="landing-sidebar-header">
         <h3 id={sidebarTitleId}>
           <IconFlameFilled size={14} aria-hidden /> Active fires near you{' '}
-          {items && items.length > 0 && (
-            <span className="sidebar-count">{items.length}</span>
+          {!loading && emergencies.length > 0 && (
+            <span className="sidebar-count">{emergencies.length}</span>
           )}
         </h3>
         {onClose && (
@@ -98,33 +76,41 @@ export function LandingSidebar({ onClose, closeRef, sidebarTitleId }: LandingSid
       </div>
 
       <div className="landing-sidebar-list">
-        {failed ? (
+        {error ? (
           <div className="sidebar-error" data-testid="sidebar-error">
             <p>Unable to load active fires.</p>
             <button
               type="button"
               className="sidebar-retry-btn"
-              onClick={handleRetry}
+              onClick={retry}
               data-testid="sidebar-retry-btn"
             >
               <IconRefresh size={14} aria-hidden /> Retry
             </button>
           </div>
-        ) : items === null ? (
+        ) : loading ? (
           <>
             {[1, 2, 3].map((i) => (
               <div key={i} className="sidebar-skeleton-card" data-testid="sidebar-skeleton" />
             ))}
           </>
-        ) : items.length === 0 ? (
+        ) : emergencies.length === 0 ? (
           <div className="sidebar-empty" data-testid="sidebar-empty">
             <p>No active fires reported.</p>
           </div>
         ) : (
-          items.map((e) => {
+          emergencies.map((e) => {
             const badge = severityBadge(e.severity);
+            const isSelected = selectedEmergencyId != null && e.id === selectedEmergencyId;
             return (
-              <div key={e.id} className="sidebar-fire-card" data-testid="sidebar-fire-card">
+              <button
+                key={e.id}
+                type="button"
+                className={`sidebar-fire-card${isSelected ? ' selected' : ''}`}
+                data-testid="sidebar-fire-card"
+                onClick={() => onSelectEmergency?.(e)}
+                aria-pressed={isSelected}
+              >
                 <div className={badge.className}>{badge.label}</div>
                 <div className="sf-info">
                   <div className="sf-title">{e.title}</div>
@@ -132,11 +118,11 @@ export function LandingSidebar({ onClose, closeRef, sidebarTitleId }: LandingSid
                     <IconMapPin size={10} aria-hidden /> {e.location}
                   </div>
                 </div>
-              </div>
+              </button>
             );
           })
         )}
-        {items && items.length > 0 && (
+        {!loading && !error && emergencies.length > 0 && (
           <p className="sidebar-verified-note">
             Showing verified BFP incidents
           </p>

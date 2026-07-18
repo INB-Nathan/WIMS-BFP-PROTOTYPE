@@ -33,14 +33,20 @@ vi.mock('react-leaflet', () => ({
   Circle: ({ children }: { children?: React.ReactNode }) => (
     <div data-testid="civilian-circle">{children}</div>
   ),
-  Polygon: ({ children }: { children?: React.ReactNode }) => (
-    <div data-testid="incident-perimeter">{children}</div>
+  Polygon: ({ children, eventHandlers, pathOptions }: { children?: React.ReactNode; eventHandlers?: Record<string, (e: unknown) => void>; pathOptions?: { color?: string } }) => (
+    <div data-testid="incident-perimeter" onClick={(e) => eventHandlers?.click?.(e)}>
+      {pathOptions?.color && (
+        // Mirror the real Leaflet SVG path so color assertions can run.
+        <path stroke={pathOptions.color} />
+      )}
+      {children}
+    </div>
   ),
   Popup: ({ children }: { children: React.ReactNode }) => (
     <div data-testid="popup">{children}</div>
   ),
-  Marker: ({ children, interactive, _icon }: { children?: React.ReactNode; interactive?: boolean; _icon?: unknown }) => (
-    <div data-testid={interactive === false ? 'user-marker' : 'marker'}>{children}</div>
+  Marker: ({ children, interactive, _icon, eventHandlers }: { children?: React.ReactNode; interactive?: boolean; _icon?: unknown; eventHandlers?: Record<string, (e: unknown) => void> }) => (
+    <div data-testid={interactive === false ? 'user-marker' : 'marker'} onClick={(e) => eventHandlers?.click?.(e)}>{children}</div>
   ),
   useMapEvents: () => ({
     getBounds: () => ({
@@ -267,6 +273,81 @@ describe('PublicFireMapInner', () => {
     it('does not fetch stations when showStations is false', () => {
       render(<PublicFireMapInner center={[14.6, 121.0]} zoom={10} showStations={false} />);
       expect(mockFetchStations).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('shared emergencies + selection coupling', () => {
+    beforeEach(() => {
+      mockFetchEmergencies.mockReset();
+    });
+
+    const sampleEmergencies = [
+      {
+        id: 1, title: 'Perimeter incident', location: 'Loc', description: 'd', severity: 'critical', status: 'ongoing',
+        promoted_from_incident_id: 10, latitude: 14.6, longitude: 121, published: true, published_at: null, created_at: '2026-07-17T00:00:00Z',
+        perimeter: { type: 'Feature', geometry: { type: 'Polygon', coordinates: [[[121, 14.6], [121.1, 14.6], [121.1, 14.7], [121, 14.6]]] }, properties: { incident_id: 10 } },
+      },
+      {
+        id: 2, title: 'Point incident', location: 'Loc', description: 'd', severity: 'moderate', status: 'ongoing',
+        promoted_from_incident_id: 11, latitude: 14.7, longitude: 121.1, published: true, published_at: null, created_at: '2026-07-17T00:00:00Z', perimeter: null,
+      },
+    ] as any;
+
+    it('uses provided emergencies and does NOT fetch independently', () => {
+      mockFetchEmergencies.mockResolvedValue([]);
+      render(
+        <PublicFireMapInner center={[14.6, 121.0]} zoom={10} emergencies={sampleEmergencies} />,
+      );
+      expect(mockFetchEmergencies).not.toHaveBeenCalled();
+      expect(screen.getByTestId('incident-perimeter')).toBeInTheDocument();
+      expect(screen.getAllByTestId('marker')).toHaveLength(1);
+    });
+
+    it('emits onEmergencySelect when a perimeter is clicked', async () => {
+      const onSelect = vi.fn();
+      render(
+        <PublicFireMapInner center={[14.6, 121.0]} zoom={10} emergencies={sampleEmergencies} onEmergencySelect={onSelect} />,
+      );
+      const polygon = await screen.findByTestId('incident-perimeter');
+      await act(async () => {
+        fireEvent.click(polygon);
+      });
+      expect(onSelect).toHaveBeenCalledTimes(1);
+      expect(onSelect.mock.calls[0][0].id).toBe(1);
+    });
+
+    it('emits onEmergencySelect when a point marker is clicked', async () => {
+      const onSelect = vi.fn();
+      render(
+        <PublicFireMapInner center={[14.6, 121.0]} zoom={10} emergencies={sampleEmergencies} onEmergencySelect={onSelect} />,
+      );
+      const marker = (await screen.findAllByTestId('marker'))[0];
+      await act(async () => {
+        fireEvent.click(marker);
+      });
+      expect(onSelect).toHaveBeenCalledTimes(1);
+      expect(onSelect.mock.calls[0][0].id).toBe(2);
+    });
+  });
+
+  describe('severityColor normalization', () => {
+    it('maps critical to red and moderate to amber (backend enum parity)', () => {
+      // Exercise severityColor indirectly via emergencies rendering: two
+      // distinctly-coloured perimeters prove the branches are not collapsed.
+      const ems = [
+        { id: 1, title: 'Crit', location: 'L', description: 'd', severity: 'critical', status: 'ongoing', promoted_from_incident_id: 1, latitude: 14.6, longitude: 121, published: true, published_at: null, created_at: '2026-07-17T00:00:00Z', perimeter: { type: 'Feature', geometry: { type: 'Polygon', coordinates: [[[121, 14.6], [121.1, 14.6], [121.1, 14.7], [121, 14.6]]] }, properties: { incident_id: 1 } } },
+        { id: 2, title: 'Mod', location: 'L', description: 'd', severity: 'moderate', status: 'ongoing', promoted_from_incident_id: 2, latitude: 14.7, longitude: 121.1, published: true, published_at: null, created_at: '2026-07-17T00:00:00Z', perimeter: { type: 'Feature', geometry: { type: 'Polygon', coordinates: [[[121.1, 14.6], [121.2, 14.6], [121.2, 14.7], [121.1, 14.6]]] }, properties: { incident_id: 2 } } },
+      ] as any;
+      mockFetchEmergencies.mockResolvedValue([]);
+      render(<PublicFireMapInner center={[14.6, 121.0]} zoom={10} emergencies={ems} />);
+      const polys = screen.getAllByTestId('incident-perimeter');
+      expect(polys).toHaveLength(2);
+      // Different stroke colors prove critical and moderate are not collapsed.
+      const critPath = polys[0].querySelector('path');
+      const modPath = polys[1].querySelector('path');
+      expect(critPath).not.toBeNull();
+      expect(modPath).not.toBeNull();
+      expect(critPath!.getAttribute('stroke')).not.toBe(modPath!.getAttribute('stroke'));
     });
   });
 });

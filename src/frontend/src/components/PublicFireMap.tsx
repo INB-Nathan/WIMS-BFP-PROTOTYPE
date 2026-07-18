@@ -3,6 +3,7 @@
 import dynamic from 'next/dynamic';
 import { useMemo, type ComponentType } from 'react';
 import type { PublicFireMapInnerProps } from './PublicFireMapInner';
+import type { EmergencyResponse } from '@/lib/api/information';
 
 // SSR guard: react-leaflet breaks without window
 const MapInner = dynamic(
@@ -38,6 +39,12 @@ export interface PublicFireMapProps {
   showStations?: boolean;
   /** Auto-request the user's location on mount and fly to it at barangay zoom */
   locateOnLoad?: boolean;
+  /** Shared emergencies payload (e.g. from usePublicEmergencies). */
+  emergencies?: EmergencyResponse[];
+  /** Called when a published incident feature is clicked on the map. */
+  onEmergencySelect?: (emergency: EmergencyResponse) => void;
+  /** When set, the map flies to this [lat, lng]. */
+  focusLocation?: [number, number] | null;
 }
 
 export function PublicFireMap({
@@ -51,6 +58,9 @@ export function PublicFireMap({
   className = '',
   showStations = false,
   locateOnLoad = false,
+  emergencies,
+  onEmergencySelect,
+  focusLocation,
 }: PublicFireMapProps) {
   const style = useMemo(() => {
     const h = typeof height === 'number' ? `${height}px` : height;
@@ -72,6 +82,9 @@ export function PublicFireMap({
         onGeolocationAvailable={onGeolocationAvailable}
         showStations={showStations}
         locateOnLoad={locateOnLoad}
+        emergencies={emergencies}
+        onEmergencySelect={onEmergencySelect}
+        focusLocation={focusLocation}
       />
     </div>
   );

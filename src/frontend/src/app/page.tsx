@@ -6,6 +6,8 @@ import { useState, useCallback, useRef, useEffect, type CSSProperties } from 're
 import { IntentModal } from '@/components/IntentModal';
 import { PublicHeader } from '@/components/PublicHeader';
 import { LandingSidebar } from '@/components/LandingSidebar';
+import { usePublicEmergencies } from '@/lib/usePublicEmergencies';
+import type { EmergencyResponse } from '@/lib/api/information';
 import { usePublicTheme } from '@/components/public/PublicThemeProvider';
 import { IconMapPinFilled, IconLayoutSidebar, IconShieldCheckFilled, IconFlameFilled } from '@tabler/icons-react';
 
@@ -20,6 +22,25 @@ export default function LandingPage() {
   const sidebarRef = useRef<HTMLElement>(null);
   const sidebarToggleRef = useRef<HTMLButtonElement>(null);
   const sidebarCloseRef = useRef<HTMLButtonElement>(null);
+
+  // Single shared emergencies fetch for map + sidebar (dedupes the endpoint).
+  const { emergencies, loading: emergenciesLoading, error: emergenciesError, retry: emergenciesRetry } =
+    usePublicEmergencies();
+  const [selectedEmergencyId, setSelectedEmergencyId] = useState<number | null>(null);
+  const [focusLocation, setFocusLocation] = useState<[number, number] | null>(null);
+
+  const handleSelectEmergency = useCallback((e: EmergencyResponse) => {
+    setSelectedEmergencyId(e.id);
+    if (e.latitude != null && e.longitude != null) {
+      setFocusLocation([e.latitude, e.longitude]);
+    } else if (e.perimeter) {
+      const ring = e.perimeter.geometry.coordinates[0];
+      if (ring && ring.length > 0) {
+        const [lng, lat] = ring[0];
+        setFocusLocation([lat, lng]);
+      }
+    }
+  }, []);
 
   const handleToggleStations = useCallback(() => {
     setShowStations((prev) => !prev);
@@ -97,6 +118,9 @@ export default function LandingPage() {
             zoom={15}
             locateOnLoad
             showStations={showStations}
+            emergencies={emergencies}
+            onEmergencySelect={handleSelectEmergency}
+            focusLocation={focusLocation}
           />
         </div>
 
@@ -135,6 +159,12 @@ export default function LandingPage() {
             onClose={closeSidebar}
             closeRef={sidebarCloseRef}
             sidebarTitleId="landing-sidebar-title"
+            onSelectEmergency={handleSelectEmergency}
+            selectedEmergencyId={selectedEmergencyId}
+            emergencies={emergencies}
+            loading={emergenciesLoading}
+            error={emergenciesError}
+            retry={emergenciesRetry}
           />
 
           {/* Mobile-only: stylish link to the full information screen
@@ -455,6 +485,17 @@ export default function LandingPage() {
         .sidebar-fire-card:focus-visible {
           outline: 2px solid #3b82f6;
           outline-offset: 2px;
+        }
+        .sidebar-fire-card {
+          /* reset native button defaults; card keeps its own surface */
+          font: inherit;
+          color: inherit;
+          text-align: left;
+          width: 100%;
+        }
+        .sidebar-fire-card.selected {
+          border-color: #3b82f6;
+          background: var(--blue-bg, rgba(59,130,246,0.12));
         }
         .sidebar-fire-card .sf-sev {
           width: 28px;
