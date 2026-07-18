@@ -62,6 +62,9 @@
 
   color: var(--text-primary);
   background: var(--bg-deep);
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
 }
 
 .public-surface[data-theme='light'] {
@@ -392,7 +395,7 @@
 .public-surface .ps-content {
   position: relative;
   z-index: 1;
-  min-height: calc(100vh - 104px);
+  flex: 1 0 auto;
 }
 .public-surface .ps-info-inner {
   max-width: 72rem;
@@ -728,6 +731,143 @@
   font-size: 0.85rem;
   line-height: 1.5;
   color: var(--text-secondary);
+}
+
+/* Guide card as an expandable trigger */
+.public-surface .ps-info-card-button {
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  transition: border-color var(--transition), background var(--transition), transform var(--transition);
+}
+.public-surface .ps-info-card-button:hover {
+  border-color: var(--border-strong);
+  background: var(--bg-surface);
+}
+.public-surface .ps-info-card-button:active {
+  transform: translateY(1px);
+}
+.public-surface .ps-info-card-button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.public-surface .ps-info-card-more {
+  margin-top: 12px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--primary);
+}
+
+/* Guide detail (inside modal) */
+.public-surface .ps-guide-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.public-surface .ps-guide-paragraph {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.65;
+  color: var(--text-secondary);
+}
+.public-surface .ps-guide-media {
+  margin: 0;
+  border-radius: var(--radius);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+}
+.public-surface .ps-guide-media-img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 320px;
+  object-fit: cover;
+}
+.public-surface .ps-guide-media-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 160px;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+.public-surface .ps-guide-media-caption {
+  padding: 8px 12px;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border);
+}
+
+/* Content modal */
+.public-surface .ps-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+.public-surface .ps-modal {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 560px;
+  max-height: calc(100vh - 40px);
+  background: var(--bg-base);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-soft);
+  overflow: hidden;
+}
+.public-surface .ps-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.public-surface .ps-modal-title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.public-surface .ps-modal-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: border-color var(--transition), color var(--transition);
+}
+.public-surface .ps-modal-close:hover {
+  border-color: var(--primary);
+  color: var(--text-primary);
+}
+.public-surface .ps-modal-close:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.public-surface .ps-modal-body {
+  padding: 20px;
+  overflow-y: auto;
 }
 
 /* Empty / status states */

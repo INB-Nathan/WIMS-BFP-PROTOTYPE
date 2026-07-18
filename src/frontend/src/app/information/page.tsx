@@ -31,6 +31,7 @@ import {
   type AnnouncementResponse,
   type EmergencyResponse,
 } from '@/lib/api/information';
+import { PublicContentModal } from '@/components/public/PublicContentModal';
 
 type Tab = 'emergencies' | 'announcements' | 'guide';
 
@@ -62,36 +63,100 @@ const SEVERITY_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'low', label: 'Low' },
 ];
 
-const GUIDE_CARDS = [
+/**
+ * Guide entries are data-driven so future content is additive: add an entry
+ * to this array and it appears as a card + expandable modal. `short` is the
+ * card summary; `body` is the richer modal copy (paragraphs). `media` is an
+ * optional illustrated slot — supply `src` for a real image (caption + alt),
+ * or omit `src` to render a labelled placeholder until assets are available.
+ * This keeps the modal ready for media without requiring a backend change.
+ */
+interface GuideMedia {
+  src?: string;
+  alt: string;
+  caption?: string;
+}
+
+interface GuideEntry {
+  id: string;
+  Icon: React.ComponentType<{ size?: number; className?: string; 'aria-hidden'?: boolean }>;
+  title: string;
+  short: string;
+  body: string[];
+  media?: GuideMedia;
+}
+
+const GUIDE_ENTRIES: GuideEntry[] = [
   {
+    id: 'submit-report',
     Icon: IconClipboardList,
     title: 'How to submit a report',
-    desc: 'Open the report form, select a category, describe what you see, and share your location. Photos improve response accuracy. Reports are reviewed by validators within hours.',
+    short:
+      'Open the report form, select a category, describe what you see, and share your location. Photos improve response accuracy.',
+    body: [
+      'Open the report form and pick the category that best matches what you see. A precise category helps validators route your report to the right team without delay.',
+      'Describe the situation in plain language — what is burning, how large the area is, and whether anyone is at risk. Share your location (or drop a pin on the map) so responders know where to go.',
+      'Add photos when you can: a wide shot for context and a close-up for detail. Reports with clear photos are reviewed faster. Every report is assessed by validators, usually within hours.',
+    ],
+    media: {
+      alt: 'Illustration of the civilian report wizard with location, photo, and category steps',
+      caption: 'The report wizard guides you through location, photo, and category in five short steps.',
+    },
   },
   {
+    id: 'categories',
     Icon: IconTag,
     title: 'Report categories',
-    desc: 'Fire (wildfire, structural, grass), Flood (urban, river, coastal), Earthquake, Medical, Infrastructure, Weather, Hazmat. Choose the closest match — validators will reclassify if needed.',
+    short:
+      'Fire, Flood, Earthquake, Medical, Infrastructure, Weather, Hazmat. Choose the closest match — validators reclassify if needed.',
+    body: [
+      'Fire covers wildfire, structural, and grass fires. Flood covers urban, river, and coastal flooding. Earthquake, Medical, Infrastructure, Weather, and Hazmat round out the main categories.',
+      'Pick the closest match. If you are unsure, validators will reclassify your report during review — choosing the wrong category will not block your submission.',
+    ],
   },
   {
+    id: 'trust-score',
     Icon: IconStarFilled,
     title: 'Understanding your trust score',
-    desc: 'Trust scores range from 0–100. Higher scores come from complete reports, consistent submissions, and reports that are actioned by validators. Your score affects how quickly your reports are reviewed.',
+    short:
+      'Trust scores range from 0–100. Higher scores come from complete reports, consistent submissions, and reports that are actioned.',
+    body: [
+      'Your trust score reflects how useful your reports are to operations. Complete reports, consistent submissions, and reports that validators action all raise your score.',
+      'A higher score means your future reports are reviewed more quickly. The score is never shown publicly and does not affect whether your report is accepted.',
+    ],
   },
   {
+    id: 'photos',
     Icon: IconCamera,
     title: 'Taking effective photos',
-    desc: 'Capture wide shots for context, close-ups for detail. Include landmarks when possible. Avoid including identifiable people without consent. Photos are encrypted in transit and storage.',
+    short:
+      'Capture wide shots for context, close-ups for detail. Include landmarks. Avoid identifiable people without consent. Photos are encrypted.',
+    body: [
+      'Capture a wide shot for context and a close-up for detail. Include a landmark or street sign so responders can confirm the location.',
+      'Avoid including identifiable people without their consent. All photos are encrypted in transit and at rest — they are only visible to validated responders.',
+    ],
   },
   {
+    id: 'privacy',
     Icon: IconLockFilled,
     title: 'Privacy & safety',
-    desc: 'Your personal information is never shared publicly. Report locations are generalized for public display. Do not put yourself at risk to submit a report — your safety comes first.',
+    short:
+      'Your personal information is never shared publicly. Report locations are generalized for public display. Your safety comes first.',
+    body: [
+      'Your personal information is never shared publicly. On public maps, report locations are generalized so individuals cannot be identified from a pinned position.',
+      'Never put yourself at risk to submit a report. If a situation is dangerous, move to safety first — your safety always comes before any submission.',
+    ],
   },
   {
+    id: 'after-report',
     Icon: IconRefresh,
     title: 'What happens after you report',
-    desc: 'Your report enters the triage queue. Validators review, verify, and assign a status. You will see updates on your contributor dashboard. Actioned reports feed into BFP operations.',
+    short:
+      'Your report enters the triage queue. Validators review, verify, and assign a status. You see updates on your contributor dashboard.',
+    body: [
+      'After you submit, your report enters the triage queue. Validators review it, verify the details, and assign a status (pending, verified, or rejected).',
+      'You can follow updates on your contributor dashboard. Reports that are verified feed directly into BFP operations and may appear as published emergency updates.',
+    ],
   },
 ];
 
@@ -131,6 +196,7 @@ function formatDate(value: string | null): string {
 export default function InformationPage() {
   const { user, loading } = useAuth();
   const [tab, setTab] = useState<Tab>('emergencies');
+  const [activeGuide, setActiveGuide] = useState<GuideEntry | null>(null);
 
   const [emergencies, setEmergencies] = useState<EmergencyResponse[] | null>(null);
   const [announcements, setAnnouncements] = useState<AnnouncementResponse[] | null>(null);
@@ -523,18 +589,67 @@ export default function InformationPage() {
                   Reporting guide
                 </h2>
                 <div className="ps-info-guide-grid">
-                  {GUIDE_CARDS.map((card) => (
-                    <div key={card.title} className="ps-info-card">
+                  {GUIDE_ENTRIES.map((entry) => (
+                    <button
+                      key={entry.id}
+                      type="button"
+                      className="ps-info-card ps-info-card-button"
+                      onClick={() => setActiveGuide(entry)}
+                      aria-haspopup="dialog"
+                    >
                       <div className="flex items-center justify-center ps-info-card-icon">
-                        <card.Icon size={32} aria-hidden />
+                        <entry.Icon size={32} aria-hidden />
                       </div>
-                      <h3 className="ps-info-card-title">{card.title}</h3>
-                      <p className="ps-info-card-desc">{card.desc}</p>
-                    </div>
+                      <h3 className="ps-info-card-title">{entry.title}</h3>
+                      <p className="ps-info-card-desc">{entry.short}</p>
+                      <span className="ps-info-card-more">Read more</span>
+                    </button>
                   ))}
                 </div>
               </section>
             )}
+
+            <PublicContentModal
+              open={activeGuide !== null}
+              title={activeGuide?.title ?? ''}
+              onClose={() => setActiveGuide(null)}
+            >
+              {activeGuide && (
+                <article className="ps-guide-detail">
+                  {activeGuide.media && (
+                    <figure className="ps-guide-media">
+                      {activeGuide.media.src ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={activeGuide.media.src}
+                          alt={activeGuide.media.alt}
+                          className="ps-guide-media-img"
+                        />
+                      ) : (
+                        <div
+                          className="ps-guide-media-placeholder"
+                          role="img"
+                          aria-label={activeGuide.media.alt}
+                        >
+                          <IconBookFilled size={28} aria-hidden />
+                          <span>Illustration coming soon</span>
+                        </div>
+                      )}
+                      {activeGuide.media.caption && (
+                        <figcaption className="ps-guide-media-caption">
+                          {activeGuide.media.caption}
+                        </figcaption>
+                      )}
+                    </figure>
+                  )}
+                  {activeGuide.body.map((paragraph, i) => (
+                    <p key={i} className="ps-guide-paragraph">
+                      {paragraph}
+                    </p>
+                  ))}
+                </article>
+              )}
+            </PublicContentModal>
           </div>
         </div>
       )}
