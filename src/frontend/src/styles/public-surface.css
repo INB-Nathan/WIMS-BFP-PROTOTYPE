@@ -802,11 +802,16 @@
   flex-direction: column;
   gap: 24px;
   width: 100%;
+  max-width: 1080px;
+  margin-inline: auto;
+  padding-inline: clamp(16px, 5vw, 32px);
+  padding-block: 8px 32px;
 }
 .public-surface .ps-contributor-inner {
   display: flex;
   flex-direction: column;
   gap: 24px;
+  width: 100%;
 }
 .public-surface .ps-contributor-state {
   display: flex;
@@ -858,16 +863,43 @@
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 16px;
+  width: 100%;
+  max-width: 560px;
+  align-self: flex-start;
+  padding: 16px 18px;
   border-radius: var(--radius);
   background: var(--red);
-  color: var(--text-primary);
+  color: #fff;
   text-decoration: none;
-  transition: background var(--transition);
+  box-shadow: 0 6px 18px rgba(198, 40, 40, 0.28);
+  transition: background var(--transition), transform var(--transition), box-shadow var(--transition);
+}
+.public-surface .ps-contributor-report-cta > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.public-surface .ps-contributor-report-cta > span > span:first-child {
+  font-family: var(--font);
+  font-size: 1rem;
+  font-weight: 700;
+}
+.public-surface .ps-contributor-report-cta > span > span:last-child {
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.85);
+}
+.public-surface .ps-contributor-report-cta svg:last-child {
+  margin-left: auto;
+  transition: transform var(--transition);
 }
 .public-surface .ps-contributor-report-cta:hover {
   background: var(--red-deep);
+  transform: translateY(-2px);
+  box-shadow: 0 10px 26px rgba(198, 40, 40, 0.36);
   text-decoration: none;
+}
+.public-surface .ps-contributor-report-cta:hover svg:last-child {
+  transform: translateX(4px);
 }
 
 /* Two-card stat grid */
@@ -885,8 +917,14 @@
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 20px;
+  padding: 22px 24px;
   box-shadow: var(--shadow);
+  transition: transform var(--transition), box-shadow var(--transition), border-color var(--transition);
+}
+.public-surface .ps-contributor-stat-card:hover {
+  transform: translateY(-3px);
+  border-color: var(--border-strong);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.09);
 }
 .public-surface .ps-contributor-stat-label {
   margin: 0;
@@ -898,11 +936,12 @@
   color: var(--text-secondary);
 }
 .public-surface .ps-contributor-stat-value {
-  margin: 8px 0 4px;
+  margin: 10px 0 4px;
   font-family: var(--font-mono);
-  font-size: 2.5rem;
+  font-size: 2.6rem;
   font-weight: 700;
-  line-height: 1.1;
+  line-height: 1.05;
+  letter-spacing: -0.01em;
   color: var(--text-primary);
 }
 .public-surface .ps-contributor-stat-detail {
@@ -971,12 +1010,17 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 16px;
+  padding: 16px 18px;
   border-radius: var(--radius);
   background: var(--primary-bg);
   border: 1px solid var(--primary);
   color: var(--text-primary);
   font-size: 0.88rem;
+  transition: transform var(--transition), box-shadow var(--transition);
+}
+.public-surface .ps-contributor-impact:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.07);
 }
 
 /* Generic section */
@@ -1187,10 +1231,12 @@
 /* Map caller frame — passable as className to PublicFireMap */
 .public-surface .ps-contributor-map {
   width: 100%;
+  min-height: 280px;
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg-elevated);
+  box-shadow: var(--shadow);
 }
 
 /* ── Auth screens: register + login (issue #652) ──
