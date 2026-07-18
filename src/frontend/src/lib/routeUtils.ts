@@ -9,6 +9,7 @@ export const PUBLIC_ROUTES = [
   '/login',
   '/register',
   '/report',
+  '/information',
   '/callback',
   '/verify-sent',
   '/verify',
