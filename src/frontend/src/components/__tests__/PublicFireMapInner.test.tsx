@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import PublicFireMapInner from '../PublicFireMapInner';
+import type { EmergencyResponse } from '@/lib/api/information';
 
 /**
  * Mock navigator.geolocation for testing.
@@ -45,7 +46,7 @@ vi.mock('react-leaflet', () => ({
   Popup: ({ children }: { children: React.ReactNode }) => (
     <div data-testid="popup">{children}</div>
   ),
-  Marker: ({ children, interactive, _icon, eventHandlers }: { children?: React.ReactNode; interactive?: boolean; _icon?: unknown; eventHandlers?: Record<string, (e: unknown) => void> }) => (
+  Marker: ({ children, interactive, eventHandlers }: { children?: React.ReactNode; interactive?: boolean; eventHandlers?: Record<string, (e: unknown) => void> }) => (
     <div data-testid={interactive === false ? 'user-marker' : 'marker'} onClick={(e) => eventHandlers?.click?.(e)}>{children}</div>
   ),
   useMapEvents: () => ({
@@ -291,7 +292,7 @@ describe('PublicFireMapInner', () => {
         id: 2, title: 'Point incident', location: 'Loc', description: 'd', severity: 'moderate', status: 'ongoing',
         promoted_from_incident_id: 11, latitude: 14.7, longitude: 121.1, published: true, published_at: null, created_at: '2026-07-17T00:00:00Z', perimeter: null,
       },
-    ] as any;
+    ] as EmergencyResponse[];
 
     it('uses provided emergencies and does NOT fetch independently', () => {
       mockFetchEmergencies.mockResolvedValue([]);
@@ -337,7 +338,7 @@ describe('PublicFireMapInner', () => {
       const ems = [
         { id: 1, title: 'Crit', location: 'L', description: 'd', severity: 'critical', status: 'ongoing', promoted_from_incident_id: 1, latitude: 14.6, longitude: 121, published: true, published_at: null, created_at: '2026-07-17T00:00:00Z', perimeter: { type: 'Feature', geometry: { type: 'Polygon', coordinates: [[[121, 14.6], [121.1, 14.6], [121.1, 14.7], [121, 14.6]]] }, properties: { incident_id: 1 } } },
         { id: 2, title: 'Mod', location: 'L', description: 'd', severity: 'moderate', status: 'ongoing', promoted_from_incident_id: 2, latitude: 14.7, longitude: 121.1, published: true, published_at: null, created_at: '2026-07-17T00:00:00Z', perimeter: { type: 'Feature', geometry: { type: 'Polygon', coordinates: [[[121.1, 14.6], [121.2, 14.6], [121.2, 14.7], [121.1, 14.6]]] }, properties: { incident_id: 2 } } },
-      ] as any;
+      ] as EmergencyResponse[];
       mockFetchEmergencies.mockResolvedValue([]);
       render(<PublicFireMapInner center={[14.6, 121.0]} zoom={10} emergencies={ems} />);
       const polys = screen.getAllByTestId('incident-perimeter');
