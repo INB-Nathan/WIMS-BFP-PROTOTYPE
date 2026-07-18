@@ -839,23 +839,23 @@
   font-size: 0.9rem;
   color: var(--text-secondary);
 }
-.public-surface .ps-contributor-reporter-badge {
+/* Trust badge pill — sourced from profile.badge (prototype-style) */
+.public-surface .ps-contributor-trust-badge {
   display: inline-flex;
   align-items: center;
   gap: 8px;
   padding: 6px 14px;
   border-radius: 999px;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-strong);
+  background: color-mix(in srgb, var(--green) 16%, var(--bg-elevated));
+  border: 1px solid color-mix(in srgb, var(--green) 40%, transparent);
   font-family: var(--font);
   font-size: 0.78rem;
   font-weight: 600;
-  color: var(--text-secondary);
+  color: var(--green);
+  white-space: nowrap;
 }
-.public-surface .ps-contributor-reporter-badge .ps-contributor-status-dot {
-  width: 8px;
-  height: 8px;
-  background: var(--green);
+.public-surface .ps-contributor-trust-badge svg {
+  color: var(--green);
 }
 
 /* Report CTA */
@@ -1066,24 +1066,39 @@
 }
 .public-surface .ps-contributor-timeline {
   list-style: none;
-  margin: 8px 0 0;
-  padding: 0;
+  margin: 10px 0 0;
+  padding: 4px 0 0 6px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 14px;
+  border-left: 2px solid var(--border-strong);
 }
 .public-surface .ps-contributor-timeline-item {
   position: relative;
   display: flex;
   align-items: center;
   gap: 10px;
-  padding-left: 4px;
+  padding-left: 14px;
+  margin-left: -7px;
   font-size: 0.82rem;
   color: var(--text-secondary);
+  line-height: 1.35;
+}
+.public-surface .ps-contributor-timeline-item::before {
+  content: '';
+  position: absolute;
+  left: -7px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--ps-contributor-status-color, var(--border-strong));
+  border: 2px solid var(--bg-elevated);
+  box-shadow: 0 0 0 1px var(--border-strong);
 }
 .public-surface .ps-contributor-timeline-item .ps-contributor-status-dot {
-  width: 8px;
-  height: 8px;
+  display: none;
 }
 
 /* Filter tabs */
@@ -1141,11 +1156,22 @@
   grid-template-columns: auto auto minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 12px;
-  padding: 12px;
+  padding: 14px 16px;
   border-radius: var(--radius);
   border: 1px solid var(--border);
   background: var(--bg-elevated);
   box-shadow: var(--shadow);
+  cursor: default;
+  transition: transform var(--transition), box-shadow var(--transition), border-color var(--transition);
+}
+.public-surface .ps-contributor-report-row:hover {
+  transform: translateY(-2px);
+  border-color: var(--border-strong);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.08);
+}
+.public-surface .ps-contributor-report-row:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
 }
 .public-surface .ps-contributor-report-id {
   font-family: var(--font-mono);
@@ -1237,6 +1263,34 @@
   border-radius: var(--radius);
   background: var(--bg-elevated);
   box-shadow: var(--shadow);
+}
+
+/* Staggered entrance reveal for the dashboard blocks (prototype polish).
+   Honors prefers-reduced-motion below. */
+.public-surface .ps-contributor-reveal {
+  animation: ps-contributor-reveal 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: var(--reveal-i, 0s);
+}
+@keyframes ps-contributor-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .public-surface .ps-contributor-reveal {
+    animation: none;
+  }
+  .public-surface .ps-contributor-report-row:hover,
+  .public-surface .ps-contributor-stat-card:hover,
+  .public-surface .ps-contributor-impact:hover,
+  .public-surface .ps-contributor-report-cta:hover {
+    transform: none;
+  }
 }
 
 /* ── Auth screens: register + login (issue #652) ──

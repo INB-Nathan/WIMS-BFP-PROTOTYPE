@@ -226,25 +226,25 @@ export default function ContributorPage() {
 
   const displayName = displayNameFor(user);
 
-  // Activity snapshot: at most the first three currently loaded reports.
+  // Activity snapshot: at most the first three (prototype-style timeline).
   const activityReports = reports ? reports.reports.slice(0, 3) : [];
 
   return (
     <div className="ps-contributor-page ps-has-mesh">
       <div className="ps-contributor-inner">
-        <header className="ps-contributor-heading">
+        <header className="ps-contributor-heading ps-contributor-reveal" style={{ ['--reveal-i' as string]: '0s' }}>
           <div>
             <h1>Welcome back, {displayName}</h1>
             <p>Civilian Reporter</p>
           </div>
-          <span className="ps-contributor-reporter-badge">
+          <span className="ps-contributor-trust-badge" data-testid="trust-badge">
             {showVerifiedBadge && <IconShieldCheckFilled size={16} aria-hidden />}
-            {reporterBadge}
+            {profile?.badge ? 'Verified Reporter' : reporterBadge}
           </span>
         </header>
 
-        {/* BFP red report CTA — complements the header's "Report a Fire" flow */}
-        <Link href="/report" className="ps-btn ps-btn-primary ps-contributor-report-cta">
+        {/* BFP red report CTA — compact, prototype-style, complements the header flow */}
+        <Link href="/report" className="ps-btn ps-btn-primary ps-contributor-report-cta ps-contributor-reveal" style={{ ['--reveal-i' as string]: '0.06s' }}>
           <IconPlus size={24} aria-hidden />
           <span>
             <span>Submit a report</span>
@@ -263,7 +263,7 @@ export default function ContributorPage() {
         )}
 
         {/* Exactly two stat cards: report count and verification status */}
-        <section className="ps-contributor-stats" aria-labelledby="summary-heading">
+        <section className="ps-contributor-stats ps-contributor-reveal" aria-labelledby="summary-heading" style={{ ['--reveal-i' as string]: '0.12s' }}>
           <h2 id="summary-heading" className="ps-visually-hidden">
             Contributor summary
           </h2>
@@ -327,7 +327,7 @@ export default function ContributorPage() {
         </div>
 
         {!isNewReporter && (
-          <section className="ps-contributor-section" aria-labelledby="activity-heading">
+          <section className="ps-contributor-section ps-contributor-reveal" aria-labelledby="activity-heading" style={{ ['--reveal-i' as string]: '0.18s' }}>
             <h2 id="activity-heading" className="ps-contributor-section-heading">
               Activity
             </h2>
@@ -346,7 +346,7 @@ export default function ContributorPage() {
                         <span className="ps-contributor-status-dot" aria-hidden />
                         Report received {formatDate(report.created_at)}
                       </li>
-                      <li className="ps-contributor-timeline-item">
+                      <li className={`ps-contributor-timeline-item ${indicator.toneClass}`}>
                         <span className={`ps-contributor-status-dot ${indicator.toneClass}`} aria-hidden />
                         Current status: {indicator.label}
                       </li>
@@ -359,7 +359,7 @@ export default function ContributorPage() {
         )}
 
         {isNewReporter ? (
-          <section className="ps-contributor-section" aria-labelledby="reports-heading">
+        <section className="ps-contributor-section ps-contributor-reveal" aria-labelledby="reports-heading" style={{ ['--reveal-i' as string]: '0.24s' }}>
             <h2 id="reports-heading" className="ps-contributor-section-heading">
               Your reports
             </h2>
@@ -375,7 +375,7 @@ export default function ContributorPage() {
             </div>
           </section>
         ) : (
-          <section className="ps-contributor-section" aria-labelledby="reports-heading">
+          <section className="ps-contributor-section ps-contributor-reveal" aria-labelledby="reports-heading" style={{ ['--reveal-i' as string]: '0.24s' }}>
             <div className="ps-contributor-heading">
               <h2 id="reports-heading" className="ps-contributor-section-heading">
                 Your reports
@@ -408,7 +408,12 @@ export default function ContributorPage() {
                 {visibleReports.map((report) => {
                   const indicator = reportStatusIndicator(report.status);
                   return (
-                    <li key={report.report_id} className="ps-contributor-report-row">
+                    <li
+                      key={report.report_id}
+                      className="ps-contributor-report-row"
+                      data-testid="contributor-report-row"
+                      tabIndex={0}
+                    >
                       <span className={`ps-contributor-status-dot ${indicator.toneClass}`} aria-hidden />
                       <span className="ps-contributor-report-id">#{report.report_id}</span>
                       <span className="ps-contributor-report-main">
@@ -445,7 +450,7 @@ export default function ContributorPage() {
 
         {/* Compact nearby-activity map — same component as the landing page (#612),
             rendered at a smaller viewport per the IA spec's "compact" requirement. */}
-        <section className="ps-contributor-section" aria-labelledby="nearby-map-heading">
+        <section className="ps-contributor-section ps-contributor-reveal" aria-labelledby="nearby-map-heading" style={{ ['--reveal-i' as string]: '0.3s' }}>
           <h2 id="nearby-map-heading" className="ps-contributor-section-heading">
             Nearby activity
           </h2>
