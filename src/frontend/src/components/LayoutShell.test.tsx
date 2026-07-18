@@ -8,7 +8,7 @@
  * - /profile uses the civilian shell only for CIVILIAN_REPORTER.
  * - Staff-authenticated routes render Sidebar+Header (not PublicHeader).
  */
-import { render, screen, cleanup } from '@testing-library/react';
+import { render, screen, cleanup, act } from '@testing-library/react';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { LayoutShell } from './LayoutShell';
 
@@ -125,6 +125,60 @@ describe('LayoutShell', () => {
         expect(screen.queryByTestId('header')).not.toBeInTheDocument();
       },
     );
+  });
+
+  describe('Anonymous auth-guard redirect (login)', () => {
+    it('does NOT redirect anonymous users away from /information (public, #654)', () => {
+      vi.useFakeTimers();
+      const login = vi.fn();
+      mockUseAuth.mockReturnValue({
+        user: null,
+        isAuthenticated: false,
+        serverValidated: false,
+        canQueueOfflineWrites: false,
+        loading: false,
+        loggingOut: false,
+        login,
+        logout: vi.fn(),
+        refreshSession: vi.fn(),
+      });
+      mockUseNetworkStatus.mockReturnValue({ isOnline: true });
+      mockUsePathname.mockReturnValue('/information');
+      render(<LayoutShell>content</LayoutShell>);
+
+      // 500ms debounce in the guard — advance past it.
+      act(() => {
+        vi.advanceTimersByTime(600);
+      });
+      expect(login).not.toHaveBeenCalled();
+      expect(screen.getByTestId('public-header')).toBeInTheDocument();
+      vi.useRealTimers();
+    });
+
+    it('still redirects anonymous users away from /contributor (auth-gated)', () => {
+      vi.useFakeTimers();
+      const login = vi.fn();
+      mockUseAuth.mockReturnValue({
+        user: null,
+        isAuthenticated: false,
+        serverValidated: false,
+        canQueueOfflineWrites: false,
+        loading: false,
+        loggingOut: false,
+        login,
+        logout: vi.fn(),
+        refreshSession: vi.fn(),
+      });
+      mockUseNetworkStatus.mockReturnValue({ isOnline: true });
+      mockUsePathname.mockReturnValue('/contributor');
+      render(<LayoutShell>content</LayoutShell>);
+
+      act(() => {
+        vi.advanceTimersByTime(600);
+      });
+      expect(login).toHaveBeenCalledTimes(1);
+      vi.useRealTimers();
+    });
   });
 
   describe('/profile role-aware shell', () => {
