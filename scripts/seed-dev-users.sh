@@ -117,6 +117,45 @@ if [ $elapsed -ge 60 ]; then
   exit 1
 fi
 
+# Keycloak 26's bootstrap mechanism (KC_BOOTSTRAP_ADMIN_*) creates the admin
+# user as TEMPORARY on first boot (server log: "KC-SERVICES0077: Created
+# temporary admin user") — it cannot complete a direct-grant (kcadm/API)
+# login until a one-time VERIFY_PROFILE required action is resolved via the
+# interactive browser flow. Complete it here automatically. No-op (both
+# curl calls just no-op harmlessly) once the admin is already permanent.
+complete_admin_bootstrap() {
+  local base="http://localhost:8080/auth"
+  local cookies headers auth_page action_url redirect1 page verify_action
+  cookies="$(mktemp)"; headers="$(mktemp)"
+  local verifier challenge
+  verifier="$(openssl rand -base64 32 | tr -d '=+/' | cut -c1-43)"
+  challenge="$(printf '%s' "$verifier" | openssl dgst -sha256 -binary | openssl base64 | tr '+/' '-_' | tr -d '=')"
+
+  auth_page="$(curl -s -c "$cookies" \
+    "$base/realms/master/protocol/openid-connect/auth?client_id=security-admin-console&redirect_uri=$base/admin/master/console/&response_type=code&scope=openid&code_challenge=$challenge&code_challenge_method=S256")"
+  action_url="$(printf '%s' "$auth_page" | grep -oE 'action="[^"]*"' | head -1 | sed 's/action="//;s/"$//;s/&amp;/\&/g')"
+  [ -n "$action_url" ] || { rm -f "$cookies" "$headers"; return 0; }
+
+  curl -s -b "$cookies" -c "$cookies" -D "$headers" -o /dev/null \
+    --data-urlencode "username=$KC_ADMIN_USER" --data-urlencode "password=$KC_ADMIN_PASS" "$action_url"
+  redirect1="$(grep -i '^Location:' "$headers" | sed 's/Location: //I' | tr -d '\r')"
+
+  if printf '%s' "$redirect1" | grep -q 'required-action.*VERIFY_PROFILE'; then
+    echo "Completing one-time Keycloak admin profile setup (temporary bootstrap admin)..."
+    page="$(curl -s -b "$cookies" -c "$cookies" "$redirect1")"
+    verify_action="$(printf '%s' "$page" | grep -oE 'action="[^"]*"' | head -1 | sed 's/action="//;s/"$//;s/&amp;/\&/g')"
+    if [ -n "$verify_action" ]; then
+      curl -s -b "$cookies" -c "$cookies" -o /dev/null \
+        --data-urlencode "email=admin@wimsbfp.tech" \
+        --data-urlencode "firstName=System" \
+        --data-urlencode "lastName=Admin" \
+        "$verify_action"
+    fi
+  fi
+  rm -f "$cookies" "$headers"
+}
+complete_admin_bootstrap || true
+
 echo "Authenticating with Keycloak Admin..."
 docker_exec "$KEYCLOAK_CONTAINER" /opt/keycloak/bin/kcadm.sh config credentials \
   --server "$KC_SERVER" --realm master --user "$KC_ADMIN_USER" --password "$KC_ADMIN_PASS"
