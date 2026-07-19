@@ -43,7 +43,7 @@ Purpose: project-local knowledgebase for agents routing themselves to relevant W
 - [[frontend/route-map]] — Next.js App Router pages and UI surface mapping.
 - [[frontend/frontend-infrastructure]] — Auth context, 47 API client functions, utility libraries, component tree documentation.
 - [[frontend/components-deep]] — Deep docs for all 12 analytics/modal/layout components (props, state, effects, behavior).
-- [[frontend/validator-triage-shortcuts]] — safe keyboard shortcut reference for civilian report validator triage.
+- [[frontend/validator-triage-shortcuts]] — safe keyboard shortcut reference for civilian report validator triage, aligned with the correction-free modal action set.
 
 ## Subsystems (Dashboard Deep-Dives)
 - [[subsystems/admin-hub]] — System admin hub: identity, security telemetry, audit, backups, health.

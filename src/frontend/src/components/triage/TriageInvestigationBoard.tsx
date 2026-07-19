@@ -108,27 +108,79 @@ function TriageEvidenceRow({ report, selected, onClick }: TriageEvidenceRowProps
   );
 }
 
+interface TriageEvidenceTableProps {
+  item: TriageClusterEntry;
+  selectedReportId: number | null;
+  onSelectReport: (reportId: number) => void;
+}
+
+export function TriageEvidenceTable({ item, selectedReportId, onSelectReport }: TriageEvidenceTableProps) {
+  const identity = getTriageItemIdentity(item);
+
+  return (
+    <section data-testid="triage-evidence-table" className="rounded-xl border border-slate-200 bg-white shadow-sm">
+      <header className="border-b border-slate-200 px-4 py-3">
+        <p className="text-xs font-black uppercase tracking-[0.18em] text-red-700">Report evidence</p>
+        <h2 className="mt-1 text-lg font-black text-slate-950">
+          {identity?.type === 'cluster'
+            ? `Reports for Cluster #${identity.id}`
+            : `Evidence for Report #${identity?.id ?? item.anchor_report_id}`}
+        </h2>
+      </header>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-slate-200 bg-slate-50">
+              <th className="whitespace-nowrap px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Report ID</th>
+              <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Category / Sub</th>
+              <th className="hidden px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 sm:table-cell">Context</th>
+              <th className="hidden px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 sm:table-cell">Safety Status</th>
+              <th className="hidden whitespace-nowrap px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 sm:table-cell">Location</th>
+              <th className="whitespace-nowrap px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Trust Score</th>
+              <th className="hidden px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 sm:table-cell">Signals Found</th>
+              <th className="hidden px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 sm:table-cell">Missing Signals</th>
+              <th className="hidden px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 sm:table-cell">GPS Mismatch</th>
+              <th className="hidden whitespace-nowrap px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 sm:table-cell">Dup Device Count</th>
+              <th className="hidden px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 sm:table-cell">Station</th>
+              <th className="hidden px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 sm:table-cell">Distance</th>
+              <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Status</th>
+              <th className="hidden whitespace-nowrap px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 sm:table-cell">Reported At</th>
+              <th className="hidden whitespace-nowrap px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 sm:table-cell">Aging / Timeout</th>
+            </tr>
+          </thead>
+          <tbody>
+            {item.reports.map((report) => (
+              <TriageEvidenceRow
+                key={report.report_id}
+                report={report}
+                selected={report.report_id === selectedReportId}
+                onClick={onSelectReport}
+              />
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
 interface TriageInvestigationBoardProps {
   items: TriageClusterEntry[];
   selectedItem: TriageClusterEntry | null;
-  selectedReportId: number | null;
   role: string | null;
   claiming: number | null;
   onInspect: (item: TriageClusterEntry) => void;
   onSelectItem: (item: TriageClusterEntry) => void;
-  onSelectReport: (reportId: number) => void;
   onClaimCluster: (clusterId: number) => void;
 }
 
 export function TriageInvestigationBoard({
   items,
   selectedItem,
-  selectedReportId,
   role,
   claiming,
   onInspect,
   onSelectItem,
-  onSelectReport,
   onClaimCluster,
 }: TriageInvestigationBoardProps) {
   const selectedIdentity = selectedItem ? getTriageItemIdentity(selectedItem) : null;
@@ -203,46 +255,12 @@ export function TriageInvestigationBoard({
         </div>
       )}
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-4">
-        {selectedItem ? (
-          <div className="overflow-x-auto rounded-xl border border-slate-200">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-200 bg-slate-50">
-                  <th className="whitespace-nowrap px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Report ID</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Category / Sub</th>
-                  <th className="hidden px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 sm:table-cell">Context</th>
-                  <th className="hidden px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 sm:table-cell">Safety Status</th>
-                  <th className="hidden whitespace-nowrap px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 sm:table-cell">Location</th>
-                  <th className="whitespace-nowrap px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Trust Score</th>
-                  <th className="hidden px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 sm:table-cell">Signals Found</th>
-                  <th className="hidden px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 sm:table-cell">Missing Signals</th>
-                  <th className="hidden px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 sm:table-cell">GPS Mismatch</th>
-                  <th className="hidden whitespace-nowrap px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 sm:table-cell">Dup Device Count</th>
-                  <th className="hidden px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 sm:table-cell">Station</th>
-                  <th className="hidden px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 sm:table-cell">Distance</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Status</th>
-                  <th className="hidden whitespace-nowrap px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 sm:table-cell">Reported At</th>
-                  <th className="hidden whitespace-nowrap px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 sm:table-cell">Aging / Timeout</th>
-                </tr>
-              </thead>
-              <tbody>
-                {selectedItem.reports.map((report) => (
-                  <TriageEvidenceRow
-                    key={report.report_id}
-                    report={report}
-                    selected={report.report_id === selectedReportId}
-                    onClick={onSelectReport}
-                  />
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <div className="rounded-xl border border-dashed border-slate-300 p-6 text-center text-sm text-slate-500">
-            Choose a marker or ranked item to begin.
-          </div>
-        )}
+      <div className="min-h-0 flex-1 p-4">
+        <p className="text-sm text-slate-600">
+          {selectedItem
+            ? 'Review the selected item’s reports in the full-width evidence table below.'
+            : 'Choose a marker or ranked item to begin.'}
+        </p>
       </div>
 
       <div className="border-t border-slate-200 p-4">

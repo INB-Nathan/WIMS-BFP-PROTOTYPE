@@ -1,6 +1,6 @@
 'use client';
 
-import { Activity, GitMerge, GitPullRequestArrow, RotateCcw, Send, Terminal } from 'lucide-react';
+import { Activity, GitMerge, GitPullRequestArrow, Send, Terminal } from 'lucide-react';
 import type { TriageActionTab } from './useTriageModalState';
 
 export interface TriageActionTabsProps {
@@ -8,8 +8,6 @@ export interface TriageActionTabsProps {
   setTab: (tab: TriageActionTab) => void;
   inspectionMode: 'cluster' | 'singleton';
   selectedCount: number;
-  totalCount: number;
-  correctionReportId: number | null;
   mergeCandidateCount: number;
   /** Whether the current user may send validator status updates (Send Update tab). */
   canSendStatusUpdate: boolean;
@@ -28,14 +26,12 @@ interface TabSpec {
 
 const TABS: TabSpec[] = [
   { key: 'terminal', label: 'Terminal', shortcut: '1', Icon: Terminal },
-  { key: 'correct', label: 'Correct', shortcut: '2', Icon: RotateCcw,
-    badge: (p) => (p.correctionReportId ? '#' + p.correctionReportId : null) },
-  { key: 'split', label: 'Split', shortcut: '3', Icon: GitPullRequestArrow, clusterOnly: true,
+  { key: 'split', label: 'Split', shortcut: '2', Icon: GitPullRequestArrow, clusterOnly: true,
     badge: (p) => (p.selectedCount >= 2 ? `${p.selectedCount}` : null) },
-  { key: 'merge', label: 'Merge', shortcut: '4', Icon: GitMerge, clusterOnly: true,
+  { key: 'merge', label: 'Merge', shortcut: '3', Icon: GitMerge, clusterOnly: true,
     badge: (p) => (p.mergeCandidateCount > 0 ? `${p.mergeCandidateCount}` : null) },
-  { key: 'activity', label: 'Activity', shortcut: '5', Icon: Activity },
-  { key: 'update', label: 'Send Update', shortcut: '6', Icon: Send, requiresCapability: true },
+  { key: 'activity', label: 'Activity', shortcut: '4', Icon: Activity },
+  { key: 'update', label: 'Send Update', shortcut: '5', Icon: Send, requiresCapability: true },
 ];
 
 /**
