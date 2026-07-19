@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from uuid import UUID
 
 from database import get_db
+from services.civilian_tracking import get_capability_tracking_projection
 from services.civilian_triage import get_public_status_updates
 from services.event_bus import publish_verification_event_sync
 from services.kms import get_crypto_provider
@@ -842,64 +843,32 @@ def get_civilian_report_by_tracking_token(
     """
     token_hash = hashlib.sha256(tracking_token.encode("utf-8")).hexdigest()
 
-    # Use SECURITY DEFINER function to bypass RLS on report_tracking_tokens
-    is_valid = db.execute(
-        text("SELECT wims.validate_tracking_token(:rid, :token_hash)"),
-        {"rid": report_id, "token_hash": token_hash},
-    ).scalar()
-
-    if not is_valid:
-        # Neutral 404 — do not reveal whether the report exists or the token is wrong
+    row = get_capability_tracking_projection(db, report_id, token_hash)
+    if row is None:
+        # Neutral 404 — do not reveal whether the report exists or the token is wrong.
         raise HTTPException(status_code=404, detail="Report not found")
 
-    # Fetch limited Tier 1 report data (no location, PII, internal notes, or chain IDs)
-    row = db.execute(
-        text("""
-            SELECT cr.report_id,
-                   cr.category,
-                   cr.sub_category,
-                   cr.safety_status,
-                   cr.status,
-                   cr.created_at,
-                   cr.routing_distance_m,
-                   cr.routing_duration_s,
-                   cr.routing_data_source,
-                   ST_AsGeoJSON(cr.routing_geometry)::jsonb AS routing_geometry,
-                   fs.station_name AS nearest_station_name,
-                   fs.phone AS nearest_station_phone,
-                   (SELECT COUNT(*) FROM wims.report_photos rp WHERE rp.report_id = cr.report_id) AS photo_count
-            FROM wims.citizen_reports cr
-            LEFT JOIN wims.ref_fire_stations fs ON fs.station_id = cr.nearest_station_id
-            WHERE cr.report_id = :rid
-            LIMIT 1
-        """),
-        {"rid": report_id},
-    ).fetchone()
-
-    if not row:
-        raise HTTPException(status_code=404, detail="Report not found")
-
-    status_val = row.status
+    status_val = row["status"]
     rejection_guidance = REJECTION_GUIDANCE.get(status_val)
     guidance = rejection_guidance or STATUS_GUIDANCE.get(status_val)
 
     return CivilianTrackingResponse(
-        report_id=row.report_id,
-        category=row.category,
-        sub_category=row.sub_category,
-        safety_status=row.safety_status,
+        report_id=row["report_id"],
+        category=row["category"],
+        sub_category=row["sub_category"],
+        safety_status=row["safety_status"],
         status=status_val,
         guidance=guidance,
         escalation_guidance=rejection_guidance,
-        nearest_station_name=row.nearest_station_name,
-        nearest_station_phone=row.nearest_station_phone,
-        routing_distance_m=getattr(row, "routing_distance_m", None),
-        routing_duration_s=getattr(row, "routing_duration_s", None),
-        routing_data_source=getattr(row, "routing_data_source", None),
-        routing_geometry=getattr(row, "routing_geometry", None),
-        photo_count=getattr(row, "photo_count", 0) or 0,
+        nearest_station_name=row["nearest_station_name"],
+        nearest_station_phone=row["nearest_station_phone"],
+        routing_distance_m=row["routing_distance_m"],
+        routing_duration_s=row["routing_duration_s"],
+        routing_data_source=row["routing_data_source"],
+        routing_geometry=row["routing_geometry"],
+        photo_count=row["photo_count"] or 0,
         status_updates=get_public_status_updates(db, report_id),
-        created_at=row.created_at,
+        created_at=row["created_at"],
     )
 
 

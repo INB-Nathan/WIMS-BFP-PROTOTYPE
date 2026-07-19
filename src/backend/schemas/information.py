@@ -74,6 +74,13 @@ class EmergencyResponse(BaseModel):
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     perimeter: Optional[dict[str, Any]] = None
+    civilian_signal_count: int = 0
     published: bool
     published_at: Optional[datetime] = None
     created_at: datetime
+
+
+class CivilianSignalTimestampResponse(BaseModel):
+    """One privacy-preserving civilian-signal activity timestamp."""
+
+    submitted_at: datetime

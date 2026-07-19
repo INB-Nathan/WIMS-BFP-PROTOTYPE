@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   fetchAnnouncements,
+  fetchCivilianSignals,
   fetchEmergencies,
   resolveAnnouncementImageUrl,
 } from './information';
@@ -28,6 +29,19 @@ describe('information API clients', () => {
     expect(mockedPublicApiFetch).toHaveBeenCalledWith('/information/announcements', {
       cache: 'no-store',
     });
+  });
+
+  it('fetches civilian-signal timestamps from the public endpoint', async () => {
+    mockedPublicApiFetch.mockResolvedValueOnce([{ submitted_at: '2026-07-19T08:00:00Z' }]);
+    const result = await fetchCivilianSignals(7);
+    expect(result).toEqual([{ submitted_at: '2026-07-19T08:00:00Z' }]);
+    // null return path (public source unavailable) is passed through unchanged.
+    mockedPublicApiFetch.mockResolvedValueOnce(null);
+    expect(await fetchCivilianSignals(7)).toBeNull();
+    expect(mockedPublicApiFetch).toHaveBeenLastCalledWith(
+      '/information/emergencies/7/civilian-signals',
+      { cache: 'no-store' },
+    );
   });
 
   it('never sends credentials (zero-trust public read)', async () => {

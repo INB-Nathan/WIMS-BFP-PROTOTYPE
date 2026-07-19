@@ -9,6 +9,7 @@ import {
   IconFiretruck,
   IconClipboardList,
   IconRefresh,
+  IconUsers,
 } from '@tabler/icons-react';
 
 function severityBadge(severity: string): { label: string; className: string } {
@@ -30,6 +31,8 @@ interface LandingSidebarProps {
   sidebarTitleId?: string;
   /** Called when an active-fire card is activated; used to fly the map to it. */
   onSelectEmergency?: (emergency: EmergencyResponse) => void;
+  /** Called when the civilian-signal count badge is activated on a card. */
+  onViewSignals?: (emergency: EmergencyResponse) => void;
   /** The currently selected emergency id, for highlight sync with the map. */
   selectedEmergencyId?: number | null;
   /** Shared emergencies payload owned by the landing page (single fetch). */
@@ -47,6 +50,7 @@ export function LandingSidebar({
   closeRef,
   sidebarTitleId,
   onSelectEmergency,
+  onViewSignals,
   selectedEmergencyId,
   emergencies,
   loading,
@@ -102,23 +106,36 @@ export function LandingSidebar({
           emergencies.map((e) => {
             const badge = severityBadge(e.severity);
             const isSelected = selectedEmergencyId != null && e.id === selectedEmergencyId;
+            const signalCount = e.civilian_signal_count ?? 0;
             return (
-              <button
-                key={e.id}
-                type="button"
-                className={`sidebar-fire-card${isSelected ? ' selected' : ''}`}
-                data-testid="sidebar-fire-card"
-                onClick={() => onSelectEmergency?.(e)}
-                aria-pressed={isSelected}
-              >
-                <div className={badge.className}>{badge.label}</div>
-                <div className="sf-info">
-                  <div className="sf-title">{e.title}</div>
-                  <div className="sf-loc">
-                    <IconMapPin size={10} aria-hidden /> {e.location}
+              <div key={e.id} className={`sidebar-fire-card-wrap${isSelected ? ' selected' : ''}`}>
+                <button
+                  type="button"
+                  className="sidebar-fire-card"
+                  data-testid="sidebar-fire-card"
+                  onClick={() => onSelectEmergency?.(e)}
+                  aria-pressed={isSelected}
+                >
+                  <div className={badge.className}>{badge.label}</div>
+                  <div className="sf-info">
+                    <div className="sf-title">{e.title}</div>
+                    <div className="sf-loc">
+                      <IconMapPin size={10} aria-hidden /> {e.location}
+                    </div>
                   </div>
-                </div>
-              </button>
+                </button>
+                {signalCount > 0 && (
+                  <button
+                    type="button"
+                    className="sidebar-civ-signals"
+                    data-testid="sidebar-civ-signals"
+                    onClick={() => onViewSignals?.(e)}
+                    aria-label={`View ${signalCount} civilian report times for ${e.title}`}
+                  >
+                    <IconUsers size={12} aria-hidden /> {signalCount}
+                  </button>
+                )}
+              </div>
             );
           })
         )}
