@@ -125,26 +125,21 @@ export default function ValidatorPerimeterDrawPage() {
         </div>
       ) : loading ? (
         <div className="flex flex-1 items-center justify-center text-sm text-slate-500">Loading verified incident...</div>
-      ) : incident ? (
+      ) : (
         <PerimeterDrawInner
-          key={incident.incident_id}
-          incident={{
+          key={incident?.incident_id ?? 'standalone'}
+          incident={incident ? {
             id: incident.incident_id,
             description,
             latitude: incident.latitude as number,
             longitude: incident.longitude as number,
             province,
             region,
-          }}
+          } : null}
           perimeter={perimeter}
           onSaved={setPerimeter}
+          error={error}
         />
-      ) : (
-        <div className="flex flex-1 flex-col items-center justify-center gap-3 bg-slate-50 p-8 text-center">
-          <h2 className="text-lg font-semibold text-slate-700">Select a verified incident</h2>
-          <p className="max-w-md text-sm text-slate-500">Load the ID of a verified incident from the validator queue to draw its perimeter.</p>
-          {error && <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">{error}</p>}
-        </div>
       )}
     </div>
   );
