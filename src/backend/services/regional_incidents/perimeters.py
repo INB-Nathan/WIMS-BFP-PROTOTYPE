@@ -144,6 +144,65 @@ def _finalize_perimeter(row_dict: dict[str, Any]) -> dict[str, Any]:
     return row_dict
 
 
+def list_civilian_linked_verified_incidents(db: Session) -> list[dict[str, Any]]:
+    """Return mapped verified incidents backed by linked civilian reports."""
+    rows = db.execute(
+        text(
+            """
+            SELECT
+                fi.incident_id,
+                fi.reference_number,
+                nd.general_category,
+                COALESCE(
+                    NULLIF(
+                        CONCAT_WS(
+                            ', ',
+                            NULLIF(nd.city_municipality, ''),
+                            NULLIF(nd.province_district, '')
+                        ),
+                        ''
+                    ),
+                    rr.region_name,
+                    'Location unavailable'
+                ) AS location,
+                nd.notification_dt,
+                MAX(l.linked_at) AS applied_at,
+                COUNT(DISTINCT l.report_id) AS civilian_report_count
+            FROM wims.fire_incident_civilian_links l
+            JOIN wims.citizen_reports cr ON cr.report_id = l.report_id
+            JOIN wims.fire_incidents fi ON fi.incident_id = l.incident_id
+            LEFT JOIN wims.incident_nonsensitive_details nd ON nd.incident_id = fi.incident_id
+            LEFT JOIN wims.ref_regions rr ON rr.region_id = fi.region_id
+            WHERE fi.verification_status = 'VERIFIED'
+              AND fi.is_archived = FALSE
+              AND fi.location IS NOT NULL
+              AND cr.status IN ('PENDING', 'UNDER_REVIEW', 'LINKED', 'ACTIONED')
+            GROUP BY
+                fi.incident_id,
+                fi.reference_number,
+                nd.general_category,
+                nd.city_municipality,
+                nd.province_district,
+                rr.region_name,
+                nd.notification_dt
+            ORDER BY COALESCE(nd.notification_dt, MAX(l.linked_at)) DESC, fi.incident_id DESC
+            """
+        )
+    ).fetchall()
+    return [
+        {
+            "incident_id": row[0],
+            "reference_number": row[1],
+            "general_category": row[2],
+            "location": row[3],
+            "notification_dt": row[4],
+            "applied_at": row[5],
+            "civilian_report_count": row[6],
+        }
+        for row in rows
+    ]
+
+
 def fetch_linked_reports(db: Session, incident_id: int) -> list[dict[str, Any]]:
     """Return public-safe minimal projection of linked civilian reports."""
     rows = db.execute(

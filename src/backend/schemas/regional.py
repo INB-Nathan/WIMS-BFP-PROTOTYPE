@@ -351,6 +351,18 @@ class LinkedCivilianReport(BaseModel):
     created_at: str | None = None
 
 
+class PerimeterIncidentOption(BaseModel):
+    """Verified incident backed by one or more linked civilian reports."""
+
+    incident_id: int
+    reference_number: str | None = None
+    general_category: str | None = None
+    location: str
+    notification_dt: datetime | None = None
+    applied_at: datetime | None = None
+    civilian_report_count: int
+
+
 class PerimeterResponse(BaseModel):
     """GeoJSON Feature for the perimeter + metadata + linked civilian reports."""
 

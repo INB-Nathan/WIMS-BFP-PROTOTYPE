@@ -16,6 +16,7 @@ Coverage:
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 from unittest.mock import patch
 
@@ -307,7 +308,59 @@ def test_create_invalid_map_method_400(mock_audit, client):
     assert resp.status_code == 400, resp.text
 
 
-# ─── get ──────────────────────────────────────────────────────────────────
+# ─── candidate list / get ─────────────────────────────────────────────────
+
+
+def test_list_perimeter_incidents_from_civilian_links(client):
+    applied_at = datetime(2026, 7, 19, 8, 30, tzinfo=timezone.utc)
+    session = FakeSession(
+        program={
+            "FROM wims.fire_incident_civilian_links l": FakeResult(
+                [
+                    FakeRow(
+                        [
+                            42,
+                            "NCR-2026-0042",
+                            "STRUCTURAL",
+                            "Quezon City, NCR",
+                            datetime(2026, 7, 19, 7, 0, tzinfo=timezone.utc),
+                            applied_at,
+                            3,
+                        ]
+                    )
+                ]
+            )
+        }
+    )
+    _install(session, VALIDATOR_USER)
+
+    resp = client.get("/api/regional/perimeter-incidents")
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == [
+        {
+            "incident_id": 42,
+            "reference_number": "NCR-2026-0042",
+            "general_category": "STRUCTURAL",
+            "location": "Quezon City, NCR",
+            "notification_dt": "2026-07-19T07:00:00Z",
+            "applied_at": "2026-07-19T08:30:00Z",
+            "civilian_report_count": 3,
+        }
+    ]
+    sql = session.executed[0]
+    assert "fi.verification_status = 'VERIFIED'" in sql
+    assert "fi.is_archived = FALSE" in sql
+    assert "fi.location IS NOT NULL" in sql
+    assert "cr.status IN ('PENDING', 'UNDER_REVIEW', 'LINKED', 'ACTIONED')" in sql
+
+
+def test_list_perimeter_incidents_wrong_role_403(client):
+    _install(FakeSession(program={}), CIVILIAN_USER)
+
+    resp = client.get("/api/regional/perimeter-incidents")
+
+    assert resp.status_code == 403, resp.text
 
 
 def _perimeter_fetch_session() -> FakeSession:

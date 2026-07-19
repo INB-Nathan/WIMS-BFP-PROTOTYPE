@@ -5,6 +5,16 @@ export type PerimeterGeometry = {
   coordinates: number[][][];
 };
 
+export interface PerimeterIncidentOption {
+  incident_id: number;
+  reference_number: string | null;
+  general_category: string | null;
+  location: string;
+  notification_dt: string | null;
+  applied_at: string | null;
+  civilian_report_count: number;
+}
+
 export interface PerimeterResponse {
   type: 'Feature';
   geometry: PerimeterGeometry;
@@ -17,6 +27,10 @@ export interface PerimeterResponse {
   created_at: string | null;
   updated_at: string | null;
   linked_reports: Array<{ report_id: number; category: string | null; status: string | null; created_at: string | null }>;
+}
+
+export function fetchPerimeterIncidentOptions(): Promise<PerimeterIncidentOption[]> {
+  return apiFetch('/regional/perimeter-incidents');
 }
 
 export function fetchPerimeter(incidentId: number): Promise<PerimeterResponse> {
