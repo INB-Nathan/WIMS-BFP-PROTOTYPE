@@ -225,9 +225,9 @@ done
 if [ "$BACKEND_READY" = "0" ]; then
   echo "Backend health check failed after 60 attempts"
   # Rollback: restart old tag
-  if docker image inspect wims-backend-rollback:latest >/dev/null 2>&1; then
+  if docker image inspect backend-image-rollback:latest >/dev/null 2>&1; then
     echo "Rolling back to previous image..."
-    BACKEND_IMAGE=wims-backend-rollback:latest compose up -d backend
+    BACKEND_IMAGE=backend-image-rollback:latest compose up -d backend
   else
     echo "No rollback image found — backend may need manual intervention"
   fi

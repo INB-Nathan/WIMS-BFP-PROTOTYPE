@@ -299,9 +299,9 @@ cmd_backup() {
 
 cmd_rollback() {
   cd_home
-  if docker image inspect wims-backend-rollback:latest >/dev/null 2>&1; then
+  if docker image inspect backend-image-rollback:latest >/dev/null 2>&1; then
     info "Rolling back backend to previous image..."
-    BACKEND_IMAGE=wims-backend-rollback:latest compose up -d backend
+    BACKEND_IMAGE=backend-image-rollback:latest compose up -d backend
   else
     die "No rollback image (backend-image-rollback:latest) found."
   fi
