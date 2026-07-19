@@ -1,3 +1,9 @@
+## [2026-07-19] ops(install): add self-contained VPS installer + maintenance script (run.sh)
+
+- **Scope:** New root `run.sh` is the single command for installation and maintenance of the WIMS-BFP stack on any VPS. `install` bootstraps a bare host (docker + compose plugin + git + certbot), clones the repo into `/opt/wims-bfp`, generates `src/.env.production` from the example (auto-deriving `KEYCLOAK_REALM_URL` and auto-generating `WIMS_MASTER_KEY`/`WIMS_KEYCLOAK_EVENT_SECRET`), issues the Let's Encrypt cert via standalone ACME, installs the certbot renewal cron, and runs the first deploy via `scripts/deploy-vps.sh`. Maintenance subcommands: `deploy`/`update`, `status`, `logs`, `restart` (nginx recreated to fix bind-mount staleness per gotcha #20), `stop`/`start`, `health`, `migrate` (alembic upgrade head), `backup` (pg_dump), `rollback`, `shell`, `env`.
+- **Safety:** `install` requires the externally-provisioned secrets to be exported (it refuses to proceed with placeholders); secrets are never committed (`.env.production` is gitignored). `deploy` reuses the CI/CD git-reset + compose-up path (gotcha #18) and must not run while a GitHub Actions deploy is in progress.
+- **Repo:** Worktree `ops-vps-install-runner`, branch `ops/vps-install-runner`. No FRS/code gap changed.
+
 ## [2026-07-19] refactor(triage): widen report evidence and remove correction action
 
 - **UX:** Moved the selected cluster/report evidence table out of the narrow investigation board into a separate full-width container below the map workspace, preserving report-row selection while exposing more columns at once.
