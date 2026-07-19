@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from services.analytics_read_model import sync_incident_to_analytics
 from services.duplicate_detection import check_for_duplicate
+from services.information_emergencies import ensure_incident_emergency_draft
 from services.regional_incidents.helpers import (
     DuplicateClientIdError,
     compute_incident_data_hash,
@@ -723,6 +724,13 @@ def verify_incident_command(
             sync_status="SYNCED",
             client_id=client_id,
         )
+        if target_status == "VERIFIED":
+            ensure_incident_emergency_draft(
+                db,
+                incident_id=incident_id,
+                actor_user_id=str(validator_user_id),
+                require_civilian_link=True,
+            )
         db.commit()
     except DuplicateClientIdError:
         db.rollback()

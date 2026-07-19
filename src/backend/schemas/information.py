@@ -20,6 +20,7 @@ class AnnouncementCreate(BaseModel):
     title: str
     body: str
     urgency: Literal["urgent", "advisory", "general"] = "general"
+    published: bool = False
 
 
 class AnnouncementUpdate(BaseModel):
@@ -50,6 +51,7 @@ class EmergencyCreate(BaseModel):
     description: str
     severity: Literal["critical", "high", "moderate", "low"] = "moderate"
     status: Literal["ongoing", "contained", "monitoring", "resolved"] = "ongoing"
+    published: bool = False
 
 
 class EmergencyUpdate(BaseModel):

@@ -410,8 +410,9 @@ def test_delete_404(client):
 # ─── link / unlink ────────────────────────────────────────────────────────
 
 
+@patch("api.routes.regional.perimeters.ensure_incident_emergency_draft")
 @patch("api.routes.regional.perimeters.log_system_audit")
-def test_link_reports(mock_audit, client):
+def test_link_reports(mock_audit, mock_draft, client):
     session = FakeSession(
         program={"FROM wims.citizen_reports": FakeResult([FakeRow([10]), FakeRow([11])])},
         link_insert_count=2,
@@ -423,6 +424,26 @@ def test_link_reports(mock_audit, client):
     )
     assert resp.status_code == 200, resp.text
     assert resp.json()["linked_count"] == 2
+
+
+@patch("api.routes.regional.perimeters.ensure_incident_emergency_draft")
+@patch("api.routes.regional.perimeters.log_system_audit")
+def test_link_reports_creates_eligible_emergency_draft(mock_audit, mock_draft, client):
+    session = FakeSession(
+        program={"FROM wims.citizen_reports": FakeResult([FakeRow([10])])},
+        link_insert_count=1,
+    )
+    _install(session, VALIDATOR_USER)
+
+    response = client.post("/api/regional/incidents/1/link-reports", json={"report_ids": [10]})
+
+    assert response.status_code == 200, response.text
+    mock_draft.assert_called_once_with(
+        session,
+        incident_id=1,
+        actor_user_id=VALIDATOR_USER["user_id"],
+        require_civilian_link=True,
+    )
 
 
 @patch("api.routes.regional.perimeters.log_system_audit")

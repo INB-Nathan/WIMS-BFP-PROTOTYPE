@@ -72,17 +72,21 @@ def _public_emergency(row: dict) -> dict:
 def list_emergencies(
     db: Annotated[Session, Depends(get_db)],
 ) -> list[dict]:
-    """Public list of published emergencies with verified-incident geometry."""
+    """Public list of published emergencies sourced from linked verified incidents."""
     rows = (
         db.execute(
             text(
                 f"SELECT {_EMERGENCY_COLUMNS} "
                 "FROM wims.information_emergencies ie "
-                "LEFT JOIN wims.fire_incidents fi "
+                "JOIN wims.fire_incidents fi "
                 "ON fi.incident_id = ie.promoted_from_incident_id "
                 "AND fi.verification_status = 'VERIFIED' "
                 "LEFT JOIN wims.fire_incident_perimeters p ON p.incident_id = fi.incident_id "
                 "WHERE ie.published = TRUE "
+                "AND EXISTS ("
+                "SELECT 1 FROM wims.fire_incident_civilian_links l "
+                "WHERE l.incident_id = fi.incident_id"
+                ") "
                 "ORDER BY ie.published_at DESC NULLS LAST, ie.created_at DESC"
             )
         )

@@ -1,7 +1,7 @@
 ---
 title: Backend API Route Map
 created: 2026-05-14
-updated: 2026-07-17
+updated: 2026-07-19
 type: backend
 tags: [wims-bfp, backend, api, implementation-map]
 sources: [raw/codebase/codebase-snapshot-2026-05-14.md, src/backend/api/routes]
@@ -26,7 +26,7 @@ FastAPI route ownership snapshot from `src/backend/api/routes`.
 | `civilian.py` | `GET` | `/reports/{report_id}/timeline` | `get_civilian_report_timeline` |
 | `civilian.py` | `POST` | `/reports/{report_id}/notify` | `register_notification` |
 | `civilian.py` | `GET` | `/report-clusters` | `get_report_clusters` | Public-safe root-map areas from durable civilian report clusters; no raw cluster/report IDs. |
-| `information.py` | `GET` | `/information/emergencies` | `list_emergencies` | Published emergency cards plus location/perimeter geometry only for their linked VERIFIED incidents; unlinked or non-verified emergencies have no geometry. |
+| `information.py` | `GET` | `/information/emergencies` | `list_emergencies` | Published emergency cards only when their source incident is VERIFIED and has at least one civilian-report link; location/perimeter geometry comes from that incident. |
 | `civilian.py` | `POST` | `/reports/{report_id}/followup` | `submit_civilian_followup` | Public text follow-up linked to existing report (Issue #62). Terminal reports blocked. |
 | `civilian.py` | `POST` | `/reports/{report_id}/photos` | `upload_report_photo` | Post-submit multipart photo attachment; delegates validation, EXIF sanitization, encryption, ownership, RLS, and audit to `services.report_photos`. |
 | `civilian.py` | `POST` | `/photos/upload` | `upload_pending_civilian_photo` | Encrypted pending upload for a registered CIVILIAN_REPORTER or a bearer-capability owner; report/device IDs are not accepted. Anonymous ownership is derived by the fixed-search-path helper, with neutral 404 for missing/invalid capabilities. |
@@ -112,6 +112,10 @@ FastAPI route ownership snapshot from `src/backend/api/routes`.
 | `triage.py` | `GET` | `/clusters/{cluster_id}/merge-candidates` | `get_merge_candidates` | Phase 2 merge-candidate discovery (250m/1hr) |
 | `triage.py` | `POST` | `/{report_id}/promote` | `promote_report` (disabled, 410) |
 | `triage.py` | `POST` | `/bulk-promote` | `bulk_promote_reports` (disabled, 410) |
+| `admin/information.py` | `GET` | `/information/announcements` | `list_admin_announcements` | SYSTEM_ADMIN-only list of drafts and published announcements for the CMS workspace. |
+| `admin/information.py` | `POST` | `/information/announcements` | `create_announcement` | SYSTEM_ADMIN-only create; publication time is recorded when created published. |
+| `admin/information.py` | `GET` | `/information/emergencies` | `list_admin_emergencies` | SYSTEM_ADMIN-only list of drafts and published emergency updates for the CMS workspace. |
+| `admin/information.py` | `POST` | `/information/emergencies/promote/{incident_id}` | `promote_incident` | SYSTEM_ADMIN-only idempotent incident-draft promotion; source incident must be VERIFIED. |
 | `admin/users.py` | `POST` | `/users` | `create_user` |
 | `admin/users.py` | `GET` | `/users` | `get_users` |
 | `admin/users.py` | `PATCH` | `/users/{user_id}` | `update_user` |
