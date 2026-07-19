@@ -1,7 +1,7 @@
 ---
 title: Backend API Route Map
 created: 2026-05-14
-updated: 2026-07-17
+updated: 2026-07-19
 type: backend
 tags: [wims-bfp, backend, api, implementation-map]
 sources: [raw/codebase/codebase-snapshot-2026-05-14.md, src/backend/api/routes]
@@ -26,7 +26,7 @@ FastAPI route ownership snapshot from `src/backend/api/routes`.
 | `civilian.py` | `GET` | `/reports/{report_id}/timeline` | `get_civilian_report_timeline` |
 | `civilian.py` | `POST` | `/reports/{report_id}/notify` | `register_notification` |
 | `civilian.py` | `GET` | `/report-clusters` | `get_report_clusters` | Public-safe root-map areas from durable civilian report clusters; no raw cluster/report IDs. |
-| `information.py` | `GET` | `/information/emergencies` | `list_emergencies` | Published emergency cards plus location/perimeter geometry only for their linked VERIFIED incidents; unlinked or non-verified emergencies have no geometry. |
+| `information.py` | `GET` | `/information/emergencies` | `list_emergencies` | All published System Admin emergency cards. A linked VERIFIED incident contributes location/perimeter geometry; manual or unverified-linked cards return null geometry. |
 | `civilian.py` | `POST` | `/reports/{report_id}/followup` | `submit_civilian_followup` | Public text follow-up linked to existing report (Issue #62). Terminal reports blocked. |
 | `civilian.py` | `POST` | `/reports/{report_id}/photos` | `upload_report_photo` | Post-submit multipart photo attachment; delegates validation, EXIF sanitization, encryption, ownership, RLS, and audit to `services.report_photos`. |
 | `civilian.py` | `POST` | `/photos/upload` | `upload_pending_civilian_photo` | Encrypted pending upload for a registered CIVILIAN_REPORTER or a bearer-capability owner; report/device IDs are not accepted. Anonymous ownership is derived by the fixed-search-path helper, with neutral 404 for missing/invalid capabilities. |
@@ -75,6 +75,7 @@ FastAPI route ownership snapshot from `src/backend/api/routes`.
 | `regional/encoder_crud.py` | `PATCH` | `/incidents/{incident_id}/unarchive` | `encoder_unarchive_incident` |
 | `regional/encoder_crud.py` | `PATCH` | `/incidents/{incident_id}/submit` | `submit_incident_for_review` |
 | `regional/validator.py` | `GET` | `/validator/incidents` | `get_validator_incident_queue` |
+| `regional/perimeters.py` | `GET` | `/perimeter-incidents` | `list_perimeter_incidents` | NATIONAL_VALIDATOR/SYSTEM_ADMIN only; lists mapped, active VERIFIED incidents with eligible linked civilian reports, including PII-free location/date/application context for the perimeter selector. |
 | `regional/perimeters.py` | `POST` | `/incidents/{incident_id}/perimeter` | `create_perimeter` | NATIONAL_VALIDATOR/SYSTEM_ADMIN only; validates GeoJSON with PostGIS and persists `MANUAL_DRAW` with PostGIS-derived acreage. |
 | `regional/perimeters.py` | `GET` | `/incidents/{incident_id}/perimeter` | `get_perimeter` |
 | `regional/perimeters.py` | `PUT` | `/incidents/{incident_id}/perimeter` | `update_perimeter` | NATIONAL_VALIDATOR/SYSTEM_ADMIN only. |
@@ -112,6 +113,10 @@ FastAPI route ownership snapshot from `src/backend/api/routes`.
 | `triage.py` | `GET` | `/clusters/{cluster_id}/merge-candidates` | `get_merge_candidates` | Phase 2 merge-candidate discovery (250m/1hr) |
 | `triage.py` | `POST` | `/{report_id}/promote` | `promote_report` (disabled, 410) |
 | `triage.py` | `POST` | `/bulk-promote` | `bulk_promote_reports` (disabled, 410) |
+| `admin/information.py` | `GET` | `/information/announcements` | `list_admin_announcements` | SYSTEM_ADMIN-only list of drafts and published announcements for the CMS workspace. |
+| `admin/information.py` | `POST` | `/information/announcements` | `create_announcement` | SYSTEM_ADMIN-only create; publication time is recorded when created published. |
+| `admin/information.py` | `GET` | `/information/emergencies` | `list_admin_emergencies` | SYSTEM_ADMIN-only list of drafts and published emergency updates for the CMS workspace. |
+| `admin/information.py` | `POST` | `/information/emergencies/promote/{incident_id}` | `promote_incident` | SYSTEM_ADMIN-only idempotent incident-draft promotion; source incident must be VERIFIED. |
 | `admin/users.py` | `POST` | `/users` | `create_user` |
 | `admin/users.py` | `GET` | `/users` | `get_users` |
 | `admin/users.py` | `PATCH` | `/users/{user_id}` | `update_user` |
@@ -130,11 +135,15 @@ FastAPI route ownership snapshot from `src/backend/api/routes`.
 | `admin/security.py` | `POST` | `/security-logs/{log_id}/create-incident` | `create_incident_from_alert` | Manual DRAFT incident from reviewed alert; writes audit trail with endpoint metadata (#165, #357) |
 | `admin/security.py` | `GET` | `/security-logs/{log_id}/related-audit` | `get_related_audit` | Related audit trail rows (±1h window) for a security log (#357) |
 | `admin/security.py` | `POST` | `/security-logs/{log_id}/block-source-ip` | `block_source_ip` | Block the row's `source_ip` via `ip_blocklist` service. Body `{ttl_hours?: int \| "permanent"}` (default 24h). Allowlist + self-IP guard + already-active no-op + repeat-offender escalation (3rd block → permanent). Marks `admin_action_taken="Blocked IP"` on the threat row. (2026-06-22) |
+| `admin/security.py` | `POST` | `/security-logs/{log_id}/block` | `block_security_log` | Block the row's correlated HMAC device-token hash (`type: "device"`) or source IP (`type: "ip"`). SYSTEM_ADMIN-only; device blocks reject rows without a correlation and a requester cannot block their own device. |
+
 | `admin/security.py` | `POST` | `/security-logs/block-by-filter` | `block_by_filter` | Filter-scoped bulk block. Body `{severity?, source_ip?, date_from?, date_to?, q?}` + `?preview=true` for dry-run. Hard-capped at first 500 distinct IPs (504 fix at 25k scale). Returns `{total_distinct_ips, blocked_count, permanent_count, skipped_self, skipped_allowlist, already_blocked, capped}`. `classification` column dropped (migration 62 never applied; deferred). (2026-06-22) |
 | `admin/security.py` | `POST` | `/security-logs/bulk-action` | `bulk_action` | Bulk action on `{log_ids: int[], action: "block_ip" \| "dismiss" \| "false_positive", ttl_hours?: int \| "permanent"}`. One transaction, one audit row. `dismiss` + DELETE share `dismiss_security_log` helper. (2026-06-22) |
 | `admin/security.py` | `DELETE` | `/security-logs/{log_id}` | `delete_security_log` | Soft-delete: `resolved_at=now(), admin_action_taken='Dismissed'`. Delegates to `dismiss_security_log` (same logic as bulk-dismiss). (2026-06-22) |
 | `admin/ip_blocklist.py` | `DELETE` | `/ip-blocklist/{ip}` | `unblock_ip` | Unblock an IP: `is_active=false` on Postgres + `DEL ip:block:{ip}` from Redis. 404 if IP not actively blocked. (2026-06-22) |
 | `admin/ip_blocklist.py` | `GET` | `/ip-blocklist` | `list_blocked_ips` | List active blocks with derived `block_count` (COUNT per source_ip), `expires_at`, `is_permanent`, `blocked_by`, `block_reason`. (2026-06-22) |
+| `admin/device_blocklist.py` | `DELETE` | `/device-blocklist/{token_hash}` | `unblock_device_endpoint` | Soft-unblock an active device-token hash; 404 if no active row remains. SYSTEM_ADMIN-only. |
+| `admin/device_blocklist.py` | `GET` | `/device-blocklist` | `list_blocked_devices_endpoint` | List active device-token blocks with derived historical `block_count`. SYSTEM_ADMIN-only. |
 | `admin/audit.py` | `GET` | `/audit-logs` | `get_audit_logs` | Supports `user_id`, `action_type`, `table_affected`, `ip_address`, `date_from`, `date_to` filter params |
 | `admin/audit.py` | `GET` | `/audit-logs/export/secure` | `export_secure_audit_logs` | Signed tamper-evident CSV/PDF/manifest ZIP; SYSTEM_ADMIN only |
 | `admin/audit.py` | `POST` | `/audit-logs/export/verify` | `verify_secure_audit_export` | Multipart ZIP verification with signature, hash-chain, PDF, and freshness checks |

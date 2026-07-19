@@ -14,7 +14,7 @@ actually wired into the INSERT/UPDATE/DELETE, independent of any real database.
 from __future__ import annotations
 
 from datetime import datetime
-from unittest.mock import MagicMock, sentinel
+from unittest.mock import MagicMock, patch, sentinel
 
 import pytest
 from fastapi import HTTPException
@@ -125,6 +125,23 @@ def _insert_call(client: TestClient):
 # ── Announcements CRUD ───────────────────────────────────────────────────────
 
 
+def test_list_admin_announcements_returns_drafts_and_published(client: TestClient):
+    _set_auth("SYSTEM_ADMIN")
+    rows = [
+        _announcement_row(),
+        _announcement_row(aid=2, published=True, published_at=PUBLISHED_AT),
+    ]
+    client._mock_db.execute.return_value.mappings.return_value.all.return_value = rows  # type: ignore[attr-defined]
+
+    response = client.get("/api/admin/information/announcements")
+
+    assert response.status_code == 200
+    assert [item["id"] for item in response.json()] == [1, 2]
+    sql = client._mock_db.execute.call_args.args[0].text  # type: ignore[attr-defined]
+    assert "FROM wims.information_announcements" in sql
+    assert "ORDER BY created_at DESC" in sql
+
+
 def test_create_announcement_requires_system_admin(client: TestClient):
     _set_auth("REGIONAL_ENCODER")
     r = client.post(
@@ -141,7 +158,7 @@ def test_create_announcement_requires_system_admin(client: TestClient):
     ]
     r = client.post(
         "/api/admin/information/announcements",
-        json={"title": "Drill", "body": "Body", "urgency": "advisory"},
+        json={"title": "Drill", "body": "Body", "urgency": "advisory", "published": True},
     )
     assert r.status_code == 201
     assert r.json()["id"] == row["id"]
@@ -152,6 +169,7 @@ def test_create_announcement_requires_system_admin(client: TestClient):
     assert call.args[1]["title"] == "Drill"
     assert call.args[1]["body"] == "Body"
     assert call.args[1]["urgency"] == "advisory"
+    assert call.args[1]["published"] is True
     assert call.args[1]["created_by"] == ADMIN_ID
 
 
@@ -223,6 +241,20 @@ def test_delete_announcement_returns_204_and_404_when_missing(client: TestClient
 # ── Emergencies CRUD ─────────────────────────────────────────────────────────
 
 
+def test_list_admin_emergencies_returns_drafts_and_published(client: TestClient):
+    _set_auth("SYSTEM_ADMIN")
+    rows = [_emergency_row(), _emergency_row(eid=2, published=True, published_at=PUBLISHED_AT)]
+    client._mock_db.execute.return_value.mappings.return_value.all.return_value = rows  # type: ignore[attr-defined]
+
+    response = client.get("/api/admin/information/emergencies")
+
+    assert response.status_code == 200
+    assert [item["id"] for item in response.json()] == [1, 2]
+    sql = client._mock_db.execute.call_args.args[0].text  # type: ignore[attr-defined]
+    assert "FROM wims.information_emergencies" in sql
+    assert "ORDER BY created_at DESC" in sql
+
+
 def test_create_emergency_returns_201_for_system_admin(client: TestClient):
     _set_auth("REGIONAL_ENCODER")
     r = client.post(
@@ -245,6 +277,7 @@ def test_create_emergency_returns_201_for_system_admin(client: TestClient):
             "description": "Desc",
             "severity": "high",
             "status": "contained",
+            "published": True,
         },
     )
     assert r.status_code == 201
@@ -258,6 +291,7 @@ def test_create_emergency_returns_201_for_system_admin(client: TestClient):
     assert call.args[1]["description"] == "Desc"
     assert call.args[1]["severity"] == "high"
     assert call.args[1]["status"] == "contained"
+    assert call.args[1]["published"] is True
     assert call.args[1]["created_by"] == ADMIN_ID
 
 
@@ -311,93 +345,39 @@ def test_delete_emergency_returns_204_and_404_when_missing(client: TestClient):
 # ── Promote from incident ────────────────────────────────────────────────────
 
 
-def test_promote_requires_system_admin_or_validator(client: TestClient):
+def test_promote_requires_system_admin(client: TestClient):
     _set_auth("REGIONAL_ENCODER")
     r = client.post("/api/admin/information/emergencies/promote/7")
     assert r.status_code == 403
 
-    _set_auth("NATIONAL_ANALYST")
+    _set_auth("NATIONAL_VALIDATOR")
     r = client.post("/api/admin/information/emergencies/promote/7")
     assert r.status_code == 403
 
 
-def test_promote_returns_201_for_system_admin(client: TestClient):
+@patch("api.routes.admin.information.ensure_incident_emergency_draft", return_value=7)
+def test_promote_returns_201_for_system_admin(mock_draft, client: TestClient):
     _set_auth("SYSTEM_ADMIN")
-    incident = {
-        "incident_id": 7,
-        "region_name": "Region IV",
-        "city_name": "City A",
-        "barangay_name": "Barangay X",
-        "general_description_of_involved": "Structural fire.",
-        "geom": "POINT(120.9 14.6)",
-    }
-    row = _emergency_row(
-        promoted_from_incident_id=7,
-        title="Incident #7",
-        location="Barangay X, City A, Region IV",
-        description="Structural fire.",
+    row = _emergency_row(promoted_from_incident_id=7)
+    client._mock_db.execute.side_effect = [_result(first=row)]  # type: ignore[attr-defined]
+
+    response = client.post("/api/admin/information/emergencies/promote/7")
+
+    assert response.status_code == 201
+    assert response.json()["promoted_from_incident_id"] == 7
+    mock_draft.assert_called_once_with(
+        client._mock_db,  # type: ignore[attr-defined]
+        incident_id=7,
+        actor_user_id=ADMIN_ID,
+        require_civilian_link=False,
     )
-    client._mock_db.execute.side_effect = [  # type: ignore[attr-defined]
-        _result(first=incident),
-        _result(scalar_one=row["id"]),
-        _result(first=row),
-    ]
-    r = client.post("/api/admin/information/emergencies/promote/7")
-    assert r.status_code == 201
-    body = r.json()
-    assert body["promoted_from_incident_id"] == 7
-    assert body["title"] == "Incident #7"
-    assert body["location"] == "Barangay X, City A, Region IV"
-    assert body["description"] == "Structural fire."
-    assert body["severity"] == "moderate"  # defaults
-    assert body["status"] == "ongoing"
-    assert body["published"] is False
-
-    # The SELECT should target the incident id, and the INSERT should carry it.
-    select_call = client._mock_db.execute.call_args_list[0]  # type: ignore[attr-defined]
-    assert "wims.fire_incidents" in select_call.args[0].text
-    assert select_call.args[1]["incident_id"] == 7
-    insert_call = client._mock_db.execute.call_args_list[1]  # type: ignore[attr-defined]
-    assert insert_call.args[1]["promoted_from_incident_id"] == 7
-    assert insert_call.args[1]["created_by"] == ADMIN_ID
 
 
-def test_promote_returns_201_for_national_validator(client: TestClient):
-    _set_auth("NATIONAL_VALIDATOR")
-    incident = {
-        "incident_id": 8,
-        "region_name": None,
-        "city_name": None,
-        "barangay_name": None,
-        "general_description_of_involved": None,
-        "geom": "POINT(121.0 14.7)",
-    }
-    row = _emergency_row(
-        eid=2,
-        promoted_from_incident_id=8,
-        title="Incident #8",
-        location="POINT(121.0 14.7)",
-        description="Promoted from incident #8.",
-    )
-    client._mock_db.execute.side_effect = [  # type: ignore[attr-defined]
-        _result(first=incident),
-        _result(scalar_one=row["id"]),
-        _result(first=row),
-    ]
-    r = client.post("/api/admin/information/emergencies/promote/8")
-    assert r.status_code == 201
-    assert r.json()["promoted_from_incident_id"] == 8
-    # No region/city/barangay -> falls back to raw geometry; no description ->
-    # falls back to the generated message.
-    assert r.json()["location"] == "POINT(121.0 14.7)"
-    assert r.json()["description"] == "Promoted from incident #8."
-
-
-def test_promote_returns_404_when_incident_missing(client: TestClient):
+@patch("api.routes.admin.information.ensure_incident_emergency_draft", return_value=None)
+def test_promote_returns_404_when_incident_missing(mock_draft, client: TestClient):
     _set_auth("SYSTEM_ADMIN")
-    client._mock_db.execute.side_effect = [_result(first=None)]  # type: ignore[attr-defined]
-    r = client.post("/api/admin/information/emergencies/promote/404")
-    assert r.status_code == 404
+    response = client.post("/api/admin/information/emergencies/promote/404")
+    assert response.status_code == 404
 
 
 def test_promote_requires_authentication(client: TestClient):

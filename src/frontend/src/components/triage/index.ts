@@ -1,7 +1,7 @@
 export { TriageInspectionModal } from './TriageInspectionModal';
 export { TriageCanvasMap } from './TriageCanvasMap';
 export type { TriageCanvasMapProps } from './TriageCanvasMap';
-export { TriageInvestigationBoard } from './TriageInvestigationBoard';
+export { TriageEvidenceTable, TriageInvestigationBoard } from './TriageInvestigationBoard';
 export { TriageLegend } from './TriageLegend';
 export {
   deriveClusterGeometry,

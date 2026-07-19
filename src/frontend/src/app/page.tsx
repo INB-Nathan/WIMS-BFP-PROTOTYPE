@@ -6,6 +6,7 @@ import { useState, useCallback, useRef, useEffect, type CSSProperties } from 're
 import { IntentModal } from '@/components/IntentModal';
 import { PublicHeader } from '@/components/PublicHeader';
 import { LandingSidebar } from '@/components/LandingSidebar';
+import { CivilianSignalModal } from '@/components/CivilianSignalModal';
 import { usePublicEmergencies } from '@/lib/usePublicEmergencies';
 import type { EmergencyResponse } from '@/lib/api/information';
 import { usePublicTheme } from '@/components/public/PublicThemeProvider';
@@ -28,6 +29,8 @@ export default function LandingPage() {
     usePublicEmergencies();
   const [selectedEmergencyId, setSelectedEmergencyId] = useState<number | null>(null);
   const [focusLocation, setFocusLocation] = useState<[number, number] | null>(null);
+  // Active fire whose civilian-signal timestamps modal is open (null = closed).
+  const [signalEmergency, setSignalEmergency] = useState<EmergencyResponse | null>(null);
 
   const handleSelectEmergency = useCallback((e: EmergencyResponse) => {
     setSelectedEmergencyId(e.id);
@@ -172,6 +175,7 @@ export default function LandingPage() {
             closeRef={sidebarCloseRef}
             sidebarTitleId="landing-sidebar-title"
             onSelectEmergency={handleSelectEmergency}
+            onViewSignals={setSignalEmergency}
             selectedEmergencyId={selectedEmergencyId}
             emergencies={emergencies}
             loading={emergenciesLoading}
@@ -224,6 +228,11 @@ export default function LandingPage() {
           <Link href="/register">Register as a reporter</Link>
         </p>
       </footer>
+
+      <CivilianSignalModal
+        emergency={signalEmergency}
+        onClose={() => setSignalEmergency(null)}
+      />
 
       <style>{`
         /* ── Immersive full-screen layout ──────────────────────────────── */
@@ -540,6 +549,41 @@ export default function LandingPage() {
           color: var(--text-muted, rgba(232,232,237,0.38));
           margin-top: 2px;
         }
+        /* Card + civilian-signal count are sibling controls, never nested. */
+        .sidebar-fire-card-wrap {
+          display: flex;
+          align-items: stretch;
+          gap: 8px;
+        }
+        .sidebar-fire-card-wrap.selected .sidebar-fire-card {
+          border-color: #3b82f6;
+          background: var(--blue-bg, rgba(59,130,246,0.12));
+        }
+        .sidebar-civ-signals {
+          flex: 0 0 auto;
+          display: inline-flex;
+          align-items: center;
+          gap: 5px;
+          align-self: center;
+          padding: 6px 10px;
+          border-radius: 999px;
+          border: 1px solid var(--green, #059669);
+          background: var(--green-bg, rgba(5,150,105,0.14));
+          color: var(--green-light, #34d399);
+          font-size: 0.7rem;
+          font-weight: 700;
+          font-family: inherit;
+          cursor: pointer;
+          transition: all 180ms ease;
+        }
+        .sidebar-civ-signals:hover {
+          background: rgba(5,150,105,0.24);
+          border-color: var(--green-light, #34d399);
+        }
+        .sidebar-civ-signals:focus-visible {
+          outline: 2px solid #3b82f6;
+          outline-offset: 2px;
+        }
         .sidebar-verified-note {
           font-size: 0.64rem;
           color: var(--text-muted, rgba(232,232,237,0.38));
@@ -828,6 +872,65 @@ export default function LandingPage() {
             bottom: 56px;
             max-width: 220px;
           }
+        }
+
+        /* ── Civilian-signal modal content (dialog chrome from public-surface) ── */
+        .cs-modal-sub {
+          font-size: 0.82rem;
+          line-height: 1.5;
+          color: var(--text-secondary, rgba(232,232,237,0.65));
+          margin: 0 0 16px;
+        }
+        .cs-modal-status {
+          font-size: 0.82rem;
+          color: var(--text-muted, rgba(232,232,237,0.38));
+          margin: 0;
+        }
+        .cs-modal-error {
+          text-align: center;
+          padding: 8px 0;
+        }
+        .cs-modal-error p {
+          font-size: 0.82rem;
+          color: var(--text-muted, rgba(232,232,237,0.38));
+          margin: 0 0 12px;
+        }
+        .cs-modal-retry {
+          background: rgba(255,255,255,0.06);
+          border: 1px solid rgba(255,255,255,0.12);
+          border-radius: 6px;
+          color: var(--text-secondary, rgba(232,232,237,0.65));
+          cursor: pointer;
+          font-family: inherit;
+          font-size: 0.72rem;
+          font-weight: 600;
+          padding: 6px 14px;
+          transition: all 180ms ease;
+        }
+        .cs-modal-retry:hover {
+          background: rgba(255,255,255,0.1);
+          border-color: rgba(255,255,255,0.22);
+          color: var(--text-primary, #e8e8ed);
+        }
+        .cs-modal-retry:focus-visible {
+          outline: 2px solid #3b82f6;
+          outline-offset: 2px;
+        }
+        .cs-modal-list {
+          list-style: none;
+          margin: 0;
+          padding: 0;
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+        .cs-modal-item {
+          font-size: 0.8rem;
+          color: var(--text-primary, #e8e8ed);
+          background: var(--bg-surface, #202026);
+          border: 1px solid var(--border, rgba(255,255,255,0.06));
+          border-radius: 8px;
+          padding: 10px 12px;
         }
       `}</style>
     </div>

@@ -171,6 +171,14 @@ describe('Contributor dashboard (#615 restructure)', () => {
     expect(list?.className).toMatch(/ps-contributor-report-list/);
   });
 
+  it('announces filtered report counts and keeps report rows non-focusable until a detail action exists', async () => {
+    const { container } = renderContributor();
+    await screen.findByText('Wildfire', { selector: 'span.ps-contributor-report-title' });
+
+    expect(screen.getByText('Showing 1 of 1 reports on this page')).toHaveAttribute('aria-live', 'polite');
+    expect(container.querySelector('[data-testid="contributor-report-row"]')).not.toHaveAttribute('tabindex');
+  });
+
   it('renders the compact nearby-activity map reusing the landing PublicFireMap component', async () => {
     renderContributor();
     await waitFor(() => expect(screen.getByText('Nearby activity')).toBeTruthy());

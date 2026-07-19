@@ -9,14 +9,15 @@ import { saveManualPerimeter, type PerimeterGeometry, type PerimeterResponse } f
 type Vertex = { lat: number; lng: number };
 
 type Incident = {
-  id: number;
-  description: string;
-  latitude: number;
-  longitude: number;
-  province: string;
-  region: string;
+  id?: number | null;
+  description?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  province?: string | null;
+  region?: string | null;
 };
 
+const PHILIPPINES_CENTER: [number, number] = [14.5995, 120.9842];
 const SNAP_DISTANCE_PX = 14;
 const EARTH_RADIUS_METERS = 6_371_008.8;
 
@@ -70,10 +71,11 @@ function DrawInteraction({ vertices, closed, onAddVertex, onClose }: {
   return null;
 }
 
-export default function PerimeterDrawInner({ incident, perimeter, onSaved }: {
-  incident: Incident;
+export default function PerimeterDrawInner({ incident, perimeter, onSaved, error }: {
+  incident: Incident | null;
   perimeter: PerimeterResponse | null;
   onSaved: (perimeter: PerimeterResponse) => void;
+  error?: string | null;
 }) {
   const [vertices, setVertices] = useState<Vertex[]>(() => toVertices(perimeter?.geometry ?? null));
   const [closed, setClosed] = useState(Boolean(perimeter));
@@ -81,13 +83,17 @@ export default function PerimeterDrawInner({ incident, perimeter, onSaved }: {
   const [message, setMessage] = useState<string | null>(null);
 
   const previewHectares = useMemo(() => areaHectares(vertices), [vertices]);
+  const hasIncident = incident?.id != null;
+  const baseLatitude = incident?.latitude ?? PHILIPPINES_CENTER[0];
+  const baseLongitude = incident?.longitude ?? PHILIPPINES_CENTER[1];
+  const baseCenter = useMemo<[number, number]>(() => [baseLatitude, baseLongitude], [baseLatitude, baseLongitude]);
   const centroid = useMemo<[number, number]>(() => {
-    if (vertices.length === 0) return [incident.latitude, incident.longitude];
+    if (vertices.length === 0) return baseCenter;
     return [
       vertices.reduce((sum, vertex) => sum + vertex.lat, 0) / vertices.length,
       vertices.reduce((sum, vertex) => sum + vertex.lng, 0) / vertices.length,
     ];
-  }, [incident.latitude, incident.longitude, vertices]);
+  }, [baseCenter, vertices]);
   const canClose = vertices.length >= 3 && !closed;
   const geometry = closed ? geometryFor(vertices) : null;
   const authoritativeAcres = perimeter?.gis_acres;
@@ -122,7 +128,7 @@ export default function PerimeterDrawInner({ incident, perimeter, onSaved }: {
   }, [undo]);
 
   async function persist() {
-    if (!geometry) return;
+    if (!geometry || !hasIncident || incident.id == null) return;
     setSaving(true);
     setMessage(null);
     try {
@@ -143,7 +149,7 @@ export default function PerimeterDrawInner({ incident, perimeter, onSaved }: {
           <div className="flex items-center gap-2 text-xs font-semibold text-slate-700"><Crosshair className="h-4 w-4 text-[#991B1B]" />{closed ? 'Perimeter closed — review before saving' : 'Click map to place perimeter vertices'}</div>
           <p className="mt-1 text-[11px] leading-4 text-slate-500">Click the amber first vertex to close. Existing vertices snap within {SNAP_DISTANCE_PX}px.</p>
         </div>
-        <MapContainer key={incident.id} center={[incident.latitude, incident.longitude]} zoom={14} style={{ height: '100%', minHeight: '420px', width: '100%' }} zoomControl={false}>
+        <MapContainer key={hasIncident ? `incident-${incident.id}` : 'standalone'} center={baseCenter} zoom={14} style={{ height: '100%', minHeight: '420px', width: '100%' }} zoomControl={false}>
           <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
           <ZoomControl position="topright" />
           <DrawInteraction vertices={vertices} closed={closed} onAddVertex={addVertex} onClose={closePolygon} />
@@ -157,11 +163,11 @@ export default function PerimeterDrawInner({ incident, perimeter, onSaved }: {
       </section>
 
       <aside className="flex w-full shrink-0 flex-col overflow-y-auto bg-white lg:w-[23rem]">
-        <div className="border-b border-slate-200 px-5 py-4"><div className="flex items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Manual perimeter</p><h2 className="mt-1 text-base font-bold text-slate-800">Incident #{incident.id}</h2><p className="mt-1 text-xs text-slate-500">{incident.description} · {incident.province}, {incident.region}</p></div><span className={`rounded-full px-2 py-1 text-[11px] font-bold ${closed ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>{closed ? 'CLOSED' : 'DRAWING'}</span></div></div>
+        <div className="border-b border-slate-200 px-5 py-4"><div className="flex items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Manual perimeter</p>{hasIncident ? (<><h2 className="mt-1 text-base font-bold text-slate-800">Incident #{incident.id}</h2><p className="mt-1 text-xs text-slate-500">{incident.description ?? ''}{incident.province || incident.region ? ` · ${incident.province ?? ''}${incident.province && incident.region ? ', ' : ''}${incident.region ?? ''}` : ''}</p></>) : (<><h2 className="mt-1 text-base font-bold text-slate-800">Unsaved draft</h2><p className="mt-1 text-xs text-slate-500">Load a verified incident to associate and save this perimeter.</p></>)}</div><span className={`rounded-full px-2 py-1 text-[11px] font-bold ${closed ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>{closed ? 'CLOSED' : 'DRAWING'}</span></div></div>
         <div className="grid grid-cols-2 border-b border-slate-200"><div className="border-r border-slate-200 px-5 py-4"><p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Area {authoritativeAcres != null ? 'authoritative' : 'preview'}</p><p className="mt-1 text-2xl font-bold text-slate-800">{authoritativeAcres != null ? (authoritativeAcres / 2.47105).toFixed(2) : previewHectares.toFixed(2)}</p><p className="text-xs text-slate-500">hectares{authoritativeAcres != null ? ' · PostGIS' : ''}</p></div><div className="px-5 py-4"><p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Vertices</p><p className="mt-1 text-2xl font-bold text-slate-800">{vertices.length}</p><p className="text-xs text-slate-500">points</p></div></div>
-        <div className="flex items-center gap-2 border-b border-slate-200 px-5 py-3 text-xs text-slate-600"><MapPin className="h-4 w-4 shrink-0 text-[#991B1B]" /><span><span className="font-semibold text-slate-800">{incident.province}</span>, {incident.region} · {centroid[0].toFixed(4)}, {centroid[1].toFixed(4)}</span></div>
+        <div className="flex items-center gap-2 border-b border-slate-200 px-5 py-3 text-xs text-slate-600"><MapPin className="h-4 w-4 shrink-0 text-[#991B1B]" /><span>{hasIncident && (incident.province || incident.region) ? (<><span className="font-semibold text-slate-800">{incident.province ?? ''}</span>{incident.region ? `, ${incident.region}` : ''} · </>) : null}{centroid[0].toFixed(4)}, {centroid[1].toFixed(4)}</span></div>
         <div className="space-y-3 border-b border-slate-200 p-5"><button type="button" onClick={closePolygon} disabled={!canClose} className="flex w-full items-center justify-center gap-2 rounded-md bg-[#991B1B] px-3 py-2.5 text-sm font-semibold text-white hover:bg-[#7f1d1d] disabled:cursor-not-allowed disabled:bg-slate-300"><Check className="h-4 w-4" />Close polygon</button><div className="grid grid-cols-2 gap-2"><button type="button" onClick={undo} disabled={vertices.length === 0} className="inline-flex items-center justify-center gap-1.5 rounded-md border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 disabled:cursor-not-allowed disabled:text-slate-400"><Undo2 className="h-3.5 w-3.5" />Undo</button><button type="button" onClick={clear} disabled={vertices.length === 0} className="inline-flex items-center justify-center gap-1.5 rounded-md border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 disabled:cursor-not-allowed disabled:text-slate-400"><Eraser className="h-3.5 w-3.5" />Clear</button></div><p className="text-[11px] leading-4 text-slate-500">Ctrl/Cmd + Z removes the latest vertex. Preview area is not persisted.</p></div>
-        <div className="space-y-3 p-5"><div><h3 className="text-sm font-bold text-slate-800">GeoJSON inspection</h3><p className="mt-0.5 text-xs text-slate-500">The saved feature is validated and measured by PostGIS.</p></div>{geometry ? <pre className="max-h-52 overflow-auto rounded-md border border-slate-200 bg-slate-100 p-3 text-[11px] leading-4 text-slate-800">{JSON.stringify({ type: 'Feature', geometry, properties: { map_method: 'MANUAL_DRAW' } }, null, 2)}</pre> : <div className="rounded-md border border-dashed border-slate-300 bg-slate-50 px-3 py-4 text-center text-xs text-slate-500">Close a polygon to inspect its GeoJSON Feature.</div>}<button type="button" onClick={() => void persist()} disabled={!geometry || saving} className="flex w-full items-center justify-center gap-2 rounded-md bg-[#991B1B] px-3 py-2.5 text-sm font-semibold text-white hover:bg-[#7f1d1d] disabled:cursor-not-allowed disabled:bg-slate-300"><Save className="h-4 w-4" />{saving ? 'Saving...' : perimeter ? 'Update perimeter' : 'Save perimeter'}</button>{message && <p className={`rounded-md border px-3 py-2 text-xs ${message.startsWith('Perimeter saved') ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-red-200 bg-red-50 text-red-700'}`} role="status">{message}</p>}</div>
+        <div className="space-y-3 p-5"><div><h3 className="text-sm font-bold text-slate-800">GeoJSON inspection</h3><p className="mt-0.5 text-xs text-slate-500">The saved feature is validated and measured by PostGIS.</p></div>{geometry ? <pre className="max-h-52 overflow-auto rounded-md border border-slate-200 bg-slate-100 p-3 text-[11px] leading-4 text-slate-800">{JSON.stringify({ type: 'Feature', geometry, properties: { map_method: 'MANUAL_DRAW' } }, null, 2)}</pre> : <div className="rounded-md border border-dashed border-slate-300 bg-slate-50 px-3 py-4 text-center text-xs text-slate-500">Close a polygon to inspect its GeoJSON Feature.</div>}<button type="button" onClick={() => void persist()} disabled={!geometry || saving || !hasIncident} className="flex w-full items-center justify-center gap-2 rounded-md bg-[#991B1B] px-3 py-2.5 text-sm font-semibold text-white hover:bg-[#7f1d1d] disabled:cursor-not-allowed disabled:bg-slate-300"><Save className="h-4 w-4" />{saving ? 'Saving...' : perimeter ? 'Update perimeter' : 'Save perimeter'}</button>{!hasIncident && geometry && <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800" role="status">Load a verified incident above, then click Save perimeter to persist this drawing.</p>}{message && <p className={`rounded-md border px-3 py-2 text-xs ${message.startsWith('Perimeter saved') ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-red-200 bg-red-50 text-red-700'}`} role="status">{message}</p>}{error && <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700" role="alert">{error}</p>}</div>
       </aside>
     </div>
   );

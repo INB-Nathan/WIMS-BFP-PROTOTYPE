@@ -20,7 +20,7 @@ export interface ConfirmActionDialogProps {
 
 /**
  * Two-step confirmation dialog used before destructive triage actions
- * (REJECTED_*, merge, split, correction). Shows the impact, then waits for
+ * (REJECTED_*, merge, split). Shows the impact, then waits for
  * a deliberate confirm. Escape cancels.
  */
 export function ConfirmActionDialog({

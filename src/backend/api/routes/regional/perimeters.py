@@ -21,9 +21,11 @@ from schemas.regional import (
     LinkReportsRequest,
     LinkReportsResponse,
     PerimeterCreateRequest,
+    PerimeterIncidentOption,
     PerimeterResponse,
     PerimeterUpdateRequest,
 )
+from services.information_emergencies import ensure_incident_emergency_draft
 from services.regional_incidents import perimeters as perimeter_service
 from utils.audit import log_system_audit
 
@@ -88,6 +90,18 @@ def _marshal(row: dict, linked: list[dict]) -> PerimeterResponse:
         updated_at=row["updated_at"],
         linked_reports=linked,
     )
+
+
+@router.get(
+    "/perimeter-incidents",
+    response_model=list[PerimeterIncidentOption],
+)
+def list_perimeter_incidents(
+    user: Annotated[dict, Depends(_require_perimeter_editor)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
+):
+    """List mapped verified incidents backed by linked civilian reports."""
+    return perimeter_service.list_civilian_linked_verified_incidents(db)
 
 
 @router.post(
@@ -248,6 +262,12 @@ def link_reports(
             report_ids=body.report_ids,
             actor_user_id=user["user_id"],
         )
+        ensure_incident_emergency_draft(
+            db,
+            incident_id=incident_id,
+            actor_user_id=str(user["user_id"]),
+            require_civilian_link=True,
+        )
     except LookupError as e:
         db.rollback()
         missing = e.args[0]
@@ -255,6 +275,9 @@ def link_reports(
             status_code=404,
             detail=f"Report(s) not found: {missing}",
         ) from None
+    except Exception:
+        db.rollback()
+        raise
 
     db.commit()
     log_system_audit(

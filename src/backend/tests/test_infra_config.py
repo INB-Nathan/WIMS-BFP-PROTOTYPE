@@ -288,3 +288,19 @@ def test_nginx_referrer_policy_production() -> None:
 
     # CI config was intentionally not changed — retains no-referrer.
     assert "add_header Referrer-Policy no-referrer always;" in ci_config
+
+
+@pytest.mark.skipif(_IN_DOCKER, reason="compose/config files not mounted in Docker container")
+def test_backend_receives_device_token_signing_key_from_compose() -> None:
+    compose = _load_compose()
+    backend_env = _service_env(compose, "backend")
+
+    assert backend_env.get("DEVICE_TOKEN_SIGNING_KEY") == "${DEVICE_TOKEN_SIGNING_KEY:-}"
+    assert backend_env.get("DEVICE_TOKEN_SIGNING_KEY_V2") == "${DEVICE_TOKEN_SIGNING_KEY_V2:-}"
+    assert (
+        backend_env.get("DEVICE_TOKEN_SIGNING_KEY_ACTIVE_VERSION")
+        == "${DEVICE_TOKEN_SIGNING_KEY_ACTIVE_VERSION:-1}"
+    )
+
+    production_env_example = (_repo_root() / ".env.production.example").read_text(encoding="utf-8")
+    assert "DEVICE_TOKEN_SIGNING_KEY=" in production_env_example

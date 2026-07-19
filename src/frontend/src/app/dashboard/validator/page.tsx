@@ -171,9 +171,7 @@ export default function ValidatorDashboard() {
   const [validatorDupConfidence, setValidatorDupConfidence] = useState<'LIKELY' | 'POSSIBLE' | null>(null);
   // Runtime-detected duplicates: populated when Accept returns 409. Maps incident_id → matched_incident_id.
   const [runtimeDuplicates, setRuntimeDuplicates] = useState<Map<number, number>>(new Map());
-  const [newIncidentBanner, setNewIncidentBanner] = useState(false);
   const [confirmAcceptTarget, setConfirmAcceptTarget] = useState<ValidatorIncident | null>(null);
-  const lastKnownTotal = useRef<number | null>(null);
   const statsInitialMountRef = useRef(true);
 
   const updateFiltersWithoutScrollShift = useScrollSafeUpdate();
@@ -447,8 +445,6 @@ export default function ValidatorDashboard() {
       );
       setIncidents(result.response.items);
       setTotal(result.response.total);
-      lastKnownTotal.current = result.response.total;
-      setNewIncidentBanner(false);
       setRuntimeDuplicates(new Map());
       if (result.fromCache) {
         setCacheMeta({ cachedAt: result.cachedAt });
@@ -477,18 +473,6 @@ export default function ValidatorDashboard() {
       .then((r) => setStats(r.response))
       .catch(() => { /* non-critical */ });
   }, [statsDateBounds]);
-
-  useEffect(() => {
-    const checkForNewIncidents = async () => {
-      try {
-        const data: QueueResponse = await apiFetch(`/regional/validator/incidents?limit=1&offset=0`);
-        if (lastKnownTotal.current !== null && data.total > lastKnownTotal.current) setNewIncidentBanner(true);
-        lastKnownTotal.current = data.total;
-      } catch { /* non-critical */ }
-    };
-    const intervalId = setInterval(checkForNewIncidents, 10_000);
-    return () => clearInterval(intervalId);
-  }, []);
 
   // Listen for wims:sync-complete events dispatched by useAutoSync after a
   // successful reconnect sync. Refreshes the queue and pending-ops badge.
@@ -649,24 +633,6 @@ export default function ValidatorDashboard() {
   return (
     <div className="space-y-6 pb-8" style={{ backgroundColor: 'var(--content-bg)' }}>
       <AutoRefreshToast pending={autoRefreshPending} refreshing={autoRefreshing} justRefreshed={autoRefreshDone} />
-
-      {/* ── Sticky notification toast (visible while scrolling) ── */}
-      {newIncidentBanner && (
-        <StickyBanner
-          tone="blue"
-          action={
-            <button
-              onClick={fetchQueue}
-              className="ml-4 rounded-lg px-3 py-1.5 text-xs font-semibold text-white"
-              style={{ backgroundColor: '#1D4ED8' }}
-            >
-              Refresh now
-            </button>
-          }
-        >
-          New incidents have been submitted. Refresh to see the latest queue.
-        </StickyBanner>
-      )}
 
       {syncNotification && (
         <StickyBanner

@@ -715,4 +715,15 @@ def submit_incident_for_review(
         encoder_id,
         incident_id,
     )
+
+    # Publish real-time SSE event — drives the validator dashboard's
+    # auto-refresh + new-incident toast (encoder submissions only).
+    publish_incident_event_sync(
+        "incident.pending",
+        incident_id=incident_id,
+        status="PENDING",
+        actor_id=str(encoder_id),
+        actor_role="REGIONAL_ENCODER",
+    )
+
     return result

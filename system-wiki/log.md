@@ -4,6 +4,38 @@
 - **Safety:** `install` requires the externally-provisioned secrets to be exported (it refuses to proceed with placeholders); secrets are never committed (`.env.production` is gitignored). `deploy` reuses the CI/CD git-reset + compose-up path (gotcha #18) and must not run while a GitHub Actions deploy is in progress.
 - **Repo:** Worktree `ops-vps-install-runner`, branch `ops/vps-install-runner`. No FRS/code gap changed.
 
+## [2026-07-19] refactor(triage): widen report evidence and remove correction action
+
+- **UX:** Moved the selected cluster/report evidence table out of the narrow investigation board into a separate full-width container below the map workspace, preserving report-row selection while exposing more columns at once.
+- **Modal:** Removed the Correct tab, correction form, terminal-row Correct buttons, and correction shortcut. Remaining tab shortcuts are now sequential: Terminal `1`, Split `2`, Merge `3`, Activity `4`, Send Update `5`.
+- **Wiki:** Updated [[frontend/route-map]], [[frontend/components-deep]], [[frontend/validator-triage-shortcuts]], and [[index]]. No API, schema, security boundary, or FRS/code gap changed.
+
+## [2026-07-19] feat(validator): select perimeter incidents from civilian-report evidence
+
+- **Scope:** `/dashboard/validator/perimeter-draw` replaces manual verified-incident ID entry with a native dropdown. The new `GET /api/regional/perimeter-incidents` contract returns only mapped, active VERIFIED incidents backed by eligible non-rejected civilian reports and supplies PII-free reference/category, location, incident date, report count, and latest report-application time for the selector and selected summary.
+- **Security:** The endpoint retains NATIONAL_VALIDATOR/SYSTEM_ADMIN server authorization and an RLS-scoped application session; detail loading, verified/mapped checks, PostGIS geometry validation, and server-side perimeter persistence remain authoritative.
+- **Tests:** Added backend route/service contract and role-denial coverage plus frontend API/dropdown/context/clear-selection coverage. No FRS/code gap changed.
+- **Wiki:** Updated [[backend/api-route-map]], [[frontend/route-map]], and [[index]].
+
+## [2026-07-19] fix(information): include published manual emergency updates in the public feed
+
+- **Scope:** `GET /api/information/emergencies` now returns every published System Admin emergency update. It retains the verified-incident predicate only on the optional geometry join, so linked VERIFIED incidents still provide coordinates/perimeters while manual and unverified-linked cards are public without geometry. This restores the Information Management promise that published emergency updates reach the civilian feed.
+- **Validation:** `tests/test_information_public.py` covers a published manual emergency with no source incident and asserts the optional join/no civilian-link restriction.
+- **Wiki:** Updated [[backend/api-route-map]] and [[index]]. No FRS/code gap changed.
+
+## [2026-07-19] fix(security): repair persistent device-blocklist production contract
+
+- **Scope:** Alembic `0027` creates the `wims.device_blocklist` table, indexes, forced SYSTEM_ADMIN RLS policy, and repeat-offender threshold configuration on existing deployments, closing the bootstrap-only schema gap that made the blocked-device list fail. Production Compose now passes the device-token signing-key configuration to the backend; the committed production environment example documents the required secret without providing a fallback or value.
+- **UX:** Every security-monitoring row renders Block Device. It is enabled only for a row with a correlated device-token hash; otherwise it is disabled with an accessible explanation while source-IP blocking remains available. Historical alerts remain uncorrelated and are not backfilled.
+- **Wiki:** Updated [[database/schema-overview]], [[security/security-baseline]], [[backend/api-route-map]], [[frontend/route-map]], and [[index]]. No FRS/code gap changed.
+
+## [2026-07-19] feat(public-incidents): add dedicated public incident listing and refine contributor reports
+
+- **Scope:** `/incidents` is now a public route and formal, filterable “All active fires” list rather than redirecting visitors to a staff dashboard. Its landing-sidebar label, public navigation link, and page copy identify these as the active-fire updates shown on the map. The shared navigation gives desktop users a compact active-route pill and gives mobile users a second, horizontally scrollable navigation row. It reuses the existing unauthenticated `GET /api/information/emergencies` client/hook and shared public-surface list, filter, status, loading, empty, error, retry, and responsive styling. Its data scope remains published emergency updates only; it does not expose internal incidents or alter the backend contract.
+- **Contributor UX:** `/contributor` now announces the current client-side filter result count, provides a clear recovery action for an empty filtered result, and removes focusability from non-actionable report rows. Its existing private API, authorization, pagination, map, and two-card summary remain unchanged.
+- **Tests:** Focused incident and contributor page tests pass (14 of 14); frontend lint reports 0 errors and 35 pre-existing warnings.
+- **Wiki:** Updated [[frontend/route-map]] and [[index]]. No FRS/code gap changed.
+
 ## [2026-07-18] fix(infra): repair OSRM deployment contract
 
 - **Scope:** Production serving and Metro Manila dataset preprocessing now use the available, pinned `osrm/osrm-backend:v5.25.0` image instead of unavailable `v5.27.1`. Compose mounts the external version-directory parent and resolves `/data/active`, preserving atomic dataset switches without Docker replacing the active symlink with an empty directory or deployment's `git clean -fd` touching generated map data. The provisioning script recovers an empty stale active directory but rejects a non-empty one.
@@ -765,3 +797,9 @@ Removed the AI incident narrative feature (PR #104 / #69) — backend-only featu
 - **Compose validation:** `docker compose ... -f docker-compose.yml -f docker-compose.ci.yml config --quiet` and `OSRM_DATA_DIR=/tmp/osrm-contract-data docker compose ... -f docker-compose.yml -f docker-compose.prod.yml config --quiet` both succeed.
 - **Wiki:** New `docs/operations/osrm-routing.md`; updated [[architecture/infrastructure-config]], [[security/security-baseline]], [[frontend/route-map]], [[gaps/frs-codebase-gap-register]] (marked #552 partial), and `system-wiki/index.md`.
 - **Live verification:** end-to-end road routing on production data remains pending an authorized dataset provisioning and VPS run; treated as partially closed until `docs/operations/osrm-routing.md` is executed against provisioned data.
+
+## [2026-07-19] fix(auth): preserve the public Keycloak issuer for production refreshes
+
+- **Scope:** Production frontend `AUTH_SERVER_URL` now resolves through `${PUBLIC_BASE_URL}/auth` rather than the internal `http://nginx-gateway/auth` hostname. Keycloak rejected refresh tokens issued for the public issuer when the server-side refresh call used the internal hostname, and the frontend then cleared both auth cookies.
+- **Evidence:** `src/docker-compose.prod.yml`, `src/frontend/src/app/api/auth/refresh/route.ts`, the focused route/compose contract tests, and production Keycloak `REFRESH_TOKEN_ERROR` logs observed during the 2026-07-19 diagnosis.
+- **Validation:** `src/frontend/src/app/api/auth/refresh/route.test.ts` and `src/backend/tests/test_frontend_auth_production_config.py`; production Compose configuration parses with the committed example environment. No FRS/code gap changed.

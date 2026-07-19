@@ -783,27 +783,6 @@
 .triage-card__trust strong { color: #1F2937; font-weight: 700; }
 .triage-card__time { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 0.65rem; }
 
-.triage-card__correct {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  padding: 0.3rem 0.6rem;
-  background: #FFFFFF;
-  border: 1px solid #D1D5DB;
-  border-radius: 5px;
-  color: #374151;
-  font-size: 0.72rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease;
-}
-
-.triage-card__correct:hover {
-  background: #F3F4F6;
-  border-color: #991B1B;
-  color: #991B1B;
-}
-
 /* -------------------------------------------------------------------------
    ACTION PANELS (right rail)
    ------------------------------------------------------------------------- */

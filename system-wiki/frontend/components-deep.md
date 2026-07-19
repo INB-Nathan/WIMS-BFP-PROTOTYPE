@@ -108,6 +108,12 @@ status: draft
 
 `src/frontend/src/components/WildlandAforManualForm.tsx` has been removed. Wildland remains available as a standard incident category/sub-category in `IncidentForm.tsx`, but there is no separate wildland AFOR manual/import-correction workflow.
 
+## Triage Queue Workspace Components
+
+### `TriageInvestigationBoard.tsx`
+
+**Purpose:** Shows the selected cluster/report summary, claim/inspect controls, and ranked queue. The exported `TriageEvidenceTable` renders the selected item's detailed report columns in its own full-width page container below the map and board, preserving row selection without constraining the table to the narrow board.
+
 ## Triage Inspection Components
 
 Lives under `src/frontend/src/components/triage/`. Imported as `import { TriageInspectionModal } from '@/components/triage';` and styled by `triage-modal.css` (imported once at `incidents/triage/page.tsx`). Aesthetic direction: operations console — BFP maroon dominant, deep slate chrome, bone-cream `#FAF7F2` surface, Bricolage Grotesque display, JetBrains Mono for IDs/timestamps.
@@ -115,9 +121,9 @@ Lives under `src/frontend/src/components/triage/`. Imported as `import { TriageI
 ### `TriageInspectionModal.tsx`
 
 **Props:** `{ openCluster: TriageClusterEntry | null; inspectionMode: 'cluster' | 'singleton'; onClose: () => void; onReloadQueue: () => Promise<void> | void; onMessage: (msg: string) => void; onError: (err: string) => void; role: string | null }`
-**Purpose:** Main shell for the triage inspection modal. Owns the three-column grid (180px left rail / flexible center / 380px right rail) and orchestrates the two-step destructive confirm.
-**Renders:** Backdrop (click-to-close) + sticky dark-maroon header + grid body + `<ConfirmActionDialog>` overlay. Body scroll is locked while open; `body.style.overflow` is restored on close.
-**Keyboard:** `Esc` closes the modal; `1`–`5` switch action tabs (cluster-only for `3` Split and `4` Merge); shortcuts suppressed inside `INPUT`/`TEXTAREA`/`SELECT`. **No commit shortcuts** — terminal/correction/split/merge must be committed by clicking the panel commit button, per `frontend/validator-triage-shortcuts`.
+**Purpose:** Main shell for the triage inspection modal. Owns the three-column spatial / report-card / action layout and orchestrates two-step destructive confirms.
+**Renders:** Backdrop (click-to-close) + sticky dark-maroon header + grid body + `<ConfirmActionDialog>` overlay. Body scroll is locked while open; `body.style.overflow` is restored on close. The modal no longer exposes report correction; the queue page's detailed report-evidence table is a separate full-width container below the map and investigation board.
+**Keyboard:** `Esc` closes the modal; `1`–`5` switch Terminal / Split / Merge / Activity / Send Update (Split and Merge are cluster-only); shortcuts are suppressed inside `INPUT`/`TEXTAREA`/`SELECT`. **No commit shortcuts** — actions must be committed by clicking the panel commit button, per `frontend/validator-triage-shortcuts`.
 **State:** Delegated entirely to `useTriageModalState`. Local state is only `pending: PendingConfirm | null` for the destructive confirm.
 
 ### `ClusterSummaryHeader.tsx`
@@ -128,25 +134,20 @@ Lives under `src/frontend/src/components/triage/`. Imported as `import { TriageI
 
 ### `TriageActionTabs.tsx`
 
-**Props:** `{ tab, setTab, inspectionMode, selectedCount, totalCount, correctionReportId, mergeCandidateCount }`
-**Purpose:** Left-rail vertical tab nav with single-key shortcuts `1`–`5`. Cluster-only tabs (Split, Merge) are hidden in singleton mode. Each tab shows a count badge (selected count for Split, candidate count for Merge, target report id for Correct) and a single-key kbd.
+**Props:** `{ tab, setTab, inspectionMode, selectedCount, mergeCandidateCount, canSendStatusUpdate }`
+**Purpose:** Left-rail vertical tab nav with single-key shortcuts `1`–`5`. Cluster-only tabs (Split, Merge) are hidden in singleton mode, and Send Update is capability-gated. Split and Merge show selection/candidate count badges.
 **Renders:** Stacked `<button>` with maroon stripe + icon + label + badge + kbd. Active tab gets the maroon stripe + inverted kbd + white background + subtle shadow.
 
 ### `ReportsListPanel.tsx`
 
-**Props:** `{ cluster, inspectionMode, selected, onToggle, onStartCorrection, suggestedReportIds }`
-**Purpose:** Center panel. One report per card (not a table row) so the operator can scan a single report at a time. Trust score, GPS-mismatch / duplicate-device warnings, follow-ups, status pill, "Correct" button on terminal rows, heavy maroon left border on selected cards.
+**Props:** `{ cluster, inspectionMode, selected, onToggle, suggestedReportIds }`
+**Purpose:** Center panel. One report per card (not a table row) so the operator can scan a single report at a time. Trust score, GPS-mismatch / duplicate-device warnings, follow-ups, status pill, and a heavy maroon left border on selected cards.
 **Renders:** In cluster mode, renders `<ClusterInspectionMap>` above the list. In singleton mode, renders a lat/lon/station metadata strip. Uses `stripHtml()` on description and follow-up text so XSS-tagged mock data never reaches the DOM as markup.
 
 ### `TerminalActionPanel.tsx`
 
 **Props:** `{ cluster, selected, terminalStatus, setTerminalStatus, explanation, setExplanation, internalNote, setInternalNote, onApply, busy }`
 **Purpose:** Terminal action form. Status radio-cards (standard / caution / destructive tones), required citizen-visible explanation textarea (with char counter), optional internal note, "Why this status?" disclosure, `<CitizenMessagePreview>` phone-card mock, commit button. Standard `ACTIONED` commits without confirm; `REJECTED_*` open the destructive confirm.
-
-### `CorrectionActionPanel.tsx`
-
-**Props:** `{ correctionReportId, terminalStatus, setTerminalStatus, explanation, setExplanation, correctionReason, setCorrectionReason, onApply, busy }`
-**Purpose:** Correction form. Target-report slot (filled by clicking "Correct" on a terminal row, which auto-switches the tab via the `startCorrection` helper), replacement status + explanation, required audit reason (visually distinguished as audit-only with a maroon left border), phone-card preview, commit button.
 
 ### `SplitActionPanel.tsx`
 
@@ -171,12 +172,12 @@ Lives under `src/frontend/src/components/triage/`. Imported as `import { TriageI
 ### `ConfirmActionDialog.tsx`
 
 **Props:** `{ open, title, body, confirmLabel, confirmTone, busy, onConfirm, onCancel, preview }`
-**Purpose:** Two-step confirmation for any `REJECTED_*` terminal action, every correction, every split, every merge. Shows the impact summary + the citizen-visible message (for terminal) or the source/target or leaving/staying preview (for split/merge).
+**Purpose:** Two-step confirmation for any `REJECTED_*` terminal action, every split, and every merge. Shows the impact summary + the citizen-visible message (for terminal) or the source/target or leaving/staying preview (for split/merge).
 **Keyboard:** `Esc` cancels only the confirm (capture-phase listener wins the race against the parent modal's `Esc` handler), leaving the parent modal open.
 
 ### `useTriageModalState.ts`
 
-Hook that owns all form state for the inspection modal. Returns the full state object (`tab`, `selected`, `terminalStatus`, `explanation`, `internalNote`, `correctionReportId`, `correctionReason`, `splitNote`, `mergeSourceClusterId`, `mergeNote`, `mergeCandidates`, `activity`, plus the four `apply*` functions and `claimCluster`). Single source of truth for pre-select-on-open, tab auto-switch on correction-target click, and singleton-mode tab filtering.
+Hook that owns all form state for the inspection modal. Returns the tab, selected reports, terminal/split/merge/update forms, merge candidates, activity, action handlers, and claim handler. It is the single source of truth for pre-select-on-open and singleton-mode tab filtering.
 
 ### `triage-modal.css`
 

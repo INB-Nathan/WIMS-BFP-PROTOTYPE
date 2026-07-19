@@ -115,8 +115,9 @@ describe('PublicHeader', () => {
       render(<PublicHeader />);
       expect(screen.getByRole('link', { name: 'WIMS-BFP home' })).toHaveAttribute('href', '/');
       expect(screen.getByRole('link', { name: 'Home' })).toHaveAttribute('href', '/');
+      expect(screen.getByRole('link', { name: 'Active fires' })).toHaveAttribute('href', '/incidents');
       expect(screen.getByRole('link', { name: 'Information' })).toHaveAttribute('href', '/information');
-      expect(screen.getByRole('link', { name: 'Fire Stations' })).toHaveAttribute('href', '/fire-stations');
+      expect(screen.getByRole('link', { name: 'Fire stations' })).toHaveAttribute('href', '/fire-stations');
       expect(screen.getByTestId('header-register')).toHaveAttribute('href', '/register');
       expect(screen.getByTestId('header-signin')).toHaveAttribute('href', '/login');
       expect(screen.queryByTestId('header-report')).not.toBeInTheDocument();
@@ -151,14 +152,15 @@ describe('PublicHeader', () => {
       expect(screen.getByRole('banner')).toBeInTheDocument();
     });
 
-    it('renders nav links: Home, Dashboard, Information, Fire Stations', () => {
+    it('renders nav links: Home, Dashboard, Active fires, Information, Fire stations', () => {
       render(<PublicHeader />);
       const nav = screen.getByRole('navigation', { name: 'Primary navigation' });
       expect(nav).toBeInTheDocument();
       expect(screen.getByText('Home')).toHaveAttribute('href', '/');
       expect(screen.getByText('Dashboard')).toHaveAttribute('href', '/contributor');
+      expect(screen.getByText('Active fires')).toHaveAttribute('href', '/incidents');
       expect(screen.getByText('Information')).toHaveAttribute('href', '/information');
-      expect(screen.getByText('Fire Stations')).toHaveAttribute('href', '/fire-stations');
+      expect(screen.getByText('Fire stations')).toHaveAttribute('href', '/fire-stations');
     });
 
     it('renders profile avatar with aria-label = email or username', () => {

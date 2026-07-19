@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import type {
@@ -273,6 +273,8 @@ describe('TriagePage', () => {
 
     expect(await screen.findByTestId('triage-canvas-map')).toBeInTheDocument();
     expect(screen.getByTestId('triage-investigation-board')).toBeInTheDocument();
+    expect(screen.getByTestId('triage-evidence-table')).toBeInTheDocument();
+    expect(screen.getByTestId('triage-investigation-board')).not.toContainElement(screen.getByTestId('triage-evidence-table'));
     expect(screen.queryByTestId('clusters-table')).not.toBeInTheDocument();
     expect(screen.queryByTestId('singletons-table')).not.toBeInTheDocument();
   });
@@ -499,20 +501,12 @@ describe('TriagePage', () => {
     expect(screen.getByText('Citizen message preview')).toBeInTheDocument();
   });
 
-  it('switches to the Correct tab and shows the no-target empty state', async () => {
+  it('does not offer the Correct action in the inspection modal', async () => {
     const { default: TriagePage } = await import('./page');
     render(<TriagePage />);
     await openCluster1Modal();
-    const correctTab = await screen.findByRole('button', { name: /Correct/ });
-    await userEvent.click(correctTab);
-    await waitFor(() => {
-      expect(screen.getByTestId('triage-panel-correct')).toBeInTheDocument();
-    });
-    // Scope query to the Correct panel to avoid matching TriageLegend text
-    const panel = screen.getByTestId('triage-panel-correct');
-    expect(within(panel).getByText(/Click/)).toBeInTheDocument();
-    // Commit button is disabled until a target report is selected
-    expect(screen.getByTestId('triage-commit-correct')).toBeDisabled();
+    expect(screen.queryByRole('button', { name: /Correct/ })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('triage-panel-correct')).not.toBeInTheDocument();
   });
 
   it('switches to the Split tab and shows leaving/staying preview', async () => {
@@ -569,10 +563,9 @@ describe('TriagePage', () => {
     await waitFor(() => {
       expect(screen.getByTestId('triage-action-tabs')).toBeInTheDocument();
     });
-    // Only Terminal, Correct, and Activity tabs are visible in singleton mode.
-    // The kbd shortcut makes the accessible name like "Terminal 1" / "Correct 2" / "Activity 5".
+    // Only Terminal, Activity, and role-allowed Send Update tabs are visible in singleton mode.
     expect(screen.getByRole('button', { name: /Terminal/ })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Correct/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Correct/ })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Activity/ })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^Split/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^Merge/ })).not.toBeInTheDocument();

@@ -832,10 +832,10 @@ async def block_security_log(
 ):
     """Block the device or source IP behind a security log row (Wayfinder #569).
 
-    ``type: "device"`` requires the row to carry a device_token_hash — the
-    frontend only offers this choice when one is present (issue #571); a
-    missing hash here means the caller ignored that and gets a 400, not a
-    silent fallback to IP blocking (design spec §8.2).
+    ``type: "device"`` requires the row to carry a device_token_hash. The
+    frontend exposes an unavailable device action when no correlation exists;
+    the API independently rejects a missing hash with 400 rather than silently
+    falling back to IP blocking (design spec §8.2).
     ``type: "ip"`` blocks source_ip, same as the legacy block-source-ip route.
     """
     if body.type not in ("device", "ip"):
