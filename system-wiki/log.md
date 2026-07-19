@@ -1,3 +1,9 @@
+## [2026-07-19] ops(install): add self-contained VPS installer + maintenance script (run.sh)
+
+- **Scope:** New root `run.sh` is the single command for installation and maintenance of the WIMS-BFP stack on any VPS. `install` bootstraps a bare host (docker + compose plugin + git + certbot), clones the repo into `/opt/wims-bfp`, generates `src/.env.production` from the example (auto-deriving `KEYCLOAK_REALM_URL` and auto-generating `WIMS_MASTER_KEY`/`WIMS_KEYCLOAK_EVENT_SECRET`), issues the Let's Encrypt cert via standalone ACME, installs the certbot renewal cron, and runs the first deploy via `scripts/deploy-vps.sh`. Maintenance subcommands: `deploy`/`update`, `status`, `logs`, `restart` (nginx recreated to fix bind-mount staleness per gotcha #20), `stop`/`start`, `health`, `migrate` (alembic upgrade head), `backup` (pg_dump), `rollback`, `shell`, `env`.
+- **Safety:** `install` requires the externally-provisioned secrets to be exported (it refuses to proceed with placeholders); secrets are never committed (`.env.production` is gitignored). `deploy` reuses the CI/CD git-reset + compose-up path (gotcha #18) and must not run while a GitHub Actions deploy is in progress.
+- **Repo:** Worktree `ops-vps-install-runner`, branch `ops/vps-install-runner`. No FRS/code gap changed.
+
 ## [2026-07-18] fix(infra): repair OSRM deployment contract
 
 - **Scope:** Production serving and Metro Manila dataset preprocessing now use the available, pinned `osrm/osrm-backend:v5.25.0` image instead of unavailable `v5.27.1`. Compose mounts the external version-directory parent and resolves `/data/active`, preserving atomic dataset switches without Docker replacing the active symlink with an empty directory or deployment's `git clean -fd` touching generated map data. The provisioning script recovers an empty stale active directory but rejects a non-empty one.
