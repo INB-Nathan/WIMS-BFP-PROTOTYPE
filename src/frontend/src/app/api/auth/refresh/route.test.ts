@@ -27,6 +27,14 @@ describe('auth refresh route', () => {
     );
   });
 
+  it('preserves the canonical public issuer for server-side refreshes', () => {
+    process.env.AUTH_SERVER_URL = 'https://wimsbfp.tech/auth';
+
+    expect(getKeycloakTokenUrl()).toBe(
+      'https://wimsbfp.tech/auth/realms/bfp/protocol/openid-connect/token'
+    );
+  });
+
   it('does not build a server fetch URL from a relative public auth URL', () => {
     process.env.NEXT_PUBLIC_AUTH_API_URL = '/auth';
 
