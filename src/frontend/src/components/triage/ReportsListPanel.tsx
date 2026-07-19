@@ -1,6 +1,6 @@
 'use client';
 
-import { Check, Link2, MessageSquareWarning, RotateCcw, ShieldAlert, TriangleAlert } from 'lucide-react';
+import { Check, Link2, MessageSquareWarning, ShieldAlert, TriangleAlert } from 'lucide-react';
 import type { TriageClusterEntry, TriageReportEntry } from '@/lib/api';
 import { ClusterInspectionMap } from '@/components/ClusterInspectionMap';
 import { isTerminalStatus, stripHtml } from './useTriageModalState';
@@ -10,21 +10,19 @@ export interface ReportsListPanelProps {
   inspectionMode: 'cluster' | 'singleton';
   selected: Set<number>;
   onToggle: (reportId: number) => void;
-  onStartCorrection: (report: TriageReportEntry) => void;
   suggestedReportIds: number[];
 }
 
 /**
  * Center report list. Renders one card per report so the operator can scan
  * a single report at a time and see selection state, trust, signals, station,
- * and follow-ups at a glance. Terminal rows surface a Correct button inline.
+ * and follow-ups at a glance.
  */
 export function ReportsListPanel({
   cluster,
   inspectionMode,
   selected,
   onToggle,
-  onStartCorrection,
   suggestedReportIds,
 }: ReportsListPanelProps) {
   const first = cluster.reports[0];
@@ -58,7 +56,6 @@ export function ReportsListPanel({
             selected={selected.has(report.report_id)}
             terminal={isTerminalStatus(report.status)}
             onToggle={() => onToggle(report.report_id)}
-            onStartCorrection={() => onStartCorrection(report)}
           />
         ))}
       </ul>
@@ -71,10 +68,9 @@ interface ReportCardProps {
   selected: boolean;
   terminal: boolean;
   onToggle: () => void;
-  onStartCorrection: () => void;
 }
 
-function ReportCard({ report, selected, terminal, onToggle, onStartCorrection }: ReportCardProps) {
+function ReportCard({ report, selected, terminal, onToggle }: ReportCardProps) {
   const trust = report.trust_breakdown.score;
   const isSuspicious = report.trust_breakdown.gps_mismatch || report.trust_breakdown.duplicate_device_count_30m > 0;
 
@@ -172,16 +168,6 @@ function ReportCard({ report, selected, terminal, onToggle, onStartCorrection }:
             </span>
             <span className="triage-card__time">{new Date(report.created_at).toLocaleString()}</span>
           </div>
-          {terminal && (
-            <button
-              type="button"
-              onClick={onStartCorrection}
-              className="triage-card__correct"
-            >
-              <RotateCcw className="h-3.5 w-3.5" />
-              Correct
-            </button>
-          )}
         </div>
       </div>
     </li>

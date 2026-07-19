@@ -5,7 +5,6 @@ import {
   applyReportStatusUpdate,
   applyTriageTerminalAction,
   claimTriageCluster,
-  correctTriageReport,
   fetchMergeCandidates,
   fetchTriageClusterActivity,
   mergeTriageClusters,
@@ -15,7 +14,6 @@ import {
   type TerminalCitizenStatus,
   type TriageClusterActivityEntry,
   type TriageClusterEntry,
-  type TriageReportEntry,
 } from '@/lib/api';
 
 export const TERMINAL_OPTIONS: { value: TerminalCitizenStatus; label: string; template: string; hint: string; tone: 'standard' | 'caution' | 'destructive' }[] = [
@@ -70,7 +68,7 @@ export function stripHtml(input: string | null | undefined): string {
   return input.replace(/<[^>]*>/g, '');
 }
 
-export type TriageActionTab = 'terminal' | 'correct' | 'split' | 'merge' | 'activity' | 'update';
+export type TriageActionTab = 'terminal' | 'split' | 'merge' | 'activity' | 'update';
 
 export interface TriageModalCallbacks {
   onClose: () => void;
@@ -93,12 +91,6 @@ export interface TriageModalState {
   setExplanation: (s: string) => void;
   internalNote: string;
   setInternalNote: (s: string) => void;
-
-  // Correction form
-  correctionReportId: number | null;
-  startCorrection: (report: TriageReportEntry) => void;
-  correctionReason: string;
-  setCorrectionReason: (s: string) => void;
 
   // Split form
   splitNote: string;
@@ -135,7 +127,6 @@ export interface TriageModalState {
 
   // Action handlers
   applyTerminalAction: () => Promise<void>;
-  applyCorrection: () => Promise<void>;
   applySplit: () => Promise<void>;
   applyMerge: () => Promise<void>;
   applyStatusUpdate: () => Promise<void>;
@@ -157,8 +148,6 @@ export function useTriageModalState({ openCluster, inspectionMode, callbacks }: 
   const [terminalStatus, setTerminalStatus] = useState<TerminalCitizenStatus>('ACTIONED');
   const [explanation, setExplanation] = useState<string>(TERMINAL_OPTIONS[0].template);
   const [internalNote, setInternalNote] = useState('');
-  const [correctionReportId, setCorrectionReportId] = useState<number | null>(null);
-  const [correctionReason, setCorrectionReason] = useState('');
   const [splitNote, setSplitNote] = useState('');
   const [mergeSourceClusterId, setMergeSourceClusterId] = useState('');
   const [mergeNote, setMergeNote] = useState('');
@@ -184,8 +173,6 @@ export function useTriageModalState({ openCluster, inspectionMode, callbacks }: 
     setTerminalStatus('ACTIONED');
     setExplanation(TERMINAL_OPTIONS[0].template);
     setInternalNote('');
-    setCorrectionReportId(null);
-    setCorrectionReason('');
     setSplitNote('');
     setMergeSourceClusterId('');
     setMergeNote('');
@@ -211,17 +198,12 @@ export function useTriageModalState({ openCluster, inspectionMode, callbacks }: 
     }
   }, [openCluster, inspectionMode]);
 
-  // Singleton mode: only terminal/correct/activity tabs available
+  // Singleton mode hides cluster-only split and merge actions.
   useEffect(() => {
     if (inspectionMode === 'singleton' && (tab === 'split' || tab === 'merge')) {
       setTab('terminal');
     }
   }, [inspectionMode, tab]);
-
-  // Auto-switch to correct tab when a terminal report is selected for correction
-  useEffect(() => {
-    if (correctionReportId && tab !== 'correct') setTab('correct');
-  }, [correctionReportId, tab]);
 
   const toggleSelected = useCallback((reportId: number) => {
     setSelected((prev) => {
@@ -237,13 +219,6 @@ export function useTriageModalState({ openCluster, inspectionMode, callbacks }: 
     setMergeNote(
       `Suggested merge: cluster #${candidate.cluster_id} (${candidate.distance_m.toFixed(0)}m, ${candidate.minutes_apart.toFixed(0)}min ago, ${candidate.member_count} member(s), status=${candidate.status}).`,
     );
-  }, []);
-
-  const startCorrection = useCallback((report: TriageReportEntry) => {
-    setCorrectionReportId(report.report_id);
-    setExplanation(report.status_explanation ?? TERMINAL_OPTIONS[0].template);
-    setCorrectionReason('');
-    setTab('correct');
   }, []);
 
   const applyTerminalAction = useCallback(async () => {
@@ -270,32 +245,6 @@ export function useTriageModalState({ openCluster, inspectionMode, callbacks }: 
       setBusy(false);
     }
   }, [openCluster, selected, terminalStatus, explanation, internalNote, callbacks]);
-
-  const applyCorrection = useCallback(async () => {
-    if (!correctionReportId) {
-      callbacks.onError('Select a terminal report to correct.');
-      return;
-    }
-    if (!explanation.trim() || !correctionReason.trim()) {
-      callbacks.onError('Correction requires a reason and replacement explanation.');
-      return;
-    }
-    setBusy(true);
-    try {
-      await correctTriageReport(correctionReportId, {
-        status: terminalStatus,
-        status_explanation: explanation,
-        correction_reason: correctionReason,
-      });
-      callbacks.onMessage(`Corrected report ${correctionReportId}.`);
-      callbacks.onClose();
-      await callbacks.onReloadQueue();
-    } catch (err) {
-      callbacks.onError(err instanceof Error ? err.message : 'Failed to correct report.');
-    } finally {
-      setBusy(false);
-    }
-  }, [correctionReportId, explanation, correctionReason, terminalStatus, callbacks]);
 
   const applySplit = useCallback(async () => {
     if (!openCluster?.cluster_id) return;
@@ -443,10 +392,6 @@ export function useTriageModalState({ openCluster, inspectionMode, callbacks }: 
     setExplanation,
     internalNote,
     setInternalNote,
-    correctionReportId,
-    startCorrection,
-    correctionReason,
-    setCorrectionReason,
     splitNote,
     setSplitNote,
     mergeSourceClusterId,
@@ -473,7 +418,6 @@ export function useTriageModalState({ openCluster, inspectionMode, callbacks }: 
     updateReason,
     setUpdateReason,
     applyTerminalAction,
-    applyCorrection,
     applySplit,
     applyMerge,
     applyStatusUpdate,
