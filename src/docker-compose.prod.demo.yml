@@ -1,0 +1,17 @@
+services:
+  # nginx.conf (mounted by the base docker-compose.yml) hardcodes
+  # server_name/ssl_certificate/proxy Host headers to wimsbfp.tech — it has
+  # no ${PUBLIC_BASE_URL} templating like the rest of the stack. That's fine
+  # on the canonical Contabo host (whose domain IS wimsbfp.tech), but any
+  # other domain needs its own rendered copy of the file. nginx.demo.conf is
+  # that copy for demo.wimsbfp.tech (a straight domain substitution — see
+  # its header). Load this ON TOP OF docker-compose.prod.yml via:
+  #
+  #   EXTRA_COMPOSE_FILE="docker-compose.prod.small.yml docker-compose.prod.demo.yml" bash run.sh install
+  #
+  # For a different domain: copy nginx.demo.conf, substitute the domain
+  # (`sed 's/demo\.wimsbfp\.tech/your-domain/g'`), and point this file's
+  # volume at your copy instead.
+  nginx-gateway:
+    volumes:
+      - ./nginx/nginx.demo.conf:/etc/nginx/nginx.conf:ro

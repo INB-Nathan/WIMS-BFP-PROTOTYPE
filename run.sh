@@ -24,10 +24,12 @@
 #   WIMS_MASTER_KEY and WIMS_KEYCLOAK_EVENT_SECRET are auto-generated if unset.
 #   KEYCLOAK_REALM_URL is derived from PUBLIC_BASE_URL if unset.
 #
-#   docker-compose.prod.yml is sized for an 8 vCPU/23 GiB Contabo host. On a
-#   smaller box, layer docker-compose.prod.small.yml (or your own override)
-#   on top via EXTRA_COMPOSE_FILE, e.g.:
-#     EXTRA_COMPOSE_FILE=docker-compose.prod.small.yml sudo -E bash run.sh install
+#   docker-compose.prod.yml and nginx.conf both hardcode assumptions about
+#   the canonical Contabo host: 8 vCPU/23 GiB and the wimsbfp.tech domain.
+#   For a different host, layer override(s) via EXTRA_COMPOSE_FILE (space-
+#   separated for more than one), e.g. a smaller box on a different domain:
+#     EXTRA_COMPOSE_FILE="docker-compose.prod.small.yml docker-compose.prod.demo.yml" \
+#       sudo -E bash run.sh install
 #
 # ── Daily maintenance (run from the install dir) ─────────────────────────────
 #   bash run.sh status            # docker compose ps
@@ -103,13 +105,15 @@ cd_home() {
 }
 
 compose() {
-  local extra_args=()
-  # Optional per-host overlay (e.g. docker-compose.prod.small.yml) for specs
-  # smaller than the default docker-compose.prod.yml targets. Unset by
-  # default, so standard installs are unaffected.
-  if [ -n "${EXTRA_COMPOSE_FILE:-}" ]; then
-    extra_args+=(-f "$EXTRA_COMPOSE_FILE")
-  fi
+  local extra_args=() f
+  # Optional per-host overlay(s) — space-separated — layered on top of the
+  # default prod compose files, e.g. docker-compose.prod.small.yml for specs
+  # smaller than docker-compose.prod.yml targets, or docker-compose.prod.demo.yml
+  # for a domain other than wimsbfp.tech. Unset by default, so standard
+  # installs are unaffected.
+  for f in ${EXTRA_COMPOSE_FILE:-}; do
+    extra_args+=(-f "$f")
+  done
   docker compose -f docker-compose.yml -f docker-compose.prod.yml \
     "${extra_args[@]}" --env-file .env.production "$@"
 }
@@ -389,9 +393,11 @@ ENV (export before `install`):
   NEXT_PUBLIC_TURNSTILE_SITE_KEY TURNSTILE_SECRET_KEY SMTP_USER SMTP_PASSWORD
   (WIMS_MASTER_KEY, WIMS_KEYCLOAK_EVENT_SECRET auto-generated; KEYCLOAK_REALM_URL derived)
 
-  EXTRA_COMPOSE_FILE   Optional compose overlay layered on top of
-                        docker-compose.prod.yml, for hosts smaller than the
-                        default 8 vCPU/23 GiB profile (see docker-compose.prod.small.yml).
+  EXTRA_COMPOSE_FILE   Optional compose overlay(s) — space-separated — layered
+                        on top of docker-compose.prod.yml, for hosts that
+                        differ from the 8 vCPU/23 GiB wimsbfp.tech reference
+                        profile (see docker-compose.prod.small.yml for specs,
+                        docker-compose.prod.demo.yml for a different domain).
                         Use `sudo -E` with `install` so it's preserved as root.
 EOF
 }

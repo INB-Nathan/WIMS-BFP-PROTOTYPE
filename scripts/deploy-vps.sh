@@ -42,13 +42,15 @@ cd src
 test -f .env.production || { echo "FATAL: .env.production is missing on VPS"; exit 1; }
 
 compose() {
-  local extra_args=()
-  # Optional per-host overlay (e.g. docker-compose.prod.small.yml) for specs
-  # smaller than the default docker-compose.prod.yml targets. Unset by
-  # default, so standard deploys are unaffected.
-  if [ -n "${EXTRA_COMPOSE_FILE:-}" ]; then
-    extra_args+=(-f "$EXTRA_COMPOSE_FILE")
-  fi
+  local extra_args=() f
+  # Optional per-host overlay(s) — space-separated — layered on top of the
+  # default prod compose files, e.g. docker-compose.prod.small.yml for specs
+  # smaller than docker-compose.prod.yml targets, or docker-compose.prod.demo.yml
+  # for a domain other than wimsbfp.tech. Unset by default, so standard
+  # deploys are unaffected.
+  for f in ${EXTRA_COMPOSE_FILE:-}; do
+    extra_args+=(-f "$f")
+  done
   docker compose -f docker-compose.yml -f docker-compose.prod.yml \
     "${extra_args[@]}" --env-file .env.production "$@"
 }
