@@ -114,23 +114,37 @@ function ViewportHandler({
 }
 
 // ── Map recenter (avoids setView loops) ────────────────────────────────────
-
-function MapRecenter({ target, zoom }: { target: [number, number] | null; zoom: number }) {
+// `nonce` is a monotonic counter incremented on every intentional focus
+// request. Comparing the nonce (instead of the coordinate tuple) guarantees
+// that re-selecting the *same* incident recenters every time, instead of
+// being silently swallowed by a coordinate-equality guard.
+// `disabled` lets a higher-priority focus source (e.g. a sidebar card click)
+// suppress a lower-priority one (e.g. the on-load geolocation fly-to) so they
+// cannot race and clobber each other.
+function MapRecenter({
+  target,
+  zoom,
+  nonce = 0,
+  disabled = false,
+}: {
+  target: [number, number] | null;
+  zoom: number;
+  nonce?: number;
+  disabled?: boolean;
+}) {
   const map = useMap();
-  const lastTarget = useRef<[number, number] | null>(null);
+  const lastNonce = useRef<number>(-1);
 
   useEffect(() => {
-    if (!target) return;
-    if (lastTarget.current && lastTarget.current[0] === target[0] && lastTarget.current[1] === target[1]) {
-      return;
-    }
-    lastTarget.current = target;
+    if (!target || disabled) return;
+    if (lastNonce.current === nonce) return;
+    lastNonce.current = nonce;
     const reduceMotion =
       typeof window !== 'undefined' &&
       typeof window.matchMedia === 'function' &&
       window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     map.setView(target, zoom, { animate: !reduceMotion });
-  }, [target, zoom, map]);
+  }, [target, zoom, nonce, disabled, map]);
 
   return null;
 }
@@ -288,9 +302,19 @@ export default function PublicFireMapInner({
 
   // Recenter toward a focus target driven from outside the map (sidebar select).
   // Kept separate from geolocation viewTarget to avoid clobbering it.
+  // `externalNonce` increments on every focus request so MapRecenter recenters
+  // even when the same incident is re-selected. `sidebarFocusedRef` flips true
+  // on the first sidebar focus so the lower-priority on-load geolocation fly-to
+  // is suppressed (it must not clobber an explicit user selection).
   const [externalTarget, setExternalTarget] = useState<[number, number] | null>(null);
+  const [externalNonce, setExternalNonce] = useState(0);
+  const sidebarFocusedRef = useRef(false);
   useEffect(() => {
-    if (focusLocation) setExternalTarget(focusLocation);
+    if (focusLocation) {
+      sidebarFocusedRef.current = true;
+      setExternalTarget(focusLocation);
+      setExternalNonce((n) => n + 1);
+    }
   }, [focusLocation]);
 
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -448,11 +472,14 @@ export default function PublicFireMapInner({
 
         <ViewportHandler onViewportChange={handleViewportChange} />
 
-        {/* Recenter map when viewTarget changes */}
-        <MapRecenter target={viewTarget} zoom={initialZoom >= 14 ? initialZoom : 14} />
+        {/* Recenter map when viewTarget changes. Suppressed once the user has
+            explicitly focused an incident from the sidebar, so the on-load
+            geolocation fly-to cannot clobber that selection. */}
+        <MapRecenter target={viewTarget} zoom={initialZoom >= 14 ? initialZoom : 14} disabled={sidebarFocusedRef.current} />
 
-        {/* Recenter when an outside source (sidebar) requests focus */}
-        <MapRecenter target={externalTarget} zoom={14} />
+        {/* Recenter when an outside source (sidebar) requests focus. The nonce
+            forces a recenter even when the same incident is re-selected. */}
+        <MapRecenter target={externalTarget} zoom={14} nonce={externalNonce} />
 
         {/* Map click handler for selection mode */}
         {selectionMode && <MapClickHandler onClick={handleMapClick} />}
