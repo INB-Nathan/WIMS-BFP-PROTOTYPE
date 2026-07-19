@@ -235,8 +235,11 @@ if [ "$BACKEND_READY" = "0" ]; then
 fi
 
 echo "Checking public gateway health..."
-set +u; . ./.env.production; set -u
-BASE="${PUBLIC_BASE_URL:-https://wimsbfp.tech}"
+# Read PUBLIC_BASE_URL without sourcing .env.production — env files are not
+# bash-safe (values with spaces/special chars get executed by `.`), which
+# aborted the deploy under `set -e`. Extract the value literally instead.
+BASE="$(grep -m1 '^PUBLIC_BASE_URL=' .env.production | cut -d= -f2- | tr -d "\"' \r\t")"
+BASE="${BASE:-https://wimsbfp.tech}"
 curl -fsS "$BASE/health" >/dev/null
 curl -fsS "$BASE/auth/realms/bfp/.well-known/openid-configuration" >/dev/null
 curl -fsS "$BASE/login" >/dev/null
