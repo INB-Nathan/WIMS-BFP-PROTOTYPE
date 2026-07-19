@@ -1,0 +1,20 @@
+services:
+  # Downsized Ollama profile for small VPS installs (~2 vCPU / ~8 GiB RAM),
+  # e.g. a demo box, vs. the 6 CPU / 6 GiB the default docker-compose.prod.yml
+  # sizes for an 8 vCPU/23 GiB Contabo host. Load this ON TOP OF
+  # docker-compose.prod.yml (never as a replacement for it) via:
+  #
+  #   EXTRA_COMPOSE_FILE=docker-compose.prod.small.yml bash run.sh install
+  #
+  # Adjust the numbers below to fit your own host if it's a different size —
+  # rule of thumb: give Ollama most of the CPUs, but leave at least 1 free
+  # for Postgres/Keycloak/Suricata/etc., and match OLLAMA_NUM_THREADS to
+  # the cpus limit so the model doesn't oversubscribe and thrash.
+  ollama:
+    environment:
+      - OLLAMA_NUM_THREADS=1
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1.5gb

@@ -24,6 +24,11 @@
 #   WIMS_MASTER_KEY and WIMS_KEYCLOAK_EVENT_SECRET are auto-generated if unset.
 #   KEYCLOAK_REALM_URL is derived from PUBLIC_BASE_URL if unset.
 #
+#   docker-compose.prod.yml is sized for an 8 vCPU/23 GiB Contabo host. On a
+#   smaller box, layer docker-compose.prod.small.yml (or your own override)
+#   on top via EXTRA_COMPOSE_FILE, e.g.:
+#     EXTRA_COMPOSE_FILE=docker-compose.prod.small.yml sudo -E bash run.sh install
+#
 # ── Daily maintenance (run from the install dir) ─────────────────────────────
 #   bash run.sh status            # docker compose ps
 #   bash run.sh logs backend      # tail -f logs for a service
@@ -98,8 +103,15 @@ cd_home() {
 }
 
 compose() {
+  local extra_args=()
+  # Optional per-host overlay (e.g. docker-compose.prod.small.yml) for specs
+  # smaller than the default docker-compose.prod.yml targets. Unset by
+  # default, so standard installs are unaffected.
+  if [ -n "${EXTRA_COMPOSE_FILE:-}" ]; then
+    extra_args+=(-f "$EXTRA_COMPOSE_FILE")
+  fi
   docker compose -f docker-compose.yml -f docker-compose.prod.yml \
-    --env-file .env.production "$@"
+    "${extra_args[@]}" --env-file .env.production "$@"
 }
 
 # Set a key=value pair in ENV_FILE. awk prints the value verbatim, so URLs/
@@ -266,6 +278,7 @@ run_deploy() {
   build_keycloak_image
   export DEPLOY_COMMIT
   export DEPLOY_BRANCH="$BRANCH"
+  export EXTRA_COMPOSE_FILE="${EXTRA_COMPOSE_FILE:-}"
   exec bash "$WIMS_HOME/scripts/deploy-vps.sh"
 }
 
@@ -375,6 +388,11 @@ ENV (export before `install`):
   KEYCLOAK_ADMIN_CLIENT_ID KEYCLOAK_ADMIN_CLIENT_SECRET
   NEXT_PUBLIC_TURNSTILE_SITE_KEY TURNSTILE_SECRET_KEY SMTP_USER SMTP_PASSWORD
   (WIMS_MASTER_KEY, WIMS_KEYCLOAK_EVENT_SECRET auto-generated; KEYCLOAK_REALM_URL derived)
+
+  EXTRA_COMPOSE_FILE   Optional compose overlay layered on top of
+                        docker-compose.prod.yml, for hosts smaller than the
+                        default 8 vCPU/23 GiB profile (see docker-compose.prod.small.yml).
+                        Use `sudo -E` with `install` so it's preserved as root.
 EOF
 }
 
