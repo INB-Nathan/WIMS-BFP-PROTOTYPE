@@ -1071,11 +1071,8 @@ export default function SecurityMonitoringPage() {
                           Request More Info
                         </button>
 
-                        {/* Block Device / Block Source IP — two dedicated
-                            buttons when the row carries a device_token_hash
-                            (Wayfinder #571), each with its own single
-                            confirm() so neither action can be reached by
-                            accident via a chained Cancel/OK click. */}
+                        {/* Block Device is enabled only with a correlated token;
+                            source-IP blocking remains available for every row. */}
                         {log.device_token_hash ? (
                           <>
                             <button
@@ -1096,14 +1093,28 @@ export default function SecurityMonitoringPage() {
                             </button>
                           </>
                         ) : (
-                          <button
-                            onClick={() => handleBlockSourceIp(log)}
-                            className="px-2 py-1 text-[11px] font-semibold rounded transition-colors"
-                            style={{ backgroundColor: 'var(--bfp-maroon)', color: '#ffffff' }}
-                            title="Block this source IP"
-                          >
-                            Block Source IP
-                          </button>
+                          <>
+                            <button
+                              disabled
+                              aria-describedby={`device-block-unavailable-${log.log_id}`}
+                              className="px-2 py-1 text-[11px] font-semibold rounded cursor-not-allowed opacity-50"
+                              style={{ backgroundColor: 'var(--bfp-maroon)', color: '#ffffff' }}
+                              title="Device blocking unavailable: this alert has no correlated device token."
+                            >
+                              Block Device
+                            </button>
+                            <span id={`device-block-unavailable-${log.log_id}`} className="sr-only">
+                              Device blocking unavailable: this alert has no correlated device token.
+                            </span>
+                            <button
+                              onClick={() => handleBlockSourceIp(log)}
+                              className="px-2 py-1 text-[11px] font-semibold rounded transition-colors"
+                              style={{ backgroundColor: 'var(--bfp-maroon)', color: '#ffffff' }}
+                              title="Block this source IP"
+                            >
+                              Block Source IP
+                            </button>
+                          </>
                         )}
 
                         {/* Create Incident — secondary */}

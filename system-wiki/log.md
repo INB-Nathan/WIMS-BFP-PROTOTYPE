@@ -1,3 +1,9 @@
+## [2026-07-19] fix(security): repair persistent device-blocklist production contract
+
+- **Scope:** Alembic `0027` creates the `wims.device_blocklist` table, indexes, forced SYSTEM_ADMIN RLS policy, and repeat-offender threshold configuration on existing deployments, closing the bootstrap-only schema gap that made the blocked-device list fail. Production Compose now passes the device-token signing-key configuration to the backend; the committed production environment example documents the required secret without providing a fallback or value.
+- **UX:** Every security-monitoring row renders Block Device. It is enabled only for a row with a correlated device-token hash; otherwise it is disabled with an accessible explanation while source-IP blocking remains available. Historical alerts remain uncorrelated and are not backfilled.
+- **Wiki:** Updated [[database/schema-overview]], [[security/security-baseline]], [[backend/api-route-map]], [[frontend/route-map]], and [[index]]. No FRS/code gap changed.
+
 ## [2026-07-19] feat(public-incidents): add dedicated public incident listing and refine contributor reports
 
 - **Scope:** `/incidents` is now a public route and formal, filterable “All active fires” list rather than redirecting visitors to a staff dashboard. Its landing-sidebar label, public navigation link, and page copy identify these as the active-fire updates shown on the map. The shared navigation gives desktop users a compact active-route pill and gives mobile users a second, horizontally scrollable navigation row. It reuses the existing unauthenticated `GET /api/information/emergencies` client/hook and shared public-surface list, filter, status, loading, empty, error, retry, and responsive styling. Its data scope remains published emergency updates only; it does not expose internal incidents or alter the backend contract.
