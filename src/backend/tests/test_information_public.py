@@ -143,6 +143,9 @@ def test_emergencies_returns_published_only(client: TestClient):
     sql = _captured_sql(client)
     assert "information_emergencies" in sql
     assert "published = TRUE" in sql
+    assert "JOIN wims.fire_incidents" in sql
+    assert "fi.verification_status = 'VERIFIED'" in sql
+    assert "fire_incident_civilian_links" in sql
     assert "ORDER BY ie.published_at DESC" in sql
 
 

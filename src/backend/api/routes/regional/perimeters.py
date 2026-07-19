@@ -24,6 +24,7 @@ from schemas.regional import (
     PerimeterResponse,
     PerimeterUpdateRequest,
 )
+from services.information_emergencies import ensure_incident_emergency_draft
 from services.regional_incidents import perimeters as perimeter_service
 from utils.audit import log_system_audit
 
@@ -248,6 +249,12 @@ def link_reports(
             report_ids=body.report_ids,
             actor_user_id=user["user_id"],
         )
+        ensure_incident_emergency_draft(
+            db,
+            incident_id=incident_id,
+            actor_user_id=str(user["user_id"]),
+            require_civilian_link=True,
+        )
     except LookupError as e:
         db.rollback()
         missing = e.args[0]
@@ -255,6 +262,9 @@ def link_reports(
             status_code=404,
             detail=f"Report(s) not found: {missing}",
         ) from None
+    except Exception:
+        db.rollback()
+        raise
 
     db.commit()
     log_system_audit(

@@ -1,3 +1,10 @@
+## [2026-07-19] feat(information): civilian-validated active-fire drafts and CMS list repair
+
+- **Scope:** A VERIFIED `fire_incidents` record now creates or refreshes one unpublished `information_emergencies` draft only when it has a `fire_incident_civilian_links` row. The bridge runs in the validator verification transaction and after a validator links a report, so link/verification order does not matter. The partial unique index in Alembic `0026` plus bootstrap `97_information_emergency_draft_source_unique.sql` permits at most one unpublished source draft; automation never overwrites a published update.
+- **Public and authority boundary:** Public active-fire reads now require a published emergency, its VERIFIED source incident, and a civilian link. AFOR and direct public-DMZ records therefore cannot appear through this projection. SYSTEM_ADMIN remains the sole CMS authority, including incident promotion; NATIONAL_VALIDATOR no longer has the promotion exception.
+- **Announcement repair:** Added SYSTEM_ADMIN-only list endpoints for announcements and emergencies, matching the existing admin workspace fetches that previously received `405`. Create/update now record `published_at` when an item is published.
+- **Validation:** Focused backend Ruff and 41 tests for information admin/public, draft service, bootstrap/migration, and perimeter linking passed. No raw-FRS alignment claim was made, so the gap register is unchanged.
+
 ## [2026-07-18] fix(infra): repair OSRM deployment contract
 
 - **Scope:** Production serving and Metro Manila dataset preprocessing now use the available, pinned `osrm/osrm-backend:v5.25.0` image instead of unavailable `v5.27.1`. Compose mounts the external version-directory parent and resolves `/data/active`, preserving atomic dataset switches without Docker replacing the active symlink with an empty directory or deployment's `git clean -fd` touching generated map data. The provisioning script recovers an empty stale active directory but rejects a non-empty one.
