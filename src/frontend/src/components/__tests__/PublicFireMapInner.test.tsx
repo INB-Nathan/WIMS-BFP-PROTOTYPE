@@ -351,4 +351,36 @@ describe('PublicFireMapInner', () => {
       expect(critPath!.getAttribute('stroke')).not.toBe(modPath!.getAttribute('stroke'));
     });
   });
+
+  describe('sidebar focus -> recenter (focusLocation prop)', () => {
+    it('recenters when focusLocation is provided', () => {
+      mockSetView.mockClear();
+      render(<PublicFireMapInner center={[14.6, 121.0]} zoom={10} focusLocation={[14.676, 121.043]} />);
+      expect(mockSetView).toHaveBeenCalledWith(
+        [14.676, 121.043],
+        expect.any(Number),
+        expect.objectContaining({ animate: true }),
+      );
+    });
+
+    it('recenters again when the SAME incident is re-selected (nonce, not coord equality)', () => {
+      mockSetView.mockClear();
+      const { rerender } = render(
+        <PublicFireMapInner center={[14.6, 121.0]} zoom={10} focusLocation={[14.676, 121.043]} />,
+      );
+      expect(mockSetView).toHaveBeenCalledTimes(1);
+      mockSetView.mockClear();
+      // Same coordinates, new reference (what a repeat sidebar click produces).
+      rerender(
+        <PublicFireMapInner center={[14.6, 121.0]} zoom={10} focusLocation={[14.676, 121.043]} />,
+      );
+      expect(mockSetView).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not recenter when focusLocation is null', () => {
+      mockSetView.mockClear();
+      render(<PublicFireMapInner center={[14.6, 121.0]} zoom={10} focusLocation={null} />);
+      expect(mockSetView).not.toHaveBeenCalled();
+    });
+  });
 });

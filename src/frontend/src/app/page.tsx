@@ -36,9 +36,21 @@ export default function LandingPage() {
     } else if (e.perimeter) {
       const ring = e.perimeter.geometry.coordinates[0];
       if (ring && ring.length > 0) {
-        const [lng, lat] = ring[0];
+        // Center on the ring centroid (simple center) rather than an arbitrary
+        // corner vertex, so the whole perimeter frames naturally.
+        let sumLat = 0;
+        let sumLng = 0;
+        for (const [lng, lat] of ring) {
+          sumLat += lat;
+          sumLng += lng;
+        }
+        const [lat, lng] = [sumLat / ring.length, sumLng / ring.length];
         setFocusLocation([lat, lng]);
       }
+    } else {
+      // Standalone published emergency with no linked geometry: still move the
+      // map so the selection is acknowledged. Fall back to the NCR centroid.
+      setFocusLocation([14.676, 121.043]);
     }
   }, []);
 
