@@ -831,7 +831,7 @@ describe('M8: Security Monitoring page — per-row actions + filters (T11)', () 
     vi.useRealTimers();
   });
 
-  it('renders 6 action buttons in each threat row', async () => {
+  it('renders a disabled Block Device action when the threat row has no device token', async () => {
     vi.useRealTimers();
     render(<SecurityMonitoringPage />);
 
@@ -844,7 +844,12 @@ describe('M8: Security Monitoring page — per-row actions + filters (T11)', () 
     expect(screen.getByText('False Positive')).toBeInTheDocument();
     expect(screen.getByText('Request More Info')).toBeInTheDocument();
 
-    // Primary action
+    const unavailableDeviceBlock = screen.getByRole('button', { name: 'Block Device' });
+    expect(unavailableDeviceBlock).toBeDisabled();
+    expect(unavailableDeviceBlock).toHaveAttribute(
+      'title',
+      'Device blocking unavailable: this alert has no correlated device token.',
+    );
     expect(screen.getByText('Block Source IP')).toBeInTheDocument();
 
     // Secondary actions

@@ -1,3 +1,9 @@
+## [2026-07-19] fix(security): repair persistent device-blocklist production contract
+
+- **Scope:** Alembic `0027` creates the `wims.device_blocklist` table, indexes, forced SYSTEM_ADMIN RLS policy, and repeat-offender threshold configuration on existing deployments, closing the bootstrap-only schema gap that made the blocked-device list fail. Production Compose now passes the device-token signing-key configuration to the backend; the committed production environment example documents the required secret without providing a fallback or value.
+- **UX:** Every security-monitoring row renders Block Device. It is enabled only for a row with a correlated device-token hash; otherwise it is disabled with an accessible explanation while source-IP blocking remains available. Historical alerts remain uncorrelated and are not backfilled.
+- **Wiki:** Updated [[database/schema-overview]], [[security/security-baseline]], [[backend/api-route-map]], [[frontend/route-map]], and [[index]]. No FRS/code gap changed.
+
 ## [2026-07-19] feat(public-incidents): add dedicated public incident listing and refine contributor reports
 
 - **Scope:** `/incidents` is now a public route and formal, filterable “All active fires” list rather than redirecting visitors to a staff dashboard. Its landing-sidebar label, public navigation link, and page copy identify these as the active-fire updates shown on the map. The shared navigation gives desktop users a compact active-route pill and gives mobile users a second, horizontally scrollable navigation row. It reuses the existing unauthenticated `GET /api/information/emergencies` client/hook and shared public-surface list, filter, status, loading, empty, error, retry, and responsive styling. Its data scope remains published emergency updates only; it does not expose internal incidents or alter the backend contract.
@@ -766,3 +772,9 @@ Removed the AI incident narrative feature (PR #104 / #69) — backend-only featu
 - **Compose validation:** `docker compose ... -f docker-compose.yml -f docker-compose.ci.yml config --quiet` and `OSRM_DATA_DIR=/tmp/osrm-contract-data docker compose ... -f docker-compose.yml -f docker-compose.prod.yml config --quiet` both succeed.
 - **Wiki:** New `docs/operations/osrm-routing.md`; updated [[architecture/infrastructure-config]], [[security/security-baseline]], [[frontend/route-map]], [[gaps/frs-codebase-gap-register]] (marked #552 partial), and `system-wiki/index.md`.
 - **Live verification:** end-to-end road routing on production data remains pending an authorized dataset provisioning and VPS run; treated as partially closed until `docs/operations/osrm-routing.md` is executed against provisioned data.
+
+## [2026-07-19] fix(auth): preserve the public Keycloak issuer for production refreshes
+
+- **Scope:** Production frontend `AUTH_SERVER_URL` now resolves through `${PUBLIC_BASE_URL}/auth` rather than the internal `http://nginx-gateway/auth` hostname. Keycloak rejected refresh tokens issued for the public issuer when the server-side refresh call used the internal hostname, and the frontend then cleared both auth cookies.
+- **Evidence:** `src/docker-compose.prod.yml`, `src/frontend/src/app/api/auth/refresh/route.ts`, the focused route/compose contract tests, and production Keycloak `REFRESH_TOKEN_ERROR` logs observed during the 2026-07-19 diagnosis.
+- **Validation:** `src/frontend/src/app/api/auth/refresh/route.test.ts` and `src/backend/tests/test_frontend_auth_production_config.py`; production Compose configuration parses with the committed example environment. No FRS/code gap changed.

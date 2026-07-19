@@ -54,7 +54,10 @@ services:
       - NEXT_PUBLIC_OIDC_REDIRECT_URI=${PUBLIC_BASE_URL}/callback
       - NEXT_PUBLIC_OIDC_AUTHORITY=${PUBLIC_BASE_URL}/auth/realms/bfp
       - NEXT_PUBLIC_APP_URL=${PUBLIC_BASE_URL}
-      - AUTH_SERVER_URL=http://nginx-gateway/auth
+      # Refresh tokens are issued for the public Keycloak issuer. Use that
+      # canonical URL here too; nginx-gateway's internal HTTP hostname causes
+      # Keycloak to reject the token with an issuer mismatch.
+      - AUTH_SERVER_URL=${PUBLIC_BASE_URL}/auth
       - BACKEND_URL=http://backend:8000
 
   # Contabo production VPS has 8 vCPUs / 23 GiB RAM.

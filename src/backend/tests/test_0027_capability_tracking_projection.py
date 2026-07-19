@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def _sources() -> list[str]:
     return [
-        (ROOT / "backend/alembic/versions/0027_capability_tracking_projection.py").read_text(),
+        (ROOT / "backend/alembic/versions/0028_capability_tracking_projection.py").read_text(),
         (ROOT / "postgres-init/98_capability_tracking_projection.sql").read_text(),
     ]
 
