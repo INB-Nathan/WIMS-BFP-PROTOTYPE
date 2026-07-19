@@ -124,14 +124,14 @@ export function LandingSidebar({
         )}
         {!loading && !error && emergencies.length > 0 && (
           <p className="sidebar-verified-note">
-            Showing verified BFP incidents
+            Showing verified BFP active-fire updates
           </p>
         )}
       </div>
 
       <div className="landing-sidebar-footer">
         <Link href="/incidents">
-          <IconClipboardList size={14} aria-hidden /> View all incidents
+          <IconClipboardList size={14} aria-hidden /> View all active fires
         </Link>
         <Link href="/fire-stations">
           <IconFiretruck size={14} aria-hidden /> Find a fire station

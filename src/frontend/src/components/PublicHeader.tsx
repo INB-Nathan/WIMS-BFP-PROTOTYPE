@@ -59,6 +59,26 @@ export function PublicHeader() {
         </Link>
       </div>
 
+      <nav className="landing-header-nav" aria-label="Primary navigation">
+        <Link href="/" className="landing-header-nav-link" aria-current={pathname === '/' ? 'page' : undefined}>
+          Home
+        </Link>
+        {isAuthenticated && (
+          <Link href={dashboardHref} className="landing-header-nav-link" aria-current={pathname === dashboardHref ? 'page' : undefined}>
+            Dashboard
+          </Link>
+        )}
+        <Link href="/incidents" className="landing-header-nav-link" aria-current={pathname === '/incidents' ? 'page' : undefined}>
+          Active fires
+        </Link>
+        <Link href="/information" className="landing-header-nav-link" aria-current={pathname === '/information' ? 'page' : undefined}>
+          Information
+        </Link>
+        <Link href="/fire-stations" className="landing-header-nav-link" aria-current={pathname === '/fire-stations' ? 'page' : undefined}>
+          Fire stations
+        </Link>
+      </nav>
+
       <div className="landing-header-right">
         <button
           type="button"
@@ -69,23 +89,6 @@ export function PublicHeader() {
         >
           {theme === 'dark' ? '🌙 Dark' : '☀️ Light'}
         </button>
-
-        <nav className="landing-header-nav" aria-label="Primary navigation">
-          <Link href="/" className="landing-header-nav-link">
-            Home
-          </Link>
-          {isAuthenticated && (
-            <Link href={dashboardHref} className="landing-header-nav-link">
-              Dashboard
-            </Link>
-          )}
-          <Link href="/information" className="landing-header-nav-link">
-            Information
-          </Link>
-          <Link href="/fire-stations" className="landing-header-nav-link">
-            Fire Stations
-          </Link>
-        </nav>
 
         {!isAuthenticated && (
           <>

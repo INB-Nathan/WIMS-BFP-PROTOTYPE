@@ -128,8 +128,9 @@ describe('LandingPage (public landing /)', () => {
     const { default: LandingPage } = await import('../page');
     render(<LandingPage />);
     expect(screen.getByRole('link', { name: 'Home' })).toHaveAttribute('href', '/');
+    expect(screen.getByRole('link', { name: 'Active fires' })).toHaveAttribute('href', '/incidents');
     expect(screen.getByRole('link', { name: 'Information' })).toHaveAttribute('href', '/information');
-    expect(screen.getByRole('link', { name: 'Fire Stations' })).toHaveAttribute('href', '/fire-stations');
+    expect(screen.getByRole('link', { name: 'Fire stations' })).toHaveAttribute('href', '/fire-stations');
     expect(screen.getByTestId('header-register')).toHaveAttribute('href', '/register');
     expect(screen.getByTestId('header-signin')).toHaveAttribute('href', '/login');
     expect(screen.queryByTestId('header-report')).not.toBeInTheDocument();

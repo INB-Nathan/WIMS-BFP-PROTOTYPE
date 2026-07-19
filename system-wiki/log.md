@@ -1,9 +1,9 @@
-## [2026-07-19] feat(information): civilian-validated active-fire drafts and CMS list repair
+## [2026-07-19] feat(public-incidents): add dedicated public incident listing and refine contributor reports
 
-- **Scope:** A VERIFIED `fire_incidents` record now creates or refreshes one unpublished `information_emergencies` draft only when it has a `fire_incident_civilian_links` row. The bridge runs in the validator verification transaction and after a validator links a report, so link/verification order does not matter. The partial unique index in Alembic `0026` plus bootstrap `97_information_emergency_draft_source_unique.sql` permits at most one unpublished source draft; automation never overwrites a published update.
-- **Public and authority boundary:** Public active-fire reads now require a published emergency, its VERIFIED source incident, and a civilian link. AFOR and direct public-DMZ records therefore cannot appear through this projection. SYSTEM_ADMIN remains the sole CMS authority, including incident promotion; NATIONAL_VALIDATOR no longer has the promotion exception.
-- **Announcement repair:** Added SYSTEM_ADMIN-only list endpoints for announcements and emergencies, matching the existing admin workspace fetches that previously received `405`. Create/update now record `published_at` when an item is published.
-- **Validation:** Focused backend Ruff and 41 tests for information admin/public, draft service, bootstrap/migration, and perimeter linking passed. No raw-FRS alignment claim was made, so the gap register is unchanged.
+- **Scope:** `/incidents` is now a public route and formal, filterable “All active fires” list rather than redirecting visitors to a staff dashboard. Its landing-sidebar label, public navigation link, and page copy identify these as the active-fire updates shown on the map. The shared navigation gives desktop users a compact active-route pill and gives mobile users a second, horizontally scrollable navigation row. It reuses the existing unauthenticated `GET /api/information/emergencies` client/hook and shared public-surface list, filter, status, loading, empty, error, retry, and responsive styling. Its data scope remains published emergency updates only; it does not expose internal incidents or alter the backend contract.
+- **Contributor UX:** `/contributor` now announces the current client-side filter result count, provides a clear recovery action for an empty filtered result, and removes focusability from non-actionable report rows. Its existing private API, authorization, pagination, map, and two-card summary remain unchanged.
+- **Tests:** Focused incident and contributor page tests pass (14 of 14); frontend lint reports 0 errors and 35 pre-existing warnings.
+- **Wiki:** Updated [[frontend/route-map]] and [[index]]. No FRS/code gap changed.
 
 ## [2026-07-18] fix(infra): repair OSRM deployment contract
 

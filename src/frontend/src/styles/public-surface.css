@@ -643,6 +643,64 @@
   color: var(--text-muted);
 }
 
+/* Public incident table — mirrors the prototype's compact incident directory. */
+.public-surface .ps-incidents-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.public-surface .ps-incidents-title svg {
+  color: var(--red);
+}
+.public-surface .ps-incident-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow);
+}
+.public-surface .ps-incident-table {
+  width: 100%;
+  min-width: 620px;
+  border-collapse: collapse;
+  font-size: 0.84rem;
+}
+.public-surface .ps-incident-table th,
+.public-surface .ps-incident-table td {
+  padding: 12px 14px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+.public-surface .ps-incident-table th {
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.public-surface .ps-incident-table td {
+  color: var(--text-secondary);
+}
+.public-surface .ps-incident-table td:first-child {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.public-surface .ps-incident-table tbody tr:hover {
+  background: var(--bg-hover);
+}
+.public-surface .ps-incident-table tbody tr:last-child td {
+  border-bottom: none;
+}
+.public-surface .ps-incident-severity {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 /* Announcements */
 .public-surface .ps-announcement-list {
   list-style: none;
@@ -1281,6 +1339,20 @@
 }
 
 /* Report list / rows */
+.public-surface .ps-contributor-report-summary {
+  margin: -4px 0 0;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+}
+.public-surface .ps-contributor-filter-empty {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.public-surface .ps-contributor-filter-empty .ps-secondary {
+  margin: 0;
+}
 .public-surface .ps-contributor-report-list {
   list-style: none;
   margin: 0;
@@ -1308,10 +1380,6 @@
   transform: translateY(-2px);
   border-color: var(--border-strong);
   box-shadow: 0 10px 26px rgba(0, 0, 0, 0.08);
-}
-.public-surface .ps-contributor-report-row:focus-visible {
-  outline: 2px solid var(--primary);
-  outline-offset: 2px;
 }
 .public-surface .ps-contributor-report-id {
   font-family: var(--font-mono);
