@@ -60,10 +60,9 @@ services:
       - AUTH_SERVER_URL=${PUBLIC_BASE_URL}/auth
       - BACKEND_URL=http://backend:8000
 
-  # This VPS has 2 vCPUs / ~8 GiB RAM (smaller than the 8 vCPU/23 GiB Contabo
-  # box these limits were originally sized for). Give 1 CPU to Ollama
-  # (inference is CPU-bound), leaving 1 for all other services (Postgres,
-  # Keycloak, Suricata, etc.).
+  # Contabo production VPS has 8 vCPUs / 23 GiB RAM.
+  # Give 6 CPUs to Ollama (inference is CPU-bound), leaving 2 for all other
+  # services (Postgres, Keycloak, Suricata, etc. which total ~0.5 CPU idle).
   ollama:
     environment:
       # Use memory-mapped IO for model loading (avoids anonymous RAM copy on
@@ -71,12 +70,12 @@ services:
       - OLLAMA_MMAP=1
       # Match the Docker CPU limit below.  Oversubscribing threads causes
       # context-switching thrash that kills throughput.
-      - OLLAMA_NUM_THREADS=1
+      - OLLAMA_NUM_THREADS=6
     deploy:
       resources:
         limits:
-          cpus: '1'
-          memory: 1.5gb
+          cpus: '6'
+          memory: 6gb
 
   # Production TLS certs — not available in local dev (override swaps nginx.conf).
   # nginx.conf mount is in the base compose file; this file only adds production certs.
