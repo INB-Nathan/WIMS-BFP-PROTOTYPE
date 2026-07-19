@@ -1,3 +1,10 @@
+## [2026-07-19] feat(public-incidents): add dedicated public incident listing and refine contributor reports
+
+- **Scope:** `/incidents` is now a public route and formal, filterable “All active fires” list rather than redirecting visitors to a staff dashboard. Its landing-sidebar label, public navigation link, and page copy identify these as the active-fire updates shown on the map. The shared navigation gives desktop users a compact active-route pill and gives mobile users a second, horizontally scrollable navigation row. It reuses the existing unauthenticated `GET /api/information/emergencies` client/hook and shared public-surface list, filter, status, loading, empty, error, retry, and responsive styling. Its data scope remains published emergency updates only; it does not expose internal incidents or alter the backend contract.
+- **Contributor UX:** `/contributor` now announces the current client-side filter result count, provides a clear recovery action for an empty filtered result, and removes focusability from non-actionable report rows. Its existing private API, authorization, pagination, map, and two-card summary remain unchanged.
+- **Tests:** Focused incident and contributor page tests pass (14 of 14); frontend lint reports 0 errors and 35 pre-existing warnings.
+- **Wiki:** Updated [[frontend/route-map]] and [[index]]. No FRS/code gap changed.
+
 ## [2026-07-18] fix(infra): repair OSRM deployment contract
 
 - **Scope:** Production serving and Metro Manila dataset preprocessing now use the available, pinned `osrm/osrm-backend:v5.25.0` image instead of unavailable `v5.27.1`. Compose mounts the external version-directory parent and resolves `/data/active`, preserving atomic dataset switches without Docker replacing the active symlink with an empty directory or deployment's `git clean -fd` touching generated map data. The provisioning script recovers an empty stale active directory but rejects a non-empty one.

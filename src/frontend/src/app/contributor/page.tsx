@@ -400,8 +400,20 @@ export default function ContributorPage() {
                 Loading reports…
               </p>
             )}
+            {!reportsBusy && (
+              <p className="ps-contributor-report-summary" aria-live="polite">
+                Showing {visibleReports.length} of {reports?.reports.length ?? 0} reports on this page
+              </p>
+            )}
             {!reportsBusy && visibleReports.length === 0 && (
-              <p className="ps-secondary">No reports match this filter.</p>
+              <div className="ps-contributor-filter-empty">
+                <p className="ps-secondary">No reports match this filter.</p>
+                {reportFilter !== 'all' && (
+                  <button type="button" className="ps-btn ps-btn-outline" onClick={() => setReportFilter('all')}>
+                    Show all reports
+                  </button>
+                )}
+              </div>
             )}
             {!reportsBusy && visibleReports.length > 0 && (
               <ul className="ps-contributor-report-list">
@@ -412,7 +424,6 @@ export default function ContributorPage() {
                       key={report.report_id}
                       className="ps-contributor-report-row"
                       data-testid="contributor-report-row"
-                      tabIndex={0}
                     >
                       <span className={`ps-contributor-status-dot ${indicator.toneClass}`} aria-hidden />
                       <span className="ps-contributor-report-id">#{report.report_id}</span>
