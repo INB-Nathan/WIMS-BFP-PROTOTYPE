@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import type { TriageClusterEntry, TriageReportEntry } from '@/lib/api';
-import { TriageInvestigationBoard } from './TriageInvestigationBoard';
+import { TriageEvidenceTable, TriageInvestigationBoard } from './TriageInvestigationBoard';
 
 function report(overrides: Partial<TriageReportEntry>): TriageReportEntry {
   return {
@@ -53,25 +53,33 @@ function cluster(overrides: Partial<TriageClusterEntry>): TriageClusterEntry {
 }
 
 describe('TriageInvestigationBoard', () => {
-  it('renders selected cluster summary, evidence table rows, no-location hint, and inspect CTA', async () => {
+  it('renders the evidence table separately from the investigation board', async () => {
     const onInspect = vi.fn();
     const onSelectReport = vi.fn();
 
+    const selectedCluster = cluster({});
     render(
-      <TriageInvestigationBoard
-        items={[cluster({})]}
-        selectedItem={cluster({})}
-        selectedReportId={10}
-        role="NATIONAL_VALIDATOR"
-        claiming={null}
-        onInspect={onInspect}
-        onSelectItem={vi.fn()}
-        onSelectReport={onSelectReport}
-        onClaimCluster={vi.fn()}
-      />,
+      <>
+        <TriageInvestigationBoard
+          items={[selectedCluster]}
+          selectedItem={selectedCluster}
+          role="NATIONAL_VALIDATOR"
+          claiming={null}
+          onInspect={onInspect}
+          onSelectItem={vi.fn()}
+          onClaimCluster={vi.fn()}
+        />
+        <TriageEvidenceTable
+          item={selectedCluster}
+          selectedReportId={10}
+          onSelectReport={onSelectReport}
+        />
+      </>,
     );
 
     expect(screen.getByText('Cluster #42')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Reports for Cluster #42' })).toBeInTheDocument();
+    expect(screen.getByTestId('triage-evidence-table')).toBeInTheDocument();
     expect(screen.getByText(/Life safety/)).toBeInTheDocument();
     expect(screen.getByTestId('triage-evidence-row-10')).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByText(/No usable location/)).toBeInTheDocument();
@@ -82,9 +90,8 @@ describe('TriageInvestigationBoard', () => {
 
   it('renders comma-separated signals found/missing and reflects trust-score coloring', () => {
     render(
-      <TriageInvestigationBoard
-        items={[cluster({})]}
-        selectedItem={cluster({
+      <TriageEvidenceTable
+        item={cluster({
           reports: [
             report({
               report_id: 20,
@@ -99,12 +106,7 @@ describe('TriageInvestigationBoard', () => {
           ],
         })}
         selectedReportId={null}
-        role="NATIONAL_VALIDATOR"
-        claiming={null}
-        onInspect={vi.fn()}
-        onSelectItem={vi.fn()}
         onSelectReport={vi.fn()}
-        onClaimCluster={vi.fn()}
       />,
     );
 
@@ -118,16 +120,10 @@ describe('TriageInvestigationBoard', () => {
     const onSelectReport = vi.fn();
 
     render(
-      <TriageInvestigationBoard
-        items={[cluster({})]}
-        selectedItem={cluster({})}
+      <TriageEvidenceTable
+        item={cluster({})}
         selectedReportId={null}
-        role="NATIONAL_VALIDATOR"
-        claiming={null}
-        onInspect={vi.fn()}
-        onSelectItem={vi.fn()}
         onSelectReport={onSelectReport}
-        onClaimCluster={vi.fn()}
       />,
     );
 

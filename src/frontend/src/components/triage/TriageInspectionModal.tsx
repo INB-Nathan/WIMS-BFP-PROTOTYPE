@@ -5,7 +5,6 @@ import type { TriageClusterEntry, TriageReportEntry } from '@/lib/api';
 import { ActivityPanel } from './ActivityPanel';
 import { ClusterSummaryHeader } from './ClusterSummaryHeader';
 import { ConfirmActionDialog, type ConfirmTone } from './ConfirmActionDialog';
-import { CorrectionActionPanel } from './CorrectionActionPanel';
 import { JurisdictionContext } from './JurisdictionContext';
 import { MergeActionPanel } from './MergeActionPanel';
 import { ReportsListPanel } from './ReportsListPanel';
@@ -34,7 +33,7 @@ export interface TriageInspectionModalProps {
 }
 
 interface PendingConfirm {
-  kind: 'terminal' | 'split' | 'merge' | 'correct' | 'snatch' | 'update';
+  kind: 'terminal' | 'split' | 'merge' | 'snatch' | 'update';
   title: string;
   body: string;
   confirmLabel: string;
@@ -87,15 +86,14 @@ export function TriageInspectionModal({
       const tag = (e.target as HTMLElement).tagName;
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes(tag)) return;
       // Tab navigation only — per system-wiki/frontend/validator-triage-shortcuts.md,
-      // terminal / split / merge / correction actions must not have commit shortcuts
+      // terminal / split / merge actions must not have commit shortcuts
       // and require deliberate UI clicks.
       const key = e.key;
       if (key === '1') state.setTab('terminal');
-      else if (key === '2') state.setTab('correct');
-      else if (key === '3' && inspectionMode === 'cluster') state.setTab('split');
-      else if (key === '4' && inspectionMode === 'cluster') state.setTab('merge');
-      else if (key === '5') state.setTab('activity');
-      else if (key === '6' && canSendStatusUpdate) state.setTab('update');
+      else if (key === '2' && inspectionMode === 'cluster') state.setTab('split');
+      else if (key === '3' && inspectionMode === 'cluster') state.setTab('merge');
+      else if (key === '4') state.setTab('activity');
+      else if (key === '5' && canSendStatusUpdate) state.setTab('update');
     }
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
@@ -139,26 +137,6 @@ export function TriageInspectionModal({
     } else {
       await state.applyTerminalAction();
     }
-  }
-
-  async function requestApplyCorrection() {
-    if (!state.correctionReportId) {
-      onError('Select a terminal report to correct.');
-      return;
-    }
-    if (!state.explanation.trim() || !state.correctionReason.trim()) {
-      onError('Correction requires a reason and replacement explanation.');
-      return;
-    }
-    setPending({
-      kind: 'correct',
-      title: `Confirm correction of report #${state.correctionReportId}`,
-      body: `The citizen-visible explanation will be replaced and a CORRECTION audit event will be written. The previous explanation is preserved in the audit log.`,
-      confirmLabel: 'Apply correction',
-      confirmTone: 'caution',
-      preview: <TerminalPreview status={state.terminalStatus} message={state.explanation} reportCount={1} />,
-      run: state.applyCorrection,
-    });
   }
 
   async function requestApplySplit() {
@@ -391,7 +369,7 @@ export function TriageInspectionModal({
           <aside className="triage-modal__spatial">
             <TriageSpatialPanel
               cluster={openCluster}
-              selectedReportId={state.correctionReportId ?? reportIds[0] ?? null}
+              selectedReportId={reportIds[0] ?? null}
               suggestedReportIds={suggestedReportIds}
               inspectionMode={inspectionMode}
               onSelectReport={(reportId) => state.toggleSelected(reportId)}
@@ -404,7 +382,6 @@ export function TriageInspectionModal({
               inspectionMode={inspectionMode}
               selected={state.selected}
               onToggle={state.toggleSelected}
-              onStartCorrection={state.startCorrection}
               suggestedReportIds={suggestedReportIds}
             />
           </main>
@@ -416,8 +393,6 @@ export function TriageInspectionModal({
                 setTab={state.setTab}
                 inspectionMode={inspectionMode}
                 selectedCount={reportIds.length}
-                totalCount={openCluster.reports.length}
-                correctionReportId={state.correctionReportId}
                 mergeCandidateCount={state.mergeCandidates.length}
                 canSendStatusUpdate={canSendStatusUpdate}
               />
@@ -433,19 +408,6 @@ export function TriageInspectionModal({
                 internalNote={state.internalNote}
                 setInternalNote={state.setInternalNote}
                 onApply={() => void requestApplyTerminal()}
-                busy={state.busy}
-              />
-            )}
-            {state.tab === 'correct' && (
-              <CorrectionActionPanel
-                correctionReportId={state.correctionReportId}
-                terminalStatus={state.terminalStatus}
-                setTerminalStatus={state.setTerminalStatus}
-                explanation={state.explanation}
-                setExplanation={state.setExplanation}
-                correctionReason={state.correctionReason}
-                setCorrectionReason={state.setCorrectionReason}
-                onApply={() => void requestApplyCorrection()}
                 busy={state.busy}
               />
             )}

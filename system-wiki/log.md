@@ -1,3 +1,9 @@
+## [2026-07-19] refactor(triage): widen report evidence and remove correction action
+
+- **UX:** Moved the selected cluster/report evidence table out of the narrow investigation board into a separate full-width container below the map workspace, preserving report-row selection while exposing more columns at once.
+- **Modal:** Removed the Correct tab, correction form, terminal-row Correct buttons, and correction shortcut. Remaining tab shortcuts are now sequential: Terminal `1`, Split `2`, Merge `3`, Activity `4`, Send Update `5`.
+- **Wiki:** Updated [[frontend/route-map]], [[frontend/components-deep]], [[frontend/validator-triage-shortcuts]], and [[index]]. No API, schema, security boundary, or FRS/code gap changed.
+
 ## [2026-07-19] feat(validator): select perimeter incidents from civilian-report evidence
 
 - **Scope:** `/dashboard/validator/perimeter-draw` replaces manual verified-incident ID entry with a native dropdown. The new `GET /api/regional/perimeter-incidents` contract returns only mapped, active VERIFIED incidents backed by eligible non-rejected civilian reports and supplies PII-free reference/category, location, incident date, report count, and latest report-application time for the selector and selected summary.

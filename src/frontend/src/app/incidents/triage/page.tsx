@@ -6,6 +6,7 @@ import { Filter, Loader2, RefreshCw } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import {
   TriageCanvasMap,
+  TriageEvidenceTable,
   TriageInspectionModal,
   TriageInvestigationBoard,
   TriageLegend,
@@ -330,17 +331,23 @@ export default function TriagePage() {
             <TriageInvestigationBoard
               items={allTriageItems}
               selectedItem={selectedItem}
-              selectedReportId={selectedReportId}
               role={role}
               claiming={claiming}
               onInspect={inspectSelectedItem}
               onSelectItem={selectTriageItem}
-              onSelectReport={setSelectedReportId}
               onClaimCluster={(clusterId) => void claimCluster(clusterId)}
             />
           </div>
         )}
       </div>
+
+      {!loading && selectedItem && (
+        <TriageEvidenceTable
+          item={selectedItem}
+          selectedReportId={selectedReportId}
+          onSelectReport={setSelectedReportId}
+        />
+      )}
 
       {/* ── HCI Legend: explains clusters, trust scores, severity colors ── */}
       <TriageLegend />

@@ -80,21 +80,21 @@ describe('TriageInspectionModal — #636 context + Send Update', () => {
     expect(screen.getByTestId('triage-context-station-phone')).toHaveTextContent('123-4567');
   });
 
-  it('opens the Send Update tab when the "6" shortcut is pressed (allowed role)', async () => {
+  it('opens the Send Update tab when the "5" shortcut is pressed (allowed role)', async () => {
     const user = userEvent.setup();
     renderModal(cluster());
-    await user.keyboard('6');
+    await user.keyboard('5');
     expect(screen.getByTestId('triage-panel-update')).toBeInTheDocument();
     expect(screen.getByTestId('update-stage-select')).toBeInTheDocument();
   });
 
-  it('hides the Send Update tab for SYSTEM_ADMIN and ignores the 6 shortcut', async () => {
+  it('hides the Send Update tab for SYSTEM_ADMIN and ignores the 5 shortcut', async () => {
     const user = userEvent.setup();
     renderModal(cluster(), 'SYSTEM_ADMIN');
     // SYSTEM_ADMIN has no Send Update tab rendered.
     expect(screen.queryByTestId('triage-panel-update')).toBeNull();
-    await user.keyboard('6');
-    // 6 must not open the update panel for SYSTEM_ADMIN.
+    await user.keyboard('5');
+    // 5 must not open the update panel for SYSTEM_ADMIN.
     expect(screen.queryByTestId('triage-panel-update')).toBeNull();
   });
 
@@ -105,7 +105,7 @@ describe('TriageInspectionModal — #636 context + Send Update', () => {
       anchor_report_id: 10,
     });
     renderModal(closedCluster);
-    await user.keyboard('6');
+    await user.keyboard('5');
     expect(screen.getByTestId('triage-panel-update-closed')).toBeInTheDocument();
     expect(screen.getByTestId('triage-panel-update-closed')).toHaveTextContent('already closed');
     expect(screen.queryByTestId('update-stage-select')).toBeNull();
