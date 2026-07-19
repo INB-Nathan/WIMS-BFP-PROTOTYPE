@@ -148,13 +148,48 @@ def test_emergencies_returns_published_only(client: TestClient):
     sql = _captured_sql(client)
     assert "information_emergencies" in sql
     assert "published = TRUE" in sql
-    assert "JOIN wims.fire_incidents" in sql
+    assert "LEFT JOIN wims.fire_incidents" in sql
     assert "fi.verification_status = 'VERIFIED'" in sql
-    assert "fire_incident_civilian_links" in sql
+    assert "fire_incident_civilian_links" not in sql
     assert "COUNT(DISTINCT cr.report_id)" in sql
     assert "ST_Contains" in sql
     assert "cr.status IN ('PENDING', 'UNDER_REVIEW', 'LINKED')" in sql
     assert "ORDER BY ie.published_at DESC" in sql
+
+
+def test_emergencies_includes_published_manual_emergency_without_geometry(client: TestClient):
+    manual = {
+        "id": 10,
+        "title": "omg fire",
+        "location": "Morayta",
+        "description": "Pandoog on fire.",
+        "severity": "high",
+        "status": "monitoring",
+        "promoted_from_incident_id": None,
+        "latitude": None,
+        "longitude": None,
+        "perimeter_geometry": None,
+        "civilian_signal_count": 0,
+        "published": True,
+        "published_at": _PUBLISHED_AT,
+        "created_at": _CREATED_AT,
+    }
+    _set_rows(client, [manual])
+
+    response = client.get("/api/information/emergencies")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body[0]["title"] == "omg fire"
+    assert body[0]["promoted_from_incident_id"] is None
+    assert body[0]["latitude"] is None
+    assert body[0]["longitude"] is None
+    assert body[0]["perimeter"] is None
+    assert body[0]["civilian_signal_count"] == 0
+
+    sql = _captured_sql(client)
+    assert "LEFT JOIN wims.fire_incidents" in sql
+    assert "fire_incident_civilian_links" not in sql
 
 
 def test_emergencies_excludes_unpublished_from_result(client: TestClient):

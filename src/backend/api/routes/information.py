@@ -5,7 +5,8 @@ GET /api/information/emergencies  — published emergencies, newest first
 
 Both endpoints read with a bare ``get_db()`` session (no RLS / no auth) because
 the Information page is public. The published-only filter is enforced in SQL so
-unpublished rows are never returned to anonymous clients.
+unpublished rows are never returned to anonymous clients. Emergency geometry is
+included only when its linked incident is VERIFIED.
 """
 
 from __future__ import annotations
@@ -73,7 +74,7 @@ def _public_emergency(row: dict) -> dict:
 def list_emergencies(
     db: Annotated[Session, Depends(get_db)],
 ) -> list[dict]:
-    """Public list of published emergencies sourced from linked verified incidents."""
+    """Public list of published emergencies, with geometry from verified linked incidents."""
     return [_public_emergency(row) for row in list_public_emergencies(db)]
 
 
