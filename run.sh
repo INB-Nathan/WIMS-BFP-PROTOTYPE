@@ -68,11 +68,10 @@ REQUIRED_VARS=(
   KEYCLOAK_ADMIN_PASSWORD
   KEYCLOAK_ADMIN_CLIENT_ID
   KEYCLOAK_ADMIN_CLIENT_SECRET
-  NEXT_PUBLIC_TURNSTILE_SITE_KEY
-  TURNSTILE_SECRET_KEY
-  SMTP_USER
-  SMTP_PASSWORD
 )
+
+# Optional secrets — written to .env.production if supplied, but blank is fine
+# for a demo (Turnstile CAPTCHA and SMTP mail simply don't enforce/send).
 
 # -----------------------------------------------------------------------------
 # Helpers
@@ -155,8 +154,15 @@ generate_env() {
   local realm_url="${KEYCLOAK_REALM_URL:-${PUBLIC_BASE_URL}/auth/realms/bfp}"
   local master_key="${WIMS_MASTER_KEY:-$(openssl rand -hex 32)}"
   local kc_event_secret="${WIMS_KEYCLOAK_EVENT_SECRET:-$(openssl rand -hex 32)}"
+  local pg_password="${POSTGRES_PASSWORD:-$(openssl rand -base64 24)}"
+  # KC_DB_PASSWORD MUST match the keycloak role seeded on first boot in
+  # postgres-init/00_keycloak_bootstrap.sql (LOGIN PASSWORD 'secret'), or
+  # Keycloak cannot connect to Postgres and all auth breaks.
+  local kc_db_password="${KC_DB_PASSWORD:-secret}"
 
   set_env PUBLIC_BASE_URL        "$PUBLIC_BASE_URL"
+  set_env POSTGRES_PASSWORD      "$pg_password"
+  set_env KC_DB_PASSWORD         "$kc_db_password"
   set_env DATABASE_URL           "$DATABASE_URL"
   set_env REDIS_URL              "$REDIS_URL"
   set_env KEYCLOAK_REALM_URL     "$realm_url"
@@ -189,6 +195,8 @@ env_check() {
   fi
   if [ -z "${WIMS_MASTER_KEY:-}" ]; then die "WIMS_MASTER_KEY is empty in $ENV_FILE"; fi
   if [ -z "${KEYCLOAK_REALM_URL:-}" ]; then die "KEYCLOAK_REALM_URL is empty in $ENV_FILE"; fi
+  if [ -z "${POSTGRES_PASSWORD:-}" ]; then die "POSTGRES_PASSWORD is empty in $ENV_FILE"; fi
+  if [ -z "${KC_DB_PASSWORD:-}" ]; then die "KC_DB_PASSWORD is empty in $ENV_FILE"; fi
   info ".env.production is complete."
 }
 
@@ -214,6 +222,7 @@ run_deploy() {
   [ -x "$WIMS_HOME/scripts/deploy-vps.sh" ] \
     || die "scripts/deploy-vps.sh not found at $WIMS_HOME"
   export DEPLOY_COMMIT
+  export DEPLOY_BRANCH="$BRANCH"
   exec bash "$WIMS_HOME/scripts/deploy-vps.sh"
 }
 
@@ -290,9 +299,9 @@ cmd_backup() {
 
 cmd_rollback() {
   cd_home
-  if docker image inspect backend-image-rollback:latest >/dev/null 2>&1; then
+  if docker image inspect wims-backend-rollback:latest >/dev/null 2>&1; then
     info "Rolling back backend to previous image..."
-    BACKEND_IMAGE=backend-image-rollback:latest compose up -d backend
+    BACKEND_IMAGE=wims-backend-rollback:latest compose up -d backend
   else
     die "No rollback image (backend-image-rollback:latest) found."
   fi

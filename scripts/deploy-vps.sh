@@ -32,10 +32,11 @@ cd /opt/wims-bfp
 # Restore git ownership before reset (suricata entrypoint chown can break git)
 sudo chown -R wims:wims src/suricata/rules src/suricata/logs 2>/dev/null || true
 
-git fetch origin master
+DEPLOY_BRANCH="${DEPLOY_BRANCH:-master}"
+git fetch origin "$DEPLOY_BRANCH"
 git reset --hard
 git clean -fd
-git checkout -B master origin/master
+git checkout -B "$DEPLOY_BRANCH" "origin/$DEPLOY_BRANCH"
 cd src
 
 test -f .env.production || { echo "FATAL: .env.production is missing on VPS"; exit 1; }
@@ -90,10 +91,14 @@ cleanup_stale_compose_renames
 # Pre-deploy DB connectivity check
 # ---------------------------------------------------------------------------
 echo "Checking database connectivity..."
-compose exec -T postgres psql -U postgres -d wims -c "SELECT 1;" >/dev/null || {
-  echo 'DB connectivity check failed — aborting deploy'
-  exit 1
-}
+if docker ps --format '{{.Names}}' | grep -Fxq wims-postgres; then
+  compose exec -T postgres psql -U postgres -d wims -c "SELECT 1;" >/dev/null || {
+    echo 'DB connectivity check failed — aborting deploy'
+    exit 1
+  }
+else
+  echo "Postgres not running yet (first install) — skipping pre-deploy DB check."
+fi
 
 # ---------------------------------------------------------------------------
 # Authenticate to GHCR for pulling pre-built images
@@ -220,9 +225,9 @@ done
 if [ "$BACKEND_READY" = "0" ]; then
   echo "Backend health check failed after 60 attempts"
   # Rollback: restart old tag
-  if docker image inspect backend-image-rollback:latest >/dev/null 2>&1; then
+  if docker image inspect wims-backend-rollback:latest >/dev/null 2>&1; then
     echo "Rolling back to previous image..."
-    BACKEND_IMAGE=backend-image-rollback:latest compose up -d backend
+    BACKEND_IMAGE=wims-backend-rollback:latest compose up -d backend
   else
     echo "No rollback image found — backend may need manual intervention"
   fi
@@ -230,10 +235,12 @@ if [ "$BACKEND_READY" = "0" ]; then
 fi
 
 echo "Checking public gateway health..."
-curl -fsS https://wimsbfp.tech/health >/dev/null
-curl -fsS https://wimsbfp.tech/auth/realms/bfp/.well-known/openid-configuration >/dev/null
-curl -fsS https://wimsbfp.tech/login >/dev/null
-curl -fsS https://wimsbfp.tech/api/public/emergency-services >/dev/null
+set +u; . ./.env.production; set -u
+BASE="${PUBLIC_BASE_URL:-https://wimsbfp.tech}"
+curl -fsS "$BASE/health" >/dev/null
+curl -fsS "$BASE/auth/realms/bfp/.well-known/openid-configuration" >/dev/null
+curl -fsS "$BASE/login" >/dev/null
+curl -fsS "$BASE/api/public/emergency-services" >/dev/null
 
 echo "Checking Ollama model provisioning..."
 docker exec wims-ollama ollama list | grep -q 'qwen2.5:1.5b'
