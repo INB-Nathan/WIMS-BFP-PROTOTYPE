@@ -1,7 +1,7 @@
 ---
 title: Infrastructure Configuration
 created: 2026-05-16
-updated: 2026-07-18
+updated: 2026-07-19
 type: architecture
 tags: [wims-bfp, docker, nginx, suricata, keycloak, infrastructure]
 sources: [src/docker-compose.yml, src/docker-compose.prod.yml, src/.env.production.example, src/osrm/metro-manila.env, scripts/provision-osrm-metro-manila.sh, src/nginx/, src/suricata/, src/keycloak/import/bfp-realm.json, src/keycloak/Dockerfile, .github/workflows/ci.yml]
@@ -145,7 +145,7 @@ whitelisting procedures (IP, UA, or Super Whitelist bypass).
 
 **Ollama VPS resource cap:** The current Contabo production VPS has 8 vCPUs / 23 GiB RAM. `docker-compose.yml` and `docker-compose.prod.yml` cap Ollama at `cpus: '4'` / `memory: 6gb` for `qwen2.5:3b`. This reserves enough headroom for Qwen2.5-3B inference while leaving CPU and memory for Postgres, Keycloak, backend, Celery, Suricata, Redis, nginx, and the host OS cache. Older 2-vCPU / 8 GB VPS overrides must not be used on the Contabo host because they under-allocate the model and database services.
 
-**Frontend/auth env:** `docker-compose.prod.yml` sets browser-facing frontend build/runtime variables to the public HTTPS origin (`${PUBLIC_BASE_URL}`) or relative paths (`/api`, `/auth`). The development compose file also uses relative `/api` and `/auth` for browser-facing access, so local HTTP desk checks stay same-origin and avoid CORS preflight redirects. The Next.js server-side auth routes use `BACKEND_URL=http://backend:8000` in both development and production, and route handlers append `/api/...` explicitly. `POST /api/auth/refresh` is also server-side and must use the internal Keycloak origin, so both development and production compose set `AUTH_SERVER_URL=http://keycloak:8080/auth`; do not substitute browser-relative `/auth` for this value. Keycloak advertises `KC_HOSTNAME_URL=${PUBLIC_BASE_URL}/auth` in production to keep OIDC discovery issuer/endpoints aligned with the nginx `/auth/` proxy path. For `POST /api/auth/sync`, the route forwards nginx-provided `X-Real-IP`/sanitized `X-Forwarded-For` to backend `POST /api/auth/callback` so backend Redis rate limiting keys by end-user IP rather than by the frontend container.
+**Frontend/auth env:** `docker-compose.prod.yml` sets browser-facing frontend build/runtime variables to the public HTTPS origin (`${PUBLIC_BASE_URL}`) or relative paths (`/api`, `/auth`). The development compose file also uses relative `/api` and `/auth` for browser-facing access, so local HTTP desk checks stay same-origin and avoid CORS preflight redirects. The Next.js server-side auth routes use `BACKEND_URL=http://backend:8000` in both development and production, and route handlers append `/api/...` explicitly. Production `POST /api/auth/refresh` uses `AUTH_SERVER_URL=${PUBLIC_BASE_URL}/auth`: a refresh token issued through the public Keycloak issuer is rejected when the Next.js server instead calls the internal `http://nginx-gateway/auth` host. Do not substitute browser-relative `/auth` for this server-side value. Keycloak advertises `KC_HOSTNAME_URL=${PUBLIC_BASE_URL}/auth` in production to keep OIDC discovery issuer/endpoints aligned with the nginx `/auth/` proxy path. For `POST /api/auth/sync`, the route forwards nginx-provided `X-Real-IP`/sanitized `X-Forwarded-For` to backend `POST /api/auth/callback` so backend Redis rate limiting keys by end-user IP rather than by the frontend container.
 
 **Route Table:**
 

@@ -766,3 +766,9 @@ Removed the AI incident narrative feature (PR #104 / #69) — backend-only featu
 - **Compose validation:** `docker compose ... -f docker-compose.yml -f docker-compose.ci.yml config --quiet` and `OSRM_DATA_DIR=/tmp/osrm-contract-data docker compose ... -f docker-compose.yml -f docker-compose.prod.yml config --quiet` both succeed.
 - **Wiki:** New `docs/operations/osrm-routing.md`; updated [[architecture/infrastructure-config]], [[security/security-baseline]], [[frontend/route-map]], [[gaps/frs-codebase-gap-register]] (marked #552 partial), and `system-wiki/index.md`.
 - **Live verification:** end-to-end road routing on production data remains pending an authorized dataset provisioning and VPS run; treated as partially closed until `docs/operations/osrm-routing.md` is executed against provisioned data.
+
+## [2026-07-19] fix(auth): preserve the public Keycloak issuer for production refreshes
+
+- **Scope:** Production frontend `AUTH_SERVER_URL` now resolves through `${PUBLIC_BASE_URL}/auth` rather than the internal `http://nginx-gateway/auth` hostname. Keycloak rejected refresh tokens issued for the public issuer when the server-side refresh call used the internal hostname, and the frontend then cleared both auth cookies.
+- **Evidence:** `src/docker-compose.prod.yml`, `src/frontend/src/app/api/auth/refresh/route.ts`, the focused route/compose contract tests, and production Keycloak `REFRESH_TOKEN_ERROR` logs observed during the 2026-07-19 diagnosis.
+- **Validation:** `src/frontend/src/app/api/auth/refresh/route.test.ts` and `src/backend/tests/test_frontend_auth_production_config.py`; production Compose configuration parses with the committed example environment. No FRS/code gap changed.
