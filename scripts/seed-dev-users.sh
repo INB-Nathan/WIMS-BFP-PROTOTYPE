@@ -8,12 +8,25 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 COMPOSE_FILE="$PROJECT_ROOT/src/docker-compose.yml"
+ENV_FILE="$PROJECT_ROOT/src/.env.production"
 KEYCLOAK_CONTAINER="wims-keycloak"
 KC_SERVER="http://localhost:8080/auth"
 KC_REALM="bfp"
-KC_ADMIN_USER="admin"
-KC_ADMIN_PASS="admin"
 PASSWORD="Password123!"
+
+# Keycloak's actual master-realm admin credentials are set from
+# KEYCLOAK_ADMIN/KEYCLOAK_ADMIN_PASSWORD on its first-ever boot (see
+# docker-compose.yml's KC_BOOTSTRAP_ADMIN_* env vars) — read the same values
+# from .env.production instead of assuming the "admin"/"admin" local-dev
+# default, which only matches when that var was never overridden.
+if [ -f "$ENV_FILE" ]; then
+  set -a
+  # shellcheck disable=SC1090
+  . "$ENV_FILE"
+  set +a
+fi
+KC_ADMIN_USER="${KEYCLOAK_ADMIN:-admin}"
+KC_ADMIN_PASS="${KEYCLOAK_ADMIN_PASSWORD:-admin}"
 
 # Keep docker exec path arguments Linux-style under Git Bash on Windows.
 docker_exec() {
