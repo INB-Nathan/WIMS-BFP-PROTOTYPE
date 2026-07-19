@@ -75,6 +75,7 @@ FastAPI route ownership snapshot from `src/backend/api/routes`.
 | `regional/encoder_crud.py` | `PATCH` | `/incidents/{incident_id}/unarchive` | `encoder_unarchive_incident` |
 | `regional/encoder_crud.py` | `PATCH` | `/incidents/{incident_id}/submit` | `submit_incident_for_review` |
 | `regional/validator.py` | `GET` | `/validator/incidents` | `get_validator_incident_queue` |
+| `regional/perimeters.py` | `GET` | `/perimeter-incidents` | `list_perimeter_incidents` | NATIONAL_VALIDATOR/SYSTEM_ADMIN only; lists mapped, active VERIFIED incidents with eligible linked civilian reports, including PII-free location/date/application context for the perimeter selector. |
 | `regional/perimeters.py` | `POST` | `/incidents/{incident_id}/perimeter` | `create_perimeter` | NATIONAL_VALIDATOR/SYSTEM_ADMIN only; validates GeoJSON with PostGIS and persists `MANUAL_DRAW` with PostGIS-derived acreage. |
 | `regional/perimeters.py` | `GET` | `/incidents/{incident_id}/perimeter` | `get_perimeter` |
 | `regional/perimeters.py` | `PUT` | `/incidents/{incident_id}/perimeter` | `update_perimeter` | NATIONAL_VALIDATOR/SYSTEM_ADMIN only. |

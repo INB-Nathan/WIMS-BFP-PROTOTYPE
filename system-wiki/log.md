@@ -1,3 +1,10 @@
+## [2026-07-19] feat(validator): select perimeter incidents from civilian-report evidence
+
+- **Scope:** `/dashboard/validator/perimeter-draw` replaces manual verified-incident ID entry with a native dropdown. The new `GET /api/regional/perimeter-incidents` contract returns only mapped, active VERIFIED incidents backed by eligible non-rejected civilian reports and supplies PII-free reference/category, location, incident date, report count, and latest report-application time for the selector and selected summary.
+- **Security:** The endpoint retains NATIONAL_VALIDATOR/SYSTEM_ADMIN server authorization and an RLS-scoped application session; detail loading, verified/mapped checks, PostGIS geometry validation, and server-side perimeter persistence remain authoritative.
+- **Tests:** Added backend route/service contract and role-denial coverage plus frontend API/dropdown/context/clear-selection coverage. No FRS/code gap changed.
+- **Wiki:** Updated [[backend/api-route-map]], [[frontend/route-map]], and [[index]].
+
 ## [2026-07-19] fix(information): include published manual emergency updates in the public feed
 
 - **Scope:** `GET /api/information/emergencies` now returns every published System Admin emergency update. It retains the verified-incident predicate only on the optional geometry join, so linked VERIFIED incidents still provide coordinates/perimeters while manual and unverified-linked cards are public without geometry. This restores the Information Management promise that published emergency updates reach the civilian feed.

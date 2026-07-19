@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }));
 vi.mock('./transport', () => ({ apiFetch }));
 
-import { fetchPerimeter, saveManualPerimeter } from './perimeters';
+import { fetchPerimeter, fetchPerimeterIncidentOptions, saveManualPerimeter } from './perimeters';
 
 const geometry = {
   type: 'Polygon' as const,
@@ -22,6 +22,14 @@ describe('perimeter API client', () => {
       method: 'POST',
       body: JSON.stringify({ geometry, map_method: 'MANUAL_DRAW' }),
     });
+  });
+
+  it('lists verified perimeter incidents backed by civilian reports', async () => {
+    apiFetch.mockResolvedValue([]);
+
+    await fetchPerimeterIncidentOptions();
+
+    expect(apiFetch).toHaveBeenCalledWith('/regional/perimeter-incidents');
   });
 
   it('loads the existing perimeter for editing', async () => {

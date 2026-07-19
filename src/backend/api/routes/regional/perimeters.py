@@ -21,6 +21,7 @@ from schemas.regional import (
     LinkReportsRequest,
     LinkReportsResponse,
     PerimeterCreateRequest,
+    PerimeterIncidentOption,
     PerimeterResponse,
     PerimeterUpdateRequest,
 )
@@ -89,6 +90,18 @@ def _marshal(row: dict, linked: list[dict]) -> PerimeterResponse:
         updated_at=row["updated_at"],
         linked_reports=linked,
     )
+
+
+@router.get(
+    "/perimeter-incidents",
+    response_model=list[PerimeterIncidentOption],
+)
+def list_perimeter_incidents(
+    user: Annotated[dict, Depends(_require_perimeter_editor)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
+):
+    """List mapped verified incidents backed by linked civilian reports."""
+    return perimeter_service.list_civilian_linked_verified_incidents(db)
 
 
 @router.post(
