@@ -60,6 +60,14 @@ SRC_DIR="$WIMS_HOME/src"
 ENV_EXAMPLE="$SRC_DIR/.env.production.example"
 ENV_FILE="$SRC_DIR/.env.production"
 
+# App-service image tags. docker-compose.yml resolves these via
+# ${VAR:-default}; exporting them here makes EVERY command (deploy and
+# maintenance like `migrate`/`rollback`) resolve the same images instead of
+# silently defaulting to the never-built `*:local` tags and failing.
+export BACKEND_IMAGE="${BACKEND_IMAGE:-ghcr.io/x1n4te/wims-backend:latest}"
+export FRONTEND_IMAGE="${FRONTEND_IMAGE:-ghcr.io/x1n4te/wims-frontend:latest}"
+export KEYCLOAK_IMAGE="${KEYCLOAK_IMAGE:-wims-keycloak-demo-otp:local}"
+
 # Externally-provisioned secrets that MUST be supplied before `install`.
 REQUIRED_VARS=(
   PUBLIC_BASE_URL
@@ -217,10 +225,45 @@ provision_tls() {
   info "Certbot auto-renewal cron installed."
 }
 
+# The osrm service healthcheck requires the preprocessed MLD dataset
+# (metro-manila.osrm.{cells,partition}); without it `compose up --wait` never
+# goes healthy and the deploy aborts. Idempotent: the provision script exits
+# early when the active dataset already validates.
+provision_osrm() {
+  local data_root
+  data_root="$(grep -m1 '^OSRM_DATA_DIR=' "$ENV_FILE" | cut -d= -f2- | tr -d "\"' \r\t")"
+  data_root="${data_root:-/opt/wims-osrm-data}"
+  if [ -s "$data_root/active/metro-manila.osrm.cells" ] \
+     && [ -s "$data_root/active/metro-manila.osrm.partition" ]; then
+    info "OSRM dataset already present at $data_root/active — skipping."
+    return 0
+  fi
+  info "Provisioning OSRM routing dataset into $data_root ..."
+  bash "$WIMS_HOME/scripts/provision-osrm-metro-manila.sh" "$data_root"
+}
+
+# The keycloak service uses a locally-built image (custom OTP provider + BFP
+# theme). deploy-vps.sh runs `compose up --no-build`, so the image must exist
+# beforehand. Build it if absent and no external KEYCLOAK_IMAGE is pinned.
+build_keycloak_image() {
+  case "$KEYCLOAK_IMAGE" in
+    *:local) ;;                       # local build tag — build below if missing
+    *) info "KEYCLOAK_IMAGE pinned to $KEYCLOAK_IMAGE — skipping local build."; return 0 ;;
+  esac
+  if docker image inspect "$KEYCLOAK_IMAGE" >/dev/null 2>&1; then
+    info "Keycloak image $KEYCLOAK_IMAGE already built — skipping."
+    return 0
+  fi
+  info "Building keycloak image $KEYCLOAK_IMAGE ..."
+  docker build -t "$KEYCLOAK_IMAGE" "$SRC_DIR/keycloak"
+}
+
 run_deploy() {
   cd_home
   [ -x "$WIMS_HOME/scripts/deploy-vps.sh" ] \
     || die "scripts/deploy-vps.sh not found at $WIMS_HOME"
+  provision_osrm
+  build_keycloak_image
   export DEPLOY_COMMIT
   export DEPLOY_BRANCH="$BRANCH"
   exec bash "$WIMS_HOME/scripts/deploy-vps.sh"
@@ -270,10 +313,10 @@ cmd_health() {
   check "$base/auth/realms/bfp/.well-known/openid-configuration"
   check "$base/login"
   check "$base/api/public/emergency-services"
-  if docker exec wims-ollama ollama list 2>/dev/null | grep -q 'qwen2.5:1.5b'; then
-    info "OK   ollama model qwen2.5:1.5b present"
+  if docker exec wims-ollama ollama list 2>/dev/null | grep -q 'qwen2.5:3b'; then
+    info "OK   ollama model qwen2.5:3b present"
   else
-    warn "FAIL ollama model qwen2.5:1.5b not found"; fails=$((fails+1))
+    warn "FAIL ollama model qwen2.5:3b not found"; fails=$((fails+1))
   fi
   [ "$fails" -eq 0 ] && info "All health checks passed." || die "$fails health check(s) failed."
 }

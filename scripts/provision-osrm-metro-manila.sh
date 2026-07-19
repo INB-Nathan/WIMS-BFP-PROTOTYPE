@@ -35,7 +35,12 @@ activate_dataset() {
       exit 1
     }
   fi
-  ln -s "$version_dir" "$temporary_link"
+  # Use a RELATIVE target ("2026-07-19", not "$root/2026-07-19"). The osrm
+  # container bind-mounts $root at /data read-only; an absolute symlink target
+  # points outside that mount and is dangling inside the container, so
+  # osrm-routed reports "Required files are missing". A relative link resolves
+  # both on the host and inside /data.
+  ln -s "$OSRM_DATA_VERSION" "$temporary_link"
   mv -Tf "$temporary_link" "$active_link"
 }
 

@@ -246,7 +246,7 @@ curl -fsS "$BASE/login" >/dev/null
 curl -fsS "$BASE/api/public/emergency-services" >/dev/null
 
 echo "Checking Ollama model provisioning..."
-docker exec wims-ollama ollama list | grep -q 'qwen2.5:1.5b'
+docker exec wims-ollama ollama list | grep -q 'qwen2.5:3b'
 
 echo "=== Deploy successful — commit $DEPLOY_COMMIT ==="
 echo "DEPLOY_COMMIT=${DEPLOY_COMMIT:-unknown} $(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> /opt/wims-bfp/.deploy_history
