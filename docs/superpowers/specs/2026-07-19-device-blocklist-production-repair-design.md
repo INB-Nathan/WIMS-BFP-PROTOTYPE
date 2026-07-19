@@ -1,7 +1,7 @@
 # Device Blocklist Production Repair — Design
 
-**Date:** 2026-07-19  
-**Status:** Approved for specification review  
+**Date:** 2026-07-19
+**Status:** Approved for specification review
 **Scope:** Repair the production device-blocklist schema contract, restore device-token correlation configuration documentation, and make the monitoring UI explain unavailable device blocking.
 
 ## Problem and evidence
