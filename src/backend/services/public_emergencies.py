@@ -7,15 +7,10 @@ from sqlalchemy.orm import Session
 
 _PUBLIC_EMERGENCY_SOURCE = """
     FROM wims.information_emergencies ie
-    JOIN wims.fire_incidents fi
+    LEFT JOIN wims.fire_incidents fi
       ON fi.incident_id = ie.promoted_from_incident_id
      AND fi.verification_status = 'VERIFIED'
     WHERE ie.published = TRUE
-      AND EXISTS (
-          SELECT 1
-          FROM wims.fire_incident_civilian_links l
-          WHERE l.incident_id = fi.incident_id
-      )
 """
 
 # A report is eligible only while unresolved and strictly inside an active
@@ -33,7 +28,7 @@ _ELIGIBLE_CIVILIAN_SIGNAL = """
 
 
 def list_public_emergencies(db: Session) -> list[dict]:
-    """Return published verified emergencies with coarse civilian-signal counts."""
+    """Return published emergencies with verified-incident geometry and signal counts."""
     rows = (
         db.execute(
             text(

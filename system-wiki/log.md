@@ -1,3 +1,9 @@
+## [2026-07-19] fix(information): include published manual emergency updates in the public feed
+
+- **Scope:** `GET /api/information/emergencies` now returns every published System Admin emergency update. It retains the verified-incident predicate only on the optional geometry join, so linked VERIFIED incidents still provide coordinates/perimeters while manual and unverified-linked cards are public without geometry. This restores the Information Management promise that published emergency updates reach the civilian feed.
+- **Validation:** `tests/test_information_public.py` covers a published manual emergency with no source incident and asserts the optional join/no civilian-link restriction.
+- **Wiki:** Updated [[backend/api-route-map]] and [[index]]. No FRS/code gap changed.
+
 ## [2026-07-19] fix(security): repair persistent device-blocklist production contract
 
 - **Scope:** Alembic `0027` creates the `wims.device_blocklist` table, indexes, forced SYSTEM_ADMIN RLS policy, and repeat-offender threshold configuration on existing deployments, closing the bootstrap-only schema gap that made the blocked-device list fail. Production Compose now passes the device-token signing-key configuration to the backend; the committed production environment example documents the required secret without providing a fallback or value.
