@@ -596,6 +596,8 @@ class TestExistingRateLimits:
                     "latitude": 14.5995,
                     "longitude": 120.9842,
                     "category": "STRUCTURAL",
+                    "reporter_name": "Test Reporter",
+                    "reporter_phone": "09171111111",
                     "turnstile_token": "test-token",
                 },
                 headers={"x-real-ip": "198.51.100.1"},
@@ -673,6 +675,8 @@ class TestCivilianReportRateLimit:
         "latitude": 14.5995,
         "longitude": 120.9842,
         "category": "STRUCTURAL",
+        "reporter_name": "Test Reporter",
+        "reporter_phone": "09171111111",
         "turnstile_token": "test-token",
     }
     _IP = "198.51.100.77"

@@ -771,6 +771,8 @@ export interface CivilianReportV2Payload {
   phone_longitude?: number;
   gps_distance_m?: number;
   gps_warning_confirmed: boolean;
+  reporter_name?: string;
+  reporter_phone?: string;
   witness_name?: string;
   witness_phone?: string;
   previous_report_id?: number;

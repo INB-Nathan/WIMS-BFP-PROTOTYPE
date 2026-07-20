@@ -21,7 +21,7 @@ export function ActivityPanel({ activity }: ActivityPanelProps) {
         <h3 className="triage-panel__title">Activity timeline</h3>
         <p className="triage-panel__desc">
           Most recent audit events for this cluster, newest first. Actions you take in this
-          modal will appear here.
+          workspace will appear here.
         </p>
       </header>
 

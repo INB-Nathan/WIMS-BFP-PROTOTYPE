@@ -1,7 +1,7 @@
 'use client';
 
 import { Activity, GitMerge, GitPullRequestArrow, Send, Terminal } from 'lucide-react';
-import type { TriageActionTab } from './useTriageModalState';
+import type { TriageActionTab } from './useTriageWorkflowState';
 
 export interface TriageActionTabsProps {
   tab: TriageActionTab;

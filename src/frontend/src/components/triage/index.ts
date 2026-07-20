@@ -1,4 +1,4 @@
-export { TriageInspectionModal } from './TriageInspectionModal';
+export { TriageWorkflowPanel } from './TriageWorkflowPanel';
 export { TriageCanvasMap } from './TriageCanvasMap';
 export type { TriageCanvasMapProps } from './TriageCanvasMap';
 export { TriageEvidenceTable, TriageInvestigationBoard } from './TriageInvestigationBoard';

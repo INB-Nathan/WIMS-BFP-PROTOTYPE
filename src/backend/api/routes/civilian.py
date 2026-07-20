@@ -22,7 +22,12 @@ from database import get_db
 from services.civilian_tracking import get_capability_tracking_projection
 from services.civilian_triage import get_public_status_updates
 from services.event_bus import publish_verification_event_sync
+from services.geoip_evidence import persist_coarse_ip_evidence, resolve_coarse_ip_evidence
 from services.kms import get_crypto_provider
+from services.reporter_identity import (
+    persist_encrypted_reporter_identity,
+    resolve_reporter_identity,
+)
 from tasks.routing import compute_routing_task
 from utils.audit import hash_client_ip, log_system_audit, trusted_client_ip
 from utils.crypto import SecurityProviderError
@@ -437,21 +442,26 @@ async def submit_civilian_report(
     # trusted_client_ip reads X-Real-IP (set by nginx to $realip_remote_addr)
     # and falls back to the ASGI socket peer. It NEVER reads X-Forwarded-For,
     # which is client-controlled (gap #14).
-    ip_hash = hash_client_ip(trusted_client_ip(request))
+    client_ip = trusted_client_ip(request)
+    ip_hash = hash_client_ip(client_ip)
     _require_previous_report(db, body.previous_report_id)
+
+    # Authenticated submissions are accepted only for the civilian role. This
+    # prevents other authenticated roles from bypassing anonymous abuse controls.
+    reporter_identity = resolve_reporter_identity(db, body, user)
+    is_registered_reporter = reporter_identity.authenticated
 
     # ── Device abuse escalation (CAPTCHA + rate limit + quarantine) for
     # anonymous submitters — issue #572. Authenticated CIVILIAN_REPORTER
     # users skip this entirely, same as the CAPTCHA-only guard it replaces.
-    if user is None:
+    if not is_registered_reporter:
         await check_device_abuse(request, body.turnstile_token)
 
     # ── Determine rate-limit cap and contributor identity ─────────────────
-    is_registered_reporter = user is not None and user.get("role") == "CIVILIAN_REPORTER"
     rate_limit_cap = (
         REGISTERED_REPORT_HOURLY_CAP if is_registered_reporter else CIVILIAN_REPORT_HOURLY_CAP
     )
-    contributor_user_id = user["user_id"] if is_registered_reporter else None
+    contributor_user_id = reporter_identity.contributor_user_id
 
     # ── Early duplicate check for client_report_id ──────────────────
     # If the client provides a client_report_id that already exists in the
@@ -551,6 +561,8 @@ async def submit_civilian_report(
         float(nearest.distance_m) if nearest and nearest.distance_m is not None else None
     )
     trust_score = _trust_score(db, body, wkt, nearest_distance_m)
+    coarse_ip_evidence = resolve_coarse_ip_evidence(client_ip)
+    del client_ip
 
     # ── Atomic INSERT with idempotency safety net ────────────────────────
     # The early duplicate check above caught any existing client_report_id.
@@ -691,6 +703,15 @@ async def submit_civilian_report(
         device_id=body.device_id,
         ip_hash=ip_hash,
     )
+
+    # Reporter identity is a separate immutable submission snapshot. Unlike
+    # the legacy witness path, this encryption is intentionally fail-closed.
+    try:
+        persist_encrypted_reporter_identity(db, report_id, reporter_identity)
+        persist_coarse_ip_evidence(db, report_id, coarse_ip_evidence)
+    except Exception:
+        db.rollback()
+        raise
 
     # ---------------------------------------------------------------------------
     # Audit log entry (D20 / issue #394). The INSERT and the audit are kept

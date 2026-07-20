@@ -3,7 +3,7 @@
 import { Info, Loader2 } from 'lucide-react';
 import type { TerminalCitizenStatus } from '@/lib/api';
 import { CitizenMessagePreview } from './CitizenMessagePreview';
-import { TERMINAL_OPTIONS, selectedReportIds } from './useTriageModalState';
+import { TERMINAL_OPTIONS, selectedReportIds } from './useTriageWorkflowState';
 import type { TriageClusterEntry } from '@/lib/api';
 
 export interface TerminalActionPanelProps {

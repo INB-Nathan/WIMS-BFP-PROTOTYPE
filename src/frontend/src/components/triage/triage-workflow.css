@@ -1,60 +1,32 @@
-/* =========================================================================
-   Triage Inspection Modal — Operations Console Aesthetic
-   BFP Civil Defense Intelligence. Bricolage Grotesque display,
-   JetBrains Mono for IDs/timestamps, BFP maroon dominant.
-   ========================================================================= */
-
-.triage-modal {
-  position: fixed;
-  inset: 0;
-  z-index: 1000;
-  background:
-    radial-gradient(ellipse at top, rgba(153, 27, 27, 0.18), transparent 60%),
-    radial-gradient(ellipse at bottom right, rgba(15, 23, 42, 0.55), rgba(15, 23, 42, 0.85));
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-  display: flex;
-  align-items: stretch;
-  justify-content: center;
-  padding: 1.5rem;
-  animation: triage-fade-in 0.18s ease-out;
+/* Dedicated triage workflow — route-owned evidence and guarded actions. */
+.triage-workflow {
+  position: relative;
+  display: block;
 }
 
-@keyframes triage-fade-in {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
-
-.triage-modal__panel {
+.triage-workflow__panel {
   position: relative;
   display: flex;
   flex-direction: column;
-  width: min(95vw, 1600px);
-  max-width: 1600px;
-  height: min(90vh, 920px);
-  max-height: calc(100vh - 2rem);
-  background: #FAF7F2;            /* bone / cream surface */
+  width: 100%;
+  background: #FAF7F2;
   color: #1F2937;
   border-radius: 14px;
   border: 1px solid #E5DCC9;
-  box-shadow:
-    0 30px 80px rgba(15, 23, 42, 0.35),
-    0 2px 6px rgba(15, 23, 42, 0.12);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
   overflow: hidden;
   font-family: 'Inter', system-ui, sans-serif;
-  animation: triage-modal-rise 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
-@keyframes triage-modal-rise {
-  from { transform: translateY(8px) scale(0.985); opacity: 0; }
-  to   { transform: translateY(0)   scale(1);     opacity: 1; }
+.triage-workflow__spatial {
+  display: none;
 }
 
 /* -------------------------------------------------------------------------
    HEADER
    ------------------------------------------------------------------------- */
 
-.triage-modal-header {
+.triage-workflow-header {
   position: relative;
   padding: 1.1rem 1.4rem 0.9rem;
   background:
@@ -64,7 +36,7 @@
   overflow: hidden;
 }
 
-.triage-modal-header::after {
+.triage-workflow-header::after {
   content: '';
   position: absolute;
   inset: 0;
@@ -73,7 +45,7 @@
   pointer-events: none;
 }
 
-.triage-modal-header__crumb {
+.triage-workflow-header__crumb {
   position: relative;
   display: flex;
   align-items: center;
@@ -85,29 +57,29 @@
   color: rgba(248, 244, 237, 0.55);
 }
 
-.triage-modal-header__crumb-tag {
+.triage-workflow-header__crumb-tag {
   padding: 2px 6px;
   border: 1px solid rgba(248, 244, 237, 0.18);
   border-radius: 3px;
 }
 
-.triage-modal-header__crumb-tag--accent {
+.triage-workflow-header__crumb-tag--accent {
   color: #FBBF24;
   border-color: rgba(251, 191, 36, 0.45);
   background: rgba(251, 191, 36, 0.08);
 }
 
-.triage-modal-header__crumb-sep {
+.triage-workflow-header__crumb-sep {
   color: rgba(248, 244, 237, 0.3);
 }
 
-.triage-modal-header__crumb-current {
+.triage-workflow-header__crumb-current {
   color: #F8F4ED;
   font-weight: 600;
   letter-spacing: 0.08em;
 }
 
-.triage-modal-header__row {
+.triage-workflow-header__row {
   position: relative;
   display: flex;
   align-items: flex-start;
@@ -116,11 +88,11 @@
   margin-top: 0.6rem;
 }
 
-.triage-modal-header__title-block {
+.triage-workflow-header__title-block {
   min-width: 0;
 }
 
-.triage-modal-header__title {
+.triage-workflow-header__title {
   font-family: 'Bricolage Grotesque', 'Inter', system-ui, sans-serif;
   font-size: 1.55rem;
   font-weight: 700;
@@ -130,13 +102,13 @@
   color: #FFFFFF;
 }
 
-.triage-modal-header__subtitle {
+.triage-workflow-header__subtitle {
   margin: 0.3rem 0 0;
   font-size: 0.78rem;
   color: rgba(248, 244, 237, 0.6);
 }
 
-.triage-modal-header__badges {
+.triage-workflow-header__badges {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -144,7 +116,7 @@
   flex-shrink: 0;
 }
 
-.triage-modal-header__meta {
+.triage-workflow-header__meta {
   position: relative;
   display: flex;
   align-items: center;
@@ -156,16 +128,16 @@
   color: rgba(248, 244, 237, 0.7);
 }
 
-.triage-modal-header__spacer { flex: 1; }
+.triage-workflow-header__spacer { flex: 1; }
 
-.triage-modal-header__hint {
+.triage-workflow-header__hint {
   font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 0.7rem;
   color: rgba(248, 244, 237, 0.55);
 }
 
-.triage-modal-header__hint kbd,
-.triage-modal-header__hint .triage-kbd {
+.triage-workflow-header__hint kbd,
+.triage-workflow-header__hint .triage-kbd {
   display: inline-block;
   padding: 1px 5px;
   margin-right: 4px;
@@ -177,7 +149,7 @@
   color: rgba(248, 244, 237, 0.85);
 }
 
-.triage-modal-header__close {
+.triage-workflow-header__close {
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
@@ -192,7 +164,7 @@
   transition: background 0.15s ease, border-color 0.15s ease;
 }
 
-.triage-modal-header__close:hover {
+.triage-workflow-header__close:hover {
   background: rgba(255, 255, 255, 0.12);
   border-color: rgba(255, 255, 255, 0.22);
 }
@@ -338,53 +310,53 @@
    BODY GRID
    ------------------------------------------------------------------------- */
 
-.triage-modal__body {
+.triage-workflow__body {
   display: grid;
-  grid-template-columns: minmax(300px, 0.4fr) minmax(360px, 0.35fr) minmax(380px, 0.3fr);
+  grid-template-columns: minmax(340px, 0.8fr) minmax(380px, 1fr);
   gap: 0;
   flex: 1;
-  min-height: 0;
+  min-height: 680px;
   overflow: hidden;
 }
 
 @media (max-width: 1100px) {
-  .triage-modal__body {
+  .triage-workflow__body {
     grid-template-columns: 1fr;
   }
 
-  .triage-modal__spatial {
+  .triage-workflow__spatial {
     min-height: 320px;
     border-right: 0;
     border-bottom: 1px solid #E5DCC9;
   }
 
-  .triage-modal__center,
-  .triage-modal__right {
+  .triage-workflow__center,
+  .triage-workflow__right {
     border-right: 0;
   }
 }
 
-.triage-modal__rail {
+.triage-workflow__rail {
   background: #F3EFE6;
   border-right: 1px solid #E5DCC9;
   padding: 0.9rem 0.6rem;
   overflow-y: auto;
 }
 
-.triage-modal__center {
+.triage-workflow__center {
   background: #FAF7F2;
   overflow-y: auto;
   border-right: 1px solid #E5DCC9;
 }
 
-.triage-modal__right {
+.triage-workflow__right {
   background: #FFFFFF;
   overflow-y: auto;
   overflow-x: hidden;
   padding: 0;
 }
 
-.triage-modal__spatial {
+.triage-workflow__spatial {
   background: #f8fafc;
   border-right: 1px solid #E5DCC9;
   min-width: 0;
@@ -1607,7 +1579,7 @@
   max-width: 440px;
   padding: 1.4rem 1.4rem 1.1rem;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-  animation: triage-modal-rise 0.18s ease-out;
+  animation: triage-workflow-rise 0.18s ease-out;
 }
 
 .triage-confirm__close {
@@ -1755,28 +1727,28 @@
    SCROLLBARS
    ------------------------------------------------------------------------- */
 
-.triage-modal__center::-webkit-scrollbar,
-.triage-modal__right::-webkit-scrollbar,
-.triage-modal__rail::-webkit-scrollbar {
+.triage-workflow__center::-webkit-scrollbar,
+.triage-workflow__right::-webkit-scrollbar,
+.triage-workflow__rail::-webkit-scrollbar {
   width: 8px;
 }
 
-.triage-modal__center::-webkit-scrollbar-track,
-.triage-modal__right::-webkit-scrollbar-track,
-.triage-modal__rail::-webkit-scrollbar-track {
+.triage-workflow__center::-webkit-scrollbar-track,
+.triage-workflow__right::-webkit-scrollbar-track,
+.triage-workflow__rail::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.triage-modal__center::-webkit-scrollbar-thumb,
-.triage-modal__right::-webkit-scrollbar-thumb,
-.triage-modal__rail::-webkit-scrollbar-thumb {
+.triage-workflow__center::-webkit-scrollbar-thumb,
+.triage-workflow__right::-webkit-scrollbar-thumb,
+.triage-workflow__rail::-webkit-scrollbar-thumb {
   background: rgba(15, 23, 42, 0.18);
   border-radius: 4px;
 }
 
-.triage-modal__center::-webkit-scrollbar-thumb:hover,
-.triage-modal__right::-webkit-scrollbar-thumb:hover,
-.triage-modal__rail::-webkit-scrollbar-thumb:hover {
+.triage-workflow__center::-webkit-scrollbar-thumb:hover,
+.triage-workflow__right::-webkit-scrollbar-thumb:hover,
+.triage-workflow__rail::-webkit-scrollbar-thumb:hover {
   background: rgba(15, 23, 42, 0.32);
 }
 

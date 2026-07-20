@@ -43,6 +43,14 @@ vi.mock('../../offlineStore', () => ({
   queuePublicOfflineOp: offlineStoreMocks.queuePublicOfflineOp,
 }));
 
+const reporterIdentityMocks = vi.hoisted(() => ({
+  encryptOfflineReporterIdentity: vi.fn(),
+}));
+
+vi.mock('../../offlineReporterIdentity', () => ({
+  encryptOfflineReporterIdentity: reporterIdentityMocks.encryptOfflineReporterIdentity,
+}));
+
 // ── Mock legacy API (the publicApiFetch surface used by civilian.ts) ─
 const legacyMocks = vi.hoisted(() => ({
   submitCivilianReportV2: vi.fn(),
@@ -70,6 +78,11 @@ describe('submitCivilianReportOfflineAware', () => {
     vi.clearAllMocks();
     setConnectivity('online');
     offlineStoreMocks.queuePublicOfflineOp.mockResolvedValue(undefined);
+    reporterIdentityMocks.encryptOfflineReporterIdentity.mockResolvedValue({
+      version: 1,
+      clientReportId: 'client-report-1',
+      encrypted: { iv: [1], data: [2] },
+    });
   });
 
   it('queues offline when connectivity is offline', async () => {
@@ -84,6 +97,9 @@ describe('submitCivilianReportOfflineAware', () => {
         reporting_context: 'WITNESS',
         safety_status: 'I_AM_SAFE',
         device_id: DEVICE_ID,
+        client_report_id: 'client-report-1',
+        reporter_name: 'Juan Dela Cruz',
+        reporter_phone: '09171234567',
       },
       DEVICE_ID
     );
@@ -93,6 +109,9 @@ describe('submitCivilianReportOfflineAware', () => {
     expect(queuedOp.operation).toBe('submit');
     expect(queuedOp.deviceId).toBe(DEVICE_ID);
     expect(queuedOp.payload.category).toBe('STRUCTURAL');
+    expect(queuedOp.payload.reporter_name).toBeUndefined();
+    expect(queuedOp.payload.reporter_phone).toBeUndefined();
+    expect(queuedOp.reporterIdentity).toEqual(expect.objectContaining({ version: 1 }));
     expect(typeof queuedOp.localId).toBe('string');
     expect(queuedOp.localId.length).toBeGreaterThan(0);
 
@@ -120,7 +139,15 @@ describe('submitCivilianReportOfflineAware', () => {
     const { submitCivilianReportOfflineAware } = await import('../offlineCivilian');
 
     const result = await submitCivilianReportOfflineAware(
-      { latitude: 14.5, longitude: 121, category: 'STRUCTURAL', reporting_context: 'WITNESS', safety_status: 'I_AM_SAFE', device_id: DEVICE_ID },
+      {
+        latitude: 14.5,
+        longitude: 121,
+        category: 'STRUCTURAL',
+        reporting_context: 'WITNESS',
+        safety_status: 'I_AM_SAFE',
+        device_id: DEVICE_ID,
+        reporter_name: 'Juan Dela Cruz',
+      },
       DEVICE_ID
     );
 

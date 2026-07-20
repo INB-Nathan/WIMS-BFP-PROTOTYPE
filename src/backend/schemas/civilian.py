@@ -32,10 +32,20 @@ class CivilianReportCreate(BaseModel):
     gps_warning_confirmed: bool = False
     witness_name: str | None = Field(default=None, max_length=160)
     witness_phone: str | None = Field(default=None, max_length=80)
+    reporter_name: str | None = Field(default=None, max_length=160)
+    reporter_phone: str | None = Field(default=None, max_length=80)
     previous_report_id: int | None = Field(default=None, gt=0)
     source_url: str | None = Field(default=None, max_length=2048)
     client_report_id: str | None = Field(default=None, max_length=128)
     turnstile_token: str | None = Field(default=None, max_length=2048)
+
+    @field_validator("reporter_name", "reporter_phone")
+    @classmethod
+    def _strip_reporter_identity(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
 
 
 class CivilianReportAppend(BaseModel):

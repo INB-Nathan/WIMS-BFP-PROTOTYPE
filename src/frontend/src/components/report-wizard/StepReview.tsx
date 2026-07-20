@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { Turnstile } from '@marsidev/react-turnstile';
 import type { CivilianDuplicateSuggestion } from '@/lib/api';
@@ -13,6 +14,8 @@ export interface StepReviewProps {
   submitError: string | null;
   queuedOffline: boolean;
   queuedLocalId: string | null;
+  reporterName: string | null;
+  profileIdentityUsed: boolean;
   turnstileEnabled: boolean;
   turnstileExpired: boolean;
   siteKey: string;
@@ -36,6 +39,8 @@ export function StepReview({
   submitError,
   queuedOffline,
   queuedLocalId,
+  reporterName,
+  profileIdentityUsed,
   turnstileEnabled,
   turnstileExpired,
   siteKey,
@@ -81,7 +86,11 @@ export function StepReview({
         {draft.photoPresent && <Row label="Photo" value="Attached" />}
         <Row label="Observations" value={observableLabels.length ? observableLabels.join(', ') : 'None selected'} />
         <Row label="Description" value={draft.description || '—'} />
-        {draft.contactName && <Row label="Contact" value={`${draft.contactName}${draft.contactPhone ? ` · ${draft.contactPhone}` : ''}`} />}
+        <Row
+          label="Submitter"
+          value={profileIdentityUsed ? 'Account profile will be used' : reporterName || '—'}
+        />
+        {draft.contactName && <Row label="Direct eyewitness" value={`${draft.contactName}${draft.contactPhone ? ` · ${draft.contactPhone}` : ''}`} />}
       </div>
 
       {duplicates.length > 0 && (
@@ -105,7 +114,12 @@ export function StepReview({
       {submitError && (
         <div className="flex items-start gap-2 p-3 rounded-lg ps-warning" role="alert">
           <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5 ps-warning-icon" />
-          <span>{submitError}</span>
+          <div>
+            <span>{submitError}</span>
+            {profileIdentityUsed && submitError.toLowerCase().includes('profile') && (
+              <Link href="/profile" className="mt-2 block font-semibold underline">Complete account profile</Link>
+            )}
+          </div>
         </div>
       )}
 

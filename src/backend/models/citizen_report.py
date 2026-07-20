@@ -95,6 +95,17 @@ class CitizenReport(Base):
     phone_longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     gps_distance_m: Mapped[float | None] = mapped_column(Float, nullable=True)
     gps_warning_confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
+    ip_geo_city: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ip_geo_province: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ip_geo_centroid: Mapped[WKBElement | None] = mapped_column(
+        Geography(geometry_type="POINT", srid=4326),
+        nullable=True,
+    )
+    ip_geo_accuracy_m: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    ip_geo_provider: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ip_geo_lookup_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     validated_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("wims.users.user_id"),
@@ -109,6 +120,13 @@ class CitizenReport(Base):
     witness_encryption_iv: Mapped[str | None] = mapped_column(Text, nullable=True)
     witness_crypto_provider: Mapped[str | None] = mapped_column(String(64), nullable=True)
     witness_key_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Immutable encrypted submission-time reporter identity. This is separate
+    # from the optional direct-eyewitness fields above.
+    reporter_pii_blob_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reporter_encryption_iv: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reporter_crypto_provider: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    reporter_key_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    reporter_kms_key_name: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     @validates("location")
     def _validate_location(self, _key: str, value: object) -> object:

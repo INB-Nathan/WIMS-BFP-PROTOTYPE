@@ -32,6 +32,7 @@ import { fetchCivilianDuplicateSuggestions, fetchNearbyStations } from '@/lib/ap
 import { fetchPublicTracking, type PublicTrackingData } from '@/lib/api/tracking';
 import { parseLineStringToLatLng } from '@/components/map/RoutePolyline';
 import { usePublicAutoSync } from '@/lib/usePublicAutoSync';
+import { reporterIdentityComplete } from '@/components/civilian/ReporterIdentityFields';
 
 const STEPS = ['Location', 'Photo', 'Category', 'Details', 'Review'] as const;
 
@@ -39,7 +40,6 @@ const STEPS = ['Location', 'Photo', 'Category', 'Details', 'Review'] as const;
 // (the persistent SafetyBanner replaces the old Safety step; there is no
 // separate context step). The backend still requires them on the payload.
 const DEFAULT_REPORTING_CONTEXT: ReportingContext = 'WITNESS';
-const DEFAULT_SAFETY_STATUS: SafetyStatus = 'UNKNOWN';
 
 function getDeviceId(): string {
   const key = 'wims_civilian_device_id';
@@ -126,6 +126,7 @@ function ReportAuthStatus() {
 export function ReportWizard() {
   usePublicAutoSync();
   const { user } = useAuth();
+  const authenticatedCivilian = user?.role === 'CIVILIAN_REPORTER';
 
   const [mode, setMode] = useState<Mode>('prompt');
   const [stepIndex, setStepIndex] = useState(0);
@@ -140,6 +141,9 @@ export function ReportWizard() {
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [observables, setObservables] = useState<string[]>([]);
   const [description, setDescription] = useState('');
+  const [safetyStatus, setSafetyStatus] = useState<SafetyStatus>('UNKNOWN');
+  const [reporterName, setReporterName] = useState('');
+  const [reporterPhone, setReporterPhone] = useState('');
   const [contactName, setContactName] = useState('');
   const [contactPhone, setContactPhone] = useState('');
   const [notes, setNotes] = useState('');
@@ -149,8 +153,8 @@ export function ReportWizard() {
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const [turnstileExpired, setTurnstileExpired] = useState(false);
   const turnstileRef = useRef<TurnstileInstance | undefined>(undefined);
-  const turnstileEnabled = (process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? '') !== '';
   const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? '';
+  const turnstileEnabled = siteKey !== '' && !authenticatedCivilian;
 
   const onTurnstileSuccess = useCallback((token: string) => {
     setTurnstileToken(token);
@@ -301,6 +305,9 @@ export function ReportWizard() {
     setPhotoExif(null);
     setObservables([]);
     setDescription('');
+    setSafetyStatus('UNKNOWN');
+    setReporterName('');
+    setReporterPhone('');
     setContactName('');
     setContactPhone('');
     setNotes('');
@@ -357,8 +364,10 @@ export function ReportWizard() {
       longitude,
       category: deriveCategory(observables) as CivilianCategory,
       reporting_context: DEFAULT_REPORTING_CONTEXT,
-      safety_status: DEFAULT_SAFETY_STATUS,
+      safety_status: safetyStatus,
       description: description.trim(),
+      reporter_name: authenticatedCivilian ? undefined : reporterName.trim() || undefined,
+      reporter_phone: authenticatedCivilian ? undefined : reporterPhone.trim() || undefined,
       witness_name: contactName || undefined,
       witness_phone: contactPhone || undefined,
       gps_warning_confirmed: false,
@@ -398,6 +407,14 @@ export function ReportWizard() {
     const payload = buildPayload();
     if (!payload) {
       setSubmitError('A description and a location are required to submit.');
+      return;
+    }
+    if (!reporterIdentityComplete(authenticatedCivilian, reporterName, reporterPhone, safetyStatus)) {
+      setSubmitError(
+        reporterName.trim()
+          ? 'Reporter phone is required unless this is a life-safety report.'
+          : 'Reporter name is required.',
+      );
       return;
     }
     setSubmitting(true);
@@ -441,6 +458,8 @@ export function ReportWizard() {
       turnstileRef.current?.reset();
       if (msg.toLowerCase().includes('captcha')) {
         setSubmitError('Security check failed. Please complete the CAPTCHA again.');
+      } else if (authenticatedCivilian && msg === 'PROFILE_INCOMPLETE') {
+        setSubmitError('Your account profile needs a display name and contact number before this report can be submitted. Complete your profile, then return to this preserved draft.');
       } else {
         setSubmitError(msg);
       }
@@ -452,6 +471,18 @@ export function ReportWizard() {
     const payload = buildPayload();
     if (!payload) {
       setSubmitError('A description and a location are required to queue.');
+      return;
+    }
+    if (authenticatedCivilian) {
+      setSubmitError('Authenticated reports must reconnect so the server can use your account profile.');
+      return;
+    }
+    if (!reporterIdentityComplete(false, reporterName, reporterPhone, safetyStatus)) {
+      setSubmitError(
+        reporterName.trim()
+          ? 'Reporter phone is required unless this is a life-safety report.'
+          : 'Reporter name is required.',
+      );
       return;
     }
     setSubmitting(true);
@@ -679,9 +710,18 @@ export function ReportWizard() {
             {stepIndex === 3 && (
               <StepDetails
                 description={description}
+                reporterName={reporterName}
+                reporterPhone={reporterPhone}
+                authenticatedCivilian={authenticatedCivilian}
+                safetyStatus={safetyStatus}
                 contactName={contactName}
                 contactPhone={contactPhone}
                 notes={notes}
+                onReporterChange={(next) => {
+                  setReporterName(next.reporterName);
+                  setReporterPhone(next.reporterPhone);
+                }}
+                onSafetyStatusChange={setSafetyStatus}
                 onChange={(n) => {
                   setDescription(n.description);
                   setContactName(n.contactName);
@@ -713,6 +753,8 @@ export function ReportWizard() {
                 submitError={submitError}
                 queuedOffline={false}
                 queuedLocalId={queuedLocalId}
+                reporterName={authenticatedCivilian ? null : reporterName}
+                profileIdentityUsed={authenticatedCivilian}
                 turnstileEnabled={turnstileEnabled}
                 turnstileExpired={turnstileExpired}
                 siteKey={siteKey}
@@ -741,7 +783,13 @@ export function ReportWizard() {
                 <button
                   type="button"
                   onClick={stepIndex === 3 ? handleReviewEnterThenNext : goNext}
-                  disabled={(stepIndex === 0 && !locationProvided) || (stepIndex === 3 && description.trim().length === 0)}
+                  disabled={
+                    (stepIndex === 0 && !locationProvided) ||
+                    (stepIndex === 3 && (
+                      description.trim().length === 0 ||
+                      !reporterIdentityComplete(authenticatedCivilian, reporterName, reporterPhone, safetyStatus)
+                    ))
+                  }
                   className="ps-btn ps-btn-primary flex-1 justify-center disabled:opacity-40"
                 >
                   {stepIndex === STEPS.length - 2 ? 'Review' : 'Continue'}

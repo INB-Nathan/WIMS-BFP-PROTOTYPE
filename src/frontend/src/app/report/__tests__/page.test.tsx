@@ -139,6 +139,8 @@ async function driveToReview() {
   fireEvent.click(screen.getByText('Continue'));
   // Step 3 Details
   await screen.findByTestId('description-input');
+  await userEvent.type(screen.getByLabelText(/Reporter name/), 'Juan Dela Cruz');
+  await userEvent.type(screen.getByLabelText(/Reporter phone/), '09171234567');
   await userEvent.type(screen.getByTestId('description-input'), 'Large structural fire spreading.');
   fireEvent.click(screen.getByText('Review'));
   await screen.findByText('Review your report');
@@ -195,6 +197,8 @@ describe('Report Wizard — 5-step progression', () => {
     // Details
     expect(await screen.findByTestId('description-input')).toBeInTheDocument();
     expect(screen.getByTestId('step-label')).toHaveTextContent('Step 4 of 5: Details');
+    await userEvent.type(screen.getByLabelText(/Reporter name/), 'Juan Dela Cruz');
+    await userEvent.type(screen.getByLabelText(/Reporter phone/), '09171234567');
     await userEvent.type(screen.getByTestId('description-input'), 'Fire reported.');
     fireEvent.click(screen.getByText('Review'));
 
@@ -358,6 +362,8 @@ describe('Report Wizard — safety banner on all steps', () => {
     fireEvent.click(screen.getByTestId('observable-LARGE_FLAMES'));
     fireEvent.click(screen.getByText('Continue'));
     expect(await screen.findByTestId('description-input')).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText(/Reporter name/), 'Juan Dela Cruz');
+    await userEvent.type(screen.getByLabelText(/Reporter phone/), '09171234567');
     await userEvent.type(screen.getByTestId('description-input'), 'Fire reported.');
     expect(screen.getByTestId('safety-banner')).toHaveTextContent(bannerText);
 

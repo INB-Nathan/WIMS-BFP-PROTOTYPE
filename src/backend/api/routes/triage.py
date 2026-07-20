@@ -2,7 +2,7 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -10,6 +10,7 @@ from auth import get_current_wims_user
 from auth import get_db_with_rls
 from utils.audit import log_system_audit
 from schemas.civilian import StatusUpdateRequest, StatusUpdateResponse
+from schemas.triage_workspace import ContactRevealResponse, TriageWorkspaceResponse
 from services.civilian_triage import (
     BulkPromoteRequest,
     BulkDismissRequest,
@@ -38,6 +39,9 @@ from services.civilian_triage import (
     role_can_work_cluster,
     split_cluster_command,
 )
+from services.civilian_triage.contact_reveal import reveal_reporter_contact
+from services.civilian_triage.workspace_projection import get_workspace
+from services.report_photo_read import SanitizedPhotoUnavailable, get_sanitized_photo_bytes
 
 router = APIRouter(prefix="/api/triage", tags=["triage"])
 
@@ -63,6 +67,14 @@ def _require_cluster_workflow_actor(
             status_code=403,
             detail=f"Role '{role}' does not have permission to access this resource",
         )
+    return current_user
+
+
+def _require_national_evidence_actor(
+    current_user: Annotated[dict, Depends(get_current_wims_user)],
+) -> dict:
+    if current_user.get("role") not in ("NATIONAL_VALIDATOR", "SYSTEM_ADMIN"):
+        raise HTTPException(status_code=403, detail="National Validator role required")
     return current_user
 
 
@@ -97,6 +109,52 @@ def get_triage_queue(
         rejected_today=rejected_today,
         source=source,
     )
+
+
+@router.get("/clusters/{cluster_id}/workspace", response_model=TriageWorkspaceResponse)
+def get_cluster_workspace(
+    cluster_id: int,
+    _user: Annotated[dict, Depends(_require_national_evidence_actor)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
+) -> TriageWorkspaceResponse:
+    return get_workspace(db, cluster_id)
+
+
+@router.get("/reports/{report_id}/photos/{photo_id}/content")
+def get_report_photo_content(
+    report_id: int,
+    photo_id: str,
+    _user: Annotated[dict, Depends(_require_national_evidence_actor)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
+) -> Response:
+    try:
+        photo = get_sanitized_photo_bytes(db, report_id, photo_id)
+    except SanitizedPhotoUnavailable as exc:
+        raise HTTPException(status_code=404, detail="Photo not found") from exc
+    extension = "jpg" if photo.media_type == "image/jpeg" else "png"
+    return Response(
+        content=photo.content,
+        media_type=photo.media_type,
+        headers={
+            "Cache-Control": "no-store",
+            "Pragma": "no-cache",
+            "X-Content-Type-Options": "nosniff",
+            "Content-Disposition": (f'inline; filename="civilian-evidence-{photo_id}.{extension}"'),
+        },
+    )
+
+
+@router.post(
+    "/reports/{report_id}/contact-reveal",
+    response_model=ContactRevealResponse,
+)
+def reveal_report_contact(
+    report_id: int,
+    request: Request,
+    user: Annotated[dict, Depends(_require_national_evidence_actor)],
+    db: Annotated[Session, Depends(get_db_with_rls)],
+) -> ContactRevealResponse:
+    return reveal_reporter_contact(db, report_id, user, request)
 
 
 @router.post("/clusters/{cluster_id}/claim", response_model=ClusterClaimResponse)

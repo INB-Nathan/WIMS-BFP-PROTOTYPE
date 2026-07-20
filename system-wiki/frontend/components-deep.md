@@ -1,10 +1,10 @@
 ---
 title: Frontend Components Deep Documentation
 created: 2026-05-16
-updated: 2026-05-16
+updated: 2026-07-20
 type: frontend
-tags: [wims-bfp, frontend, components, analytics, modal, layout]
-sources: [src/frontend/src/components/]
+tags: [wims-bfp, frontend, components, analytics, workspace, layout]
+sources: [src/frontend/src/components/, src/frontend/src/app/incidents/triage/[clusterId]/page.tsx]
 status: draft
 ---
 
@@ -114,23 +114,23 @@ status: draft
 
 **Purpose:** Shows the selected cluster/report summary, claim/inspect controls, and ranked queue. The exported `TriageEvidenceTable` renders the selected item's detailed report columns in its own full-width page container below the map and board, preserving row selection without constraining the table to the narrow board.
 
-## Triage Inspection Components
+## Triage Evidence Workspace Components
 
-Lives under `src/frontend/src/components/triage/`. Imported as `import { TriageInspectionModal } from '@/components/triage';` and styled by `triage-modal.css` (imported once at `incidents/triage/page.tsx`). Aesthetic direction: operations console — BFP maroon dominant, deep slate chrome, bone-cream `#FAF7F2` surface, Bricolage Grotesque display, JetBrains Mono for IDs/timestamps.
+Route owner is `src/frontend/src/app/incidents/triage/[clusterId]/page.tsx`. Shared action components live under `src/frontend/src/components/triage/`; evidence-specific components live under `workspace/`. `triage-workflow.css` styles embedded actions without modal backdrop or body-scroll ownership. See [[frontend/route-map]] and [[operations/civilian-triage-hci-polish]].
 
-### `TriageInspectionModal.tsx`
+### `TriageWorkflowPanel.tsx`
 
-**Props:** `{ openCluster: TriageClusterEntry | null; inspectionMode: 'cluster' | 'singleton'; onClose: () => void; onReloadQueue: () => Promise<void> | void; onMessage: (msg: string) => void; onError: (err: string) => void; role: string | null }`
-**Purpose:** Main shell for the triage inspection modal. Owns the three-column spatial / report-card / action layout and orchestrates two-step destructive confirms.
-**Renders:** Backdrop (click-to-close) + sticky dark-maroon header + grid body + `<ConfirmActionDialog>` overlay. Body scroll is locked while open; `body.style.overflow` is restored on close. The modal no longer exposes report correction; the queue page's detailed report-evidence table is a separate full-width container below the map and investigation board.
-**Keyboard:** `Esc` closes the modal; `1`–`5` switch Terminal / Split / Merge / Activity / Send Update (Split and Merge are cluster-only); shortcuts are suppressed inside `INPUT`/`TEXTAREA`/`SELECT`. **No commit shortcuts** — actions must be committed by clicking the panel commit button, per `frontend/validator-triage-shortcuts`.
-**State:** Delegated entirely to `useTriageModalState`. Local state is only `pending: PendingConfirm | null` for the destructive confirm.
+**Props:** `{ cluster: TriageClusterEntry | null; inspectionMode: 'cluster' | 'singleton'; onWorkflowComplete: () => void; onReloadQueue: () => Promise<void> | void; onMessage: (msg: string) => void; onError: (err: string) => void; role: string | null; currentUsername: string | null }`
+**Purpose:** Embedded action surface for Terminal / Split / Merge / Activity / Send Update. Orchestrates confirmation while route page owns loading, freshness, evidence, and navigation.
+**Renders:** Region with cluster summary, jurisdiction context, report cards, action rail, claim/takeover controls, and `<ConfirmActionDialog>`. No backdrop, modal close control, or body-scroll mutation remains.
+**Keyboard:** `1`–`5` navigate action tabs where role/mode allows. Editable controls suppress shortcuts. Commits remain click-only.
+**State:** Delegated to `useTriageWorkflowState`; local state owns pending confirmation and takeover reason.
 
 ### `ClusterSummaryHeader.tsx`
 
-**Props:** `{ cluster: TriageClusterEntry; inspectionMode: 'cluster' | 'singleton'; onClose: () => void }`
-**Purpose:** Sticky top header of the inspection modal. Breadcrumb `TRIAGE / QUEUE / CLUSTER|SINGLETON`, title (Cluster N or Singleton report), severity badge (HIGH/MEDIUM/LOW), LIFE SAFETY pulsing badge, 2H+ DANGER, TIMEOUT RISK, AGING, member count, trust, station, oldest-report age, "Esc close" hint, explicit Close button.
-**Renders:** Dark-maroon gradient background with subtle grid overlay (1px vertical lines every 80px @ 0.025 alpha). Relative age is recomputed every 30s via a `useNow` tick so the label stays fresh while the modal is open.
+**Props:** `{ cluster: TriageClusterEntry; inspectionMode: 'cluster' | 'singleton' }`
+**Purpose:** Action-region header. Shows breadcrumb, title, severity/life-safety/aging badges, member count, trust, station, and oldest-report age without modal close affordances.
+**Renders:** Dark-maroon gradient header with summary badges. Relative age is recomputed every 30 seconds while action workspace remains mounted.
 
 ### `TriageActionTabs.tsx`
 
@@ -172,13 +172,13 @@ Lives under `src/frontend/src/components/triage/`. Imported as `import { TriageI
 ### `ConfirmActionDialog.tsx`
 
 **Props:** `{ open, title, body, confirmLabel, confirmTone, busy, onConfirm, onCancel, preview }`
-**Purpose:** Two-step confirmation for any `REJECTED_*` terminal action, every split, and every merge. Shows the impact summary + the citizen-visible message (for terminal) or the source/target or leaving/staying preview (for split/merge).
-**Keyboard:** `Esc` cancels only the confirm (capture-phase listener wins the race against the parent modal's `Esc` handler), leaving the parent modal open.
+**Purpose:** Two-step confirmation for destructive/audit-sensitive action paths. Shows impact summary plus citizen-visible terminal message or source/target/leaving/staying preview.
+**Keyboard:** `Esc` cancels confirmation; focus is contained within dialog while open.
 
-### `useTriageModalState.ts`
+### `useTriageWorkflowState.ts`
 
-Hook that owns all form state for the inspection modal. Returns the tab, selected reports, terminal/split/merge/update forms, merge candidates, activity, action handlers, and claim handler. It is the single source of truth for pre-select-on-open and singleton-mode tab filtering.
+Owns action tab, selected reports, terminal/split/merge/update forms, candidates, activity, action handlers, and claim handler. It resets state when route supplies a different cluster and filters singleton-inapplicable tabs.
 
-### `triage-modal.css`
+### `triage-workflow.css`
 
-Operations-console visual system. CSS variables on `.triage-modal__panel` define the bone-cream surface. Bricolage Grotesque loads via Google Fonts in `app/globals.css` alongside Inter (body) and JetBrains Mono (IDs/timestamps). Status-toned radio cards (standard blue / caution amber / destructive maroon). Animations: `triage-modal-rise` on open, `triage-pulse` on LIFE SAFETY badge, `triage-badge-in` on header badges, `triage-fade-in` on backdrop. All scrollbars are styled to match the slate chrome.
+Operations-console visual system scoped to `.triage-workflow`. Styles embedded report/action regions, status cards, previews, and confirmation dialog without fixed modal backdrop rules.

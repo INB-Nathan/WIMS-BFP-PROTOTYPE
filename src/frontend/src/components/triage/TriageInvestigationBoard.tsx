@@ -12,7 +12,7 @@ import {
   sortTriageItemsByPriority,
   statusTone,
 } from './triageGeometry';
-import { isTerminalStatus } from './useTriageModalState';
+import { isTerminalStatus } from './useTriageWorkflowState';
 
 function formatSignalList(signals: string[]): string {
   return signals.length ? signals.join(', ') : '—';

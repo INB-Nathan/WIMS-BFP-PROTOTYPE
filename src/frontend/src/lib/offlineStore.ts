@@ -66,7 +66,7 @@ export interface PendingIncident {
     status: 'pending' | 'synced';
 }
 
-interface EncryptedPayload {
+export interface EncryptedPayload {
     iv: number[];
     data: number[];
 }
@@ -379,6 +379,34 @@ async function decryptPayload<T = unknown>(enc: EncryptedPayload): Promise<T> {
         { name: 'AES-GCM', iv: new Uint8Array(enc.iv) },
         key,
         new Uint8Array(enc.data)
+    );
+    return JSON.parse(new TextDecoder().decode(plaintext)) as T;
+}
+
+export async function encryptPayloadWithAad(
+    payload: unknown,
+    additionalData: Uint8Array<ArrayBuffer>,
+): Promise<EncryptedPayload> {
+    const key = await getOrCreateKey();
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const encoded = new TextEncoder().encode(JSON.stringify(payload));
+    const ciphertext = await crypto.subtle.encrypt(
+        { name: 'AES-GCM', iv, additionalData },
+        key,
+        encoded,
+    );
+    return { iv: Array.from(iv), data: Array.from(new Uint8Array(ciphertext)) };
+}
+
+export async function decryptPayloadWithAad<T = unknown>(
+    encrypted: EncryptedPayload,
+    additionalData: Uint8Array<ArrayBuffer>,
+): Promise<T> {
+    const key = await getOrCreateKey();
+    const plaintext = await crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv: new Uint8Array(encrypted.iv), additionalData },
+        key,
+        new Uint8Array(encrypted.data),
     );
     return JSON.parse(new TextDecoder().decode(plaintext)) as T;
 }
@@ -1504,7 +1532,8 @@ export interface PublicOfflineOp {
     localId: string;                       // UUID — idempotency key, also keyPath
     deviceId: string;                      // browser-bound identity (localStorage)
     operation: PublicOpType;
-    payload: Record<string, unknown>;      // plaintext — see threat model note above
+    payload: Record<string, unknown>;      // non-sensitive fields only
+    reporterIdentity?: import('./offlineReporterIdentity').OfflineReporterIdentityEnvelope;
     linkedLocalId: string | null;          // append/followup → parent submit's localId
     serverId: number | null;               // assigned by the sync engine on success
     createdAt: number;
@@ -1560,6 +1589,7 @@ export async function markPublicOpSynced(localId: string, serverId: number): Pro
         op.serverId = serverId;
         op.errorCode = null;
         op.errorMessage = null;
+        delete op.reporterIdentity;
         await store.put(op);
     }
     await tx.done;
@@ -1599,6 +1629,25 @@ export async function markPublicOpFailed(
  * HTTP attempt so a stale-sync recovery (similar to recoverStaleSyncingOps) can
  * re-arm ops stuck in this state from a previous tab close.
  */
+export async function markPublicOpPermanentlyFailed(
+    localId: string,
+    errorCode: string,
+    errorMessage: string,
+): Promise<void> {
+    const db = await getDB();
+    const tx = db.transaction(PUBLIC_OPS_STORE, 'readwrite');
+    const store = tx.objectStore(PUBLIC_OPS_STORE);
+    const op: PublicOfflineOp | undefined = await store.get(localId);
+    if (op) {
+        op.status = 'failed';
+        op.lastAttemptAt = Date.now();
+        op.errorCode = errorCode;
+        op.errorMessage = errorMessage;
+        await store.put(op);
+    }
+    await tx.done;
+}
+
 export async function markPublicOpSyncing(localId: string): Promise<void> {
     const db = await getDB();
     const tx = db.transaction(PUBLIC_OPS_STORE, 'readwrite');

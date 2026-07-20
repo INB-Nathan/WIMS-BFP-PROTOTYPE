@@ -2,7 +2,7 @@
 
 import { ArrowRight, Info, Loader2 } from 'lucide-react';
 import type { TriageClusterEntry, TriageReportEntry } from '@/lib/api';
-import { stripHtml } from './useTriageModalState';
+import { stripHtml } from './useTriageWorkflowState';
 
 export interface SplitActionPanelProps {
   cluster: TriageClusterEntry;
