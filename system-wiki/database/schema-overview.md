@@ -1,10 +1,10 @@
 ---
 title: Database Schema Overview
 created: 2026-05-14
-updated: 2026-07-19
+updated: 2026-07-20
 type: database
 tags: [wims-bfp, database, schema, rls, audit-log, implementation-map, alembic]
-sources: [raw/codebase/codebase-snapshot-2026-05-14.md, src/postgres-init, src/postgres-init/86_civilian_contributor_snapshot.sql, src/postgres-init/87_photo_preupload_schema.sql, src/postgres-init/88_anonymous_photo_ownership.sql, src/postgres-init/89_anonymous_pending_photo_insert.sql, src/postgres-init/90_registered_photo_ownership.sql, src/postgres-init/91_community_content_schema.sql, src/postgres-init/92_remove_legacy_photo_bonus_function.sql, src/postgres-init/97_information_emergency_draft_source_unique.sql, src/backend/alembic, src/backend/alembic/versions/0007_contributor_snapshot_cleanup.py, src/backend/alembic/versions/0008_photo_preupload_schema.py, src/backend/alembic/versions/0009_anonymous_photo_ownership_helpers.py, src/backend/alembic/versions/0010_anonymous_pending_photo_insert.py, src/backend/alembic/versions/0011_registered_photo_ownership_helper.py, src/backend/alembic/versions/0012_community_content_schema.py, src/backend/alembic/versions/0013_remove_legacy_photo_bonus_function.py, src/backend/alembic/versions/0026_information_emergency_draft_source_unique.py, src/backend/alembic/versions/0027_device_blocklist_schema.py, src/backend/services/contributor.py, src/backend/entrypoint.sh]
+sources: [raw/codebase/codebase-snapshot-2026-05-14.md, src/postgres-init, src/postgres-init/86_civilian_contributor_snapshot.sql, src/postgres-init/87_photo_preupload_schema.sql, src/postgres-init/88_anonymous_photo_ownership.sql, src/postgres-init/89_anonymous_pending_photo_insert.sql, src/postgres-init/90_registered_photo_ownership.sql, src/postgres-init/91_community_content_schema.sql, src/postgres-init/92_remove_legacy_photo_bonus_function.sql, src/postgres-init/97_information_emergency_draft_source_unique.sql, src/backend/alembic, src/backend/alembic/versions/0007_contributor_snapshot_cleanup.py, src/backend/alembic/versions/0008_photo_preupload_schema.py, src/backend/alembic/versions/0009_anonymous_photo_ownership_helpers.py, src/backend/alembic/versions/0010_anonymous_pending_photo_insert.py, src/backend/alembic/versions/0011_registered_photo_ownership_helper.py, src/backend/alembic/versions/0012_community_content_schema.py, src/backend/alembic/versions/0013_remove_legacy_photo_bonus_function.py, src/backend/alembic/versions/0026_information_emergency_draft_source_unique.py, src/backend/alembic/versions/0027_device_blocklist_schema.py, src/backend/alembic/versions/0030_repair_report_photos_core_schema.py, src/backend/services/contributor.py, src/backend/entrypoint.sh]
 status: draft
 ---
 
@@ -69,6 +69,7 @@ PostgreSQL/PostGIS clean-volume schema is bootstrapped by ordered SQL files in
 | `wims.scheduled_reports` | `13_export_reports.sql` |
 | `wims.incident_verification_history` | `15_validator_workflow.sql` |
 | `wims.reference_sequence` | `27_reference_sequence.sql` |
+| `wims.report_photos` | `82_civilian_report_photos.sql`; persistent core-schema repair `0030`; pending/ownership upgrades `0008`–`0011` |
 | `wims.civilian_contributors` | `86_civilian_contributor_snapshot.sql`; persistent upgrade `0006`/`0007` |
 | `wims.community_content` | `91_community_content_schema.sql`; persistent upgrade `0012` |
 | `wims.community_content_version` | `91_community_content_schema.sql`; persistent upgrade `0012` |
@@ -118,6 +119,7 @@ enforcing `col IS NULL OR col >= 0`:
 - **89_anonymous_pending_photo_insert.sql** (Alembic `0010`): Adds the fixed-signature capability-bound pending-photo insert helper. It validates the bearer, derives the session owner internally, serializes a one-outstanding-pending-row cap, classifies same-owner pending retries as duplicates, and forces pending attachment/legacy owner fields NULL. It is executable only by `wims_app`; direct anonymous table DML remains denied.
 - **90_registered_photo_ownership.sql** (Alembic `0011`): Adds the registered-contributor counterpart `wims.attach_registered_photos(p_user_id, p_report_id, p_photo_ids)`, mirroring `attach_anonymous_photos`. It is `SECURITY DEFINER` with a fixed `search_path`, granted `EXECUTE` to `wims_app` only, and atomically locks an owned non-terminal report and the complete same-owner pending set, rejecting cross-owner/partial/duplicate/already-attached/terminal batches before `UPDATE`ing `report_id`/`attached_at`. No new RLS policy or `BYPASSRLS`.
 - Application path: 83–85 also have legacy startup SQL patch coverage; persistent 87–90 upgrades use Alembic `0008`–`0011`, while clean bootstrap applies numbered SQL through 90.
+- **Alembic `0030` persistent repair:** Early persistent databases could receive the minimal `0003` fallback table without the encrypted artifact/media columns from clean-bootstrap SQL 82. Revision `0030` adds every missing core column and required report/cleanup indexes. It fails closed rather than inventing encrypted evidence metadata when a partial table already contains rows; the known affected production table was verified empty before rollout. Existing RLS and ownership policies remain unchanged.
 - `wims.report_photos` remains `FORCE ROW LEVEL SECURITY`: staff access to attached rows is unchanged, registered users can access only their own pending rows, and anonymous pending access is helper-bound rather than a permissive RLS exception. No broad `BYPASSRLS`/`TRUE` policy is introduced.
 
 ### Community Safety Hub content (Slice E, 2026-07-12)
