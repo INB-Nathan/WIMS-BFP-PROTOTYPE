@@ -69,7 +69,7 @@ export function ConfirmActionDialog({
         }
       }
     }
-    // Use capture phase so we win the race against the parent modal's Escape handler.
+    // Use capture phase so Escape cancels this confirmation before other workspace handlers.
     window.addEventListener('keydown', onKey, true);
     return () => {
       window.removeEventListener('keydown', onKey, true);

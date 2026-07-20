@@ -704,12 +704,14 @@ import {
   markPublicOpSyncing,
   markPublicOpSynced,
   markPublicOpFailed,
+  markPublicOpPermanentlyFailed,
   purgeSyncedPublicOps,
   storePhotoLink,
   getPhotosByParentLocalId,
   updatePhotoReportLink,
   type PublicOfflineOp,
 } from './offlineStore';
+import { decryptOfflineReporterIdentity } from './offlineReporterIdentity';
 // isReachable and markConnectivityOffline are already imported at the top of
 // the file for the encoder sync function — reusing the existing imports.
 
@@ -869,7 +871,20 @@ export async function syncPublicOfflineOps(
     let result: PublicApiResult;
     switch (op.operation) {
       case 'submit': {
-        result = await publicApiCall('/civilian/reports', 'POST', op.payload);
+        let submitPayload = op.payload;
+        if (op.reporterIdentity) {
+          try {
+            const reporterIdentity = await decryptOfflineReporterIdentity(op.reporterIdentity);
+            submitPayload = { ...op.payload, ...reporterIdentity };
+          } catch {
+            const message = 'Reporter identity can no longer be decrypted. Re-enter it and submit again.';
+            await markPublicOpPermanentlyFailed(op.localId, 'reporter_identity_unreadable', message);
+            failed += 1;
+            errors.push({ localId: op.localId, operation: op.operation, error: message });
+            continue;
+          }
+        }
+        result = await publicApiCall('/civilian/reports', 'POST', submitPayload);
         break;
       }
       case 'append': {

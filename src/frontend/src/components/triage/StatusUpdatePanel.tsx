@@ -20,7 +20,7 @@ export interface StatusUpdatePanelProps {
   setDuplicateOf: (s: string) => void;
   reason: string;
   setReason: (s: string) => void;
-  /** Opens the two-step confirm dialog in the parent modal. */
+  /** Opens the two-step confirm dialog in the parent workflow. */
   onRequestConfirm: () => void;
   busy: boolean;
 }
@@ -70,7 +70,7 @@ const STAGES: StageSpec[] = [
  * Right rail: validator-to-civilian dynamic status update ("Send Update").
  * - Stage dropdown with the 5 fixed lifecycle stages + 2 terminal closes.
  * - Stage-specific structured metadata fields appear per the selected stage.
- * - Commit is gated behind a two-step confirm (handled by the parent modal).
+ * - Commit is gated behind a two-step confirm (handled by the parent workflow).
  * - No commit keyboard shortcut — deliberate UI click only.
  */
 export function StatusUpdatePanel(props: StatusUpdatePanelProps) {

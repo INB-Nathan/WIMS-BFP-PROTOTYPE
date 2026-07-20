@@ -31,6 +31,7 @@ import {
   type CivilianFollowupResponse,
 } from './legacy';
 import { queuePublicOfflineOp, type PublicOfflineOp } from '../offlineStore';
+import { encryptOfflineReporterIdentity } from '../offlineReporterIdentity';
 import { markConnectivityOffline } from '../connectivity';
 import { isNetworkError, shouldServeOffline } from './offlineBase';
 
@@ -89,13 +90,33 @@ export async function submitCivilianReportOfflineAware(
   }
 }
 
-function queueSubmit(payload: CivilianReportV2Payload, deviceId: string): { queued: true; localId: string } {
+async function queueSubmit(
+  payload: CivilianReportV2Payload,
+  deviceId: string,
+): Promise<{ queued: true; localId: string }> {
   const localId = generateLocalId();
+  const reporterName = payload.reporter_name?.trim();
+  if (!reporterName) {
+    throw new Error('Reporter name is required before this report can be saved offline.');
+  }
+  const clientReportId = payload.client_report_id || localId;
+  const reporterIdentity = await encryptOfflineReporterIdentity(clientReportId, {
+    reporter_name: reporterName,
+    reporter_phone: payload.reporter_phone?.trim() || undefined,
+  });
+  const {
+    reporter_name: _reporterName,
+    reporter_phone: _reporterPhone,
+    ...nonSensitivePayload
+  } = payload;
+  void _reporterName;
+  void _reporterPhone;
   const op: PublicOfflineOp = {
     localId,
     deviceId,
     operation: 'submit',
-    payload: { ...payload },
+    payload: nonSensitivePayload,
+    reporterIdentity,
     linkedLocalId: null,
     serverId: null,
     createdAt: Date.now(),
@@ -105,10 +126,7 @@ function queueSubmit(payload: CivilianReportV2Payload, deviceId: string): { queu
     retryCount: 0,
     lastAttemptAt: null,
   };
-  // queuePublicOfflineOp returns a Promise; we deliberately fire-and-forget here
-  // to keep the public API synchronous-feeling. The actual write completes in
-  // the next microtask and the test suite verifies the call was made.
-  void queuePublicOfflineOp(op);
+  await queuePublicOfflineOp(op);
   return { queued: true, localId };
 }
 

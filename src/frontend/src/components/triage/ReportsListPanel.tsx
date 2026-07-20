@@ -3,7 +3,7 @@
 import { Check, Link2, MessageSquareWarning, ShieldAlert, TriangleAlert } from 'lucide-react';
 import type { TriageClusterEntry, TriageReportEntry } from '@/lib/api';
 import { ClusterInspectionMap } from '@/components/ClusterInspectionMap';
-import { isTerminalStatus, stripHtml } from './useTriageModalState';
+import { isTerminalStatus, stripHtml } from './useTriageWorkflowState';
 
 export interface ReportsListPanelProps {
   cluster: TriageClusterEntry;

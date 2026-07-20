@@ -596,6 +596,9 @@ async def get_current_wims_user(
         "username": row[2],
         "kc_username": token_payload.get("preferred_username"),
         "email": token_payload.get("email", ""),
+        "name": token_payload.get("name"),
+        "given_name": token_payload.get("given_name"),
+        "family_name": token_payload.get("family_name"),
     }
 
     return user_dict

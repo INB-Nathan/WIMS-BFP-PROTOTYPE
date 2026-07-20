@@ -1,10 +1,10 @@
 ---
 title: Civilian Reporting Phase 2 — Subsystem Deep-Dive
 created: 2026-05-20
-updated: 2026-07-17
+updated: 2026-07-20
 type: subsystem
 tags: [wims-bfp, subsystem, civilian-reporting, triage, validation, public-dmz, cluster, merge, map]
-sources: [system-wiki/prd/civilian-reporting-phase-2.md, system-wiki/decisions/0001-civilian-reporting-overhaul.md, src/backend/api/routes/triage.py, src/backend/api/routes/civilian.py, src/backend/api/routes/ref.py, src/backend/api/routes/public_dmz.py, src/backend/tasks/civilian_reports.py, src/backend/services/report_photos.py, src/backend/utils/exif.py, src/postgres-init/82_civilian_report_photos.sql, src/frontend/src/app/incidents/triage/page.tsx, src/frontend/src/components/triage/TriageInspectionModal.tsx, src/frontend/src/components/triage/triage-modal.css, src/frontend/src/app/page.tsx, src/frontend/src/components/civilian/PhotoUpload.tsx, src/frontend/src/app/tracking/page.tsx, src/backend/services/civilian_triage/status_update.py, src/frontend/src/app/tracking/v2/[report_id]/[tracking_token]/page.tsx]
+sources: [system-wiki/prd/civilian-reporting-phase-2.md, system-wiki/decisions/0001-civilian-reporting-overhaul.md, src/backend/api/routes/triage.py, src/backend/api/routes/civilian.py, src/backend/api/routes/ref.py, src/backend/api/routes/public_dmz.py, src/backend/tasks/civilian_reports.py, src/backend/services/report_photos.py, src/backend/services/civilian_triage/workspace_projection.py, src/backend/utils/exif.py, src/postgres-init/82_civilian_report_photos.sql, src/frontend/src/app/incidents/triage/page.tsx, src/frontend/src/app/incidents/triage/[clusterId]/page.tsx, src/frontend/src/components/triage/TriageWorkflowPanel.tsx, src/frontend/src/components/triage/triage-workflow.css, src/frontend/src/app/page.tsx, src/frontend/src/components/civilian/PhotoUpload.tsx, src/frontend/src/app/tracking/page.tsx, src/backend/services/civilian_triage/status_update.py, src/frontend/src/app/tracking/v2/[report_id]/[tracking_token]/page.tsx]
 status: current
 related: [prd/civilian-reporting-phase-2, decisions/0001-civilian-reporting-overhaul, subsystems/references/triage-api-ref, frontend/validator-triage-shortcuts, frontend/route-map, operations/civilian-triage-hci-polish, gaps/frs-codebase-gap-register]
 ---
@@ -233,7 +233,7 @@ Returns clustered `citizen_reports` with cluster metadata.
 }
 ```
 
-`link_count` is the primary severity signal — derived at read time from the number of 100m/1hr related reports (including appends). Triage report entries expose `description`, `linked_to_report_id`, `previous_report_id`, and follow-up summaries; `/incidents/triage` renders appended-update badges, parent link counts, descriptions, and follow-up text inside the inspection modal.
+`link_count` is the primary severity signal — derived at read time from the number of 100m/1hr related reports (including appends). Triage report entries expose `description`, `linked_to_report_id`, `previous_report_id`, and follow-up summaries. Queue evidence remains visible in the full-width table; detailed follow-ups, sanitized photos, credibility, and location comparison render in `/incidents/triage/[clusterId]`.
 
 ### `POST /api/triage/clusters/{cluster_id}/claim`
 Claim a cluster before review. Claims older than 15 minutes without activity are considered stale.
@@ -326,28 +326,24 @@ Does NOT touch rows with status `UNDER_REVIEW` at the row level, even if they ar
 - `/tracking` is a compatibility landing page. It does not perform report-ID lookup; instead it reopens a stored secure tracking link when one is available for the last report or for a notification-click `report_id`.
 - Notification opt-in remains report-bound, but notification clicks must resolve back to a previously stored secure tracking URL rather than a public report-ID lookup route.
 
-### `/incidents/triage` — Validator Triage (`src/frontend/src/app/incidents/triage/page.tsx`)
-Phase 2 validator UI:
+### `/incidents/triage` — Validator Triage Queue
 
-- **Queue list**: Cluster cards sorted by priority (life-safety > aging > severity > member_count > age). Quick filter chips. 30-second polling.
-- **Filters in URL**: `?status=PENDING&aging=true&timeout_risk=true` — shareable and bookmarkable.
-- **Claim indicator**: shows assigned validator + time; stale claims highlighted.
-- **Inspection modal** (tabbed action architecture, `src/frontend/src/components/triage/`):
-  - **Header (`ClusterSummaryHeader`)**: sticky, dark maroon chrome; breadcrumb `TRIAGE / QUEUE / {TYPE}`; title (Cluster N or Singleton report); severity badge (HIGH/MEDIUM/LOW); LIFE SAFETY pulsing badge; 2H+ DANGER; TIMEOUT RISK; AGING; member count, trust, station, oldest-report age (recomputed every 30s); "Esc close" hint; explicit Close button.
-  - **Left rail (`TriageActionTabs`)**: Terminal (1), Correct (2), Split (3, cluster-only), Merge (4, cluster-only), Activity (5). Each tab shows a count badge (e.g. selected count for Split, candidate count for Merge) and a single-key shortcut kbd. Active tab gets the maroon stripe + inverted kbd.
-  - **Center (`ReportsListPanel`)**: report cards (not a table) with one-card-per-report scan. Each card shows trust score, GPS-mismatch / duplicate-device warnings, follow-ups, status pill, "Correct" button on terminal rows, and a heavy maroon left border when selected. Reports are auto-selected on modal open.
-  - **Right rail**: one of five panels driven by the active tab:
-    - `TerminalActionPanel` — status radio-cards (standard / caution / destructive tones), citizen-visible explanation textarea, internal note, `<CitizenMessagePreview>` phone-card mock, "Why this status?" guidance, commit button. Standard `ACTIONED` commits without confirm; `REJECTED_*` open a destructive confirm.
-    - `CorrectionActionPanel` — target-report slot (filled by clicking "Correct" on a terminal row, which auto-switches the tab), replacement status + explanation, required audit reason (visually distinguished as audit-only), phone-card preview, commit.
-    - `SplitActionPanel` — side-by-side "Leaving" / "Staying" preview, required internal note, "What will happen?" disclosure, caution-tone commit.
-    - `MergeActionPanel` — source / target flow cards (Source dashed when not picked), suggested-candidate list rendered as visual cards (not text rows), source id input as backup, required internal note, destructive-tone commit.
-    - `ActivityPanel` — most-recent-first timeline of audit events with status transitions.
-  - **Destructive confirm (`ConfirmActionDialog`)**: two-step confirmation for any `REJECTED_*` terminal action, any correction, every split, and every merge. Shows the impact summary, the citizen-visible message (for terminal), source/target/leaving/staying preview (for split/merge), and a destructive-tone commit button. `Esc` cancels without closing the parent modal (capture-phase listener).
-  - **Modal UX stability**: background 30-second queue polling is paused while the dialog is open, body scroll is locked, the header is sticky, backdrop click closes only when the actual backdrop is targeted, and an explicit Close button is available.
-- **Keyboard shortcuts** (see `frontend/validator-triage-shortcuts` for the canonical policy):
-  - `Esc` → close modal, including when focus is inside a modal `INPUT`, `TEXTAREA`, or `SELECT`. `Esc` inside the destructive confirm cancels only the confirm, not the parent modal.
-  - `1`–`5` switch action tabs (cluster-mode only for `3` Split and `4` Merge). Suppressed inside editable controls.
-  - **No commit shortcuts.** Terminal, correction, split, and merge must be committed by clicking the panel commit button. This is the deliberate-UI-click policy from `frontend/validator-triage-shortcuts`.
+`src/frontend/src/app/incidents/triage/page.tsx` renders map canvas, investigation board, ranked fallback, full-width evidence table, quick filters, and 30-second visible-page polling. Filter, selected item, and selected report state are URL-backed. `Inspect / Act` navigates durable clusters to `/incidents/triage/[clusterId]`; no inspection modal mounts on the queue.
+
+### `/incidents/triage/[clusterId]` — Civilian Evidence Workspace
+
+National Validators and System Administrators receive the backend-authorized workspace projection. Route state reconstructs a valid deep-linked `report_id`, preserves queue search state in its return link, and renders:
+
+- exact-report-isolated sanitized photo evidence;
+- report/device/EXIF/IP location comparison;
+- contributor credibility with explicit audited contact reveal;
+- follow-up, civilian-feedback, and cluster-activity timelines;
+- separate deliberate correction flow;
+- embedded `TriageWorkflowPanel` with Terminal, Split, Merge, Activity, and capability-gated Send Update controls.
+
+Background checks mark remote changes stale without replacing in-progress form state. An owned claim receives a five-minute visible-page heartbeat. Closed clusters retain read-only evidence. Invalid, missing, unauthorized, or no-longer-active workspaces use recoverable states.
+
+Numeric shortcuts only navigate action tabs and are suppressed in editable controls. No keyboard shortcut commits terminal, correction, split, merge, update, or takeover actions. `ConfirmActionDialog` retains explicit two-step confirmation behavior.
 
 ### Map Components
 
@@ -413,11 +409,11 @@ All tests use an `autouse=True` `_clean_state` fixture that flushes Redis and de
 | Test | Coverage |
 |---|---|
 | renders queue | queue page loads with cluster list |
-| opens inspection modal | modal opens on cluster click |
-| shows keyboard shortcut hint | "Esc close · R refresh" text in modal |
-| closes on Escape | modal closes on Esc when no input focused |
-| displays merge candidate list | candidate cluster shown when modal open |
-| does not fire shortcuts when focus inside input | keyboard guard protects inputs |
+| routes inspection | `Inspect / Act` navigates to cluster workspace with queue/report state |
+| reconstructs deep link | requested report remains selected after route load/refresh |
+| stale-data safety | background change detection preserves active form drafts |
+| claim heartbeat | owned claim refreshes after five visible minutes |
+| workflow parity | terminal confirmation, merge/activity, update capability, and no-commit shortcuts remain covered |
 
 ## Files
 
@@ -434,10 +430,12 @@ All tests use an `autouse=True` `_clean_state` fixture that flushes Redis and de
 **Frontend**:
 - `src/frontend/src/app/report/page.tsx` — public submission
 - `src/frontend/src/app/report/tracking/page.tsx` — public tracking
-- `src/frontend/src/app/incidents/triage/page.tsx` — validator triage UI (queue + tables + modal mount)
-- `src/frontend/src/components/triage/TriageInspectionModal.tsx` — modal shell, tab routing, two-step confirm orchestration
-- `src/frontend/src/components/triage/triage-modal.css` — operations-console visual system for the modal
-- `src/frontend/src/components/ClusterInspectionMap.tsx` — SSR-safe map wrapper (used inside the cluster-mode modal center panel)
+- `src/frontend/src/app/incidents/triage/page.tsx` — validator triage queue and route handoff
+- `src/frontend/src/app/incidents/triage/[clusterId]/page.tsx` — dedicated evidence workspace
+- `src/frontend/src/components/triage/TriageWorkflowPanel.tsx` — embedded action orchestration
+- `src/frontend/src/components/triage/triage-workflow.css` — route-safe action visual system
+- `src/frontend/src/components/triage/workspace/` — evidence, credibility, location, and correction components
+- `src/frontend/src/components/ClusterInspectionMap.tsx` — legacy shared map wrapper outside retired modal shell
 - `src/frontend/src/components/ClusterMapInner.tsx` — Leaflet map
 - `src/frontend/src/lib/api.ts` — API client (all Phase 2 methods)
 - `src/frontend/src/app/incidents/triage/page.test.tsx` — Vitest tests

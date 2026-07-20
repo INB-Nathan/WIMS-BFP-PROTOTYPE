@@ -7,14 +7,12 @@ import { useAuth } from '@/context/AuthContext';
 import {
   TriageCanvasMap,
   TriageEvidenceTable,
-  TriageInspectionModal,
   TriageInvestigationBoard,
   TriageLegend,
   getTriageItemIdentity,
   sortTriageItemsByPriority,
   type TriageItemIdentity,
 } from '@/components/triage';
-import '@/components/triage/triage-modal.css';
 import {
   claimTriageCluster,
   fetchTriageQueue,
@@ -34,26 +32,28 @@ const FILTERS = [
   { key: 'danger', label: 'Danger (2hr+)' },
 ] as const;
 
-type InspectionMode = 'cluster' | 'singleton';
-
 export default function TriagePage() {
   const { user, loading: authLoading } = useAuth();
   const role = (user as { role?: string })?.role ?? null;
-  const currentUsername = (user as { preferred_username?: string })?.preferred_username ?? null;
   const router = useRouter();
   const searchParams = useSearchParams();
   const [queue, setQueue] = useState<TriageQueueResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const [openCluster, setOpenCluster] = useState<TriageClusterEntry | null>(null);
-  const [inspectionMode, setInspectionMode] = useState<InspectionMode>('cluster');
   const [lastPolled, setLastPolled] = useState<Date | null>(null);
   const [claiming, setClaiming] = useState<number | null>(null);
-  const [selectedIdentity, setSelectedIdentity] = useState<TriageItemIdentity | null>(null);
-  const [selectedReportId, setSelectedReportId] = useState<number | null>(null);
+  const [selectedIdentity, setSelectedIdentity] = useState<TriageItemIdentity | null>(() => {
+    const type = searchParams.get('selected_type');
+    const id = Number(searchParams.get('selected_id'));
+    return (type === 'cluster' || type === 'singleton') && Number.isInteger(id) && id > 0 ? { type, id } : null;
+  });
+  const [selectedReportId, setSelectedReportId] = useState<number | null>(() => {
+    const reportId = Number(searchParams.get('report_id'));
+    return Number.isInteger(reportId) && reportId > 0 ? reportId : null;
+  });
   const [selectionNotice, setSelectionNotice] = useState<string | null>(null);
-  const [sourceFilter, setSourceFilter] = useState<string>('all');
+  const [sourceFilter, setSourceFilter] = useState<string>(() => searchParams.get('source') ?? 'all');
 
   const canAccess =
     role === 'REGIONAL_ENCODER' ||
@@ -98,12 +98,12 @@ export default function TriagePage() {
   }, [authLoading, canAccess, loadQueue]);
 
   useEffect(() => {
-    if (!canAccess || authLoading || openCluster) return;
+    if (!canAccess || authLoading) return;
     const interval = window.setInterval(() => {
       if (document.visibilityState === 'visible') void loadQueueRef.current();
     }, 30000);
     return () => window.clearInterval(interval);
-  }, [authLoading, canAccess, openCluster]);
+  }, [authLoading, canAccess]);
 
   // SSE-driven auto-refresh: fires when new civilian reports arrive or triage
   // actions are taken, so the queue stays current without manual clicks.
@@ -124,25 +124,47 @@ export default function TriagePage() {
     router.replace(`/incidents/triage${next.toString() ? `?${next.toString()}` : ''}`);
   }
 
-  async function openInspection(cluster: TriageClusterEntry, mode: InspectionMode) {
-    setOpenCluster(cluster);
-    setInspectionMode(mode);
+  function replaceSelectionParams(identity: TriageItemIdentity, reportId: number | null) {
+    const next = new URLSearchParams(searchParams.toString());
+    next.set('selected_type', identity.type);
+    next.set('selected_id', String(identity.id));
+    if (reportId) next.set('report_id', String(reportId));
+    else next.delete('report_id');
+    router.replace(`/incidents/triage?${next.toString()}`);
   }
 
   function selectTriageItem(item: TriageClusterEntry) {
     const identity = getTriageItemIdentity(item);
     if (!identity) return;
+    const reportId = identity.type === 'singleton' ? item.reports[0]?.report_id ?? null : null;
     setSelectedIdentity(identity);
-    setSelectedReportId(identity.type === 'singleton' ? item.reports[0]?.report_id ?? null : null);
+    setSelectedReportId(reportId);
+    replaceSelectionParams(identity, reportId);
     setSelectionNotice(null);
+  }
+
+  function selectReport(reportId: number) {
+    setSelectedReportId(reportId);
+    if (selectedIdentity) replaceSelectionParams(selectedIdentity, reportId);
   }
 
   function inspectSelectedItem(item: TriageClusterEntry) {
     const identity = getTriageItemIdentity(item);
     if (!identity) return;
+    if (!item.cluster_id) {
+      setError('This report has not been assigned a workspace cluster. Refresh the queue and try again.');
+      return;
+    }
+    const reportId = item.reports.some((report) => report.report_id === selectedReportId)
+      ? selectedReportId
+      : item.reports[0]?.report_id ?? null;
     setSelectedIdentity(identity);
-    setSelectedReportId(identity.type === 'singleton' ? item.reports[0]?.report_id ?? null : null);
-    void openInspection(item, identity.type);
+    setSelectedReportId(reportId);
+    const next = new URLSearchParams(searchParams.toString());
+    next.set('selected_type', identity.type);
+    next.set('selected_id', String(identity.id));
+    if (reportId) next.set('report_id', String(reportId));
+    router.push(`/incidents/triage/${item.cluster_id}?${next.toString()}`);
   }
 
   async function claimCluster(clusterId: number | null) {
@@ -159,10 +181,6 @@ export default function TriagePage() {
       setClaiming(null);
     }
   }
-
-  const closeInspection = useCallback(() => {
-    setOpenCluster(null);
-  }, []);
 
   // Split queue into clusters and singletons
   const clusters = useMemo(() => {
@@ -274,7 +292,14 @@ export default function TriagePage() {
         <Filter className="h-4 w-4 text-slate-500" />
         <select
           value={sourceFilter}
-          onChange={(e) => setSourceFilter(e.target.value)}
+          onChange={(e) => {
+            const value = e.target.value;
+            const next = new URLSearchParams(searchParams.toString());
+            if (value === 'all') next.delete('source');
+            else next.set('source', value);
+            setSourceFilter(value);
+            router.replace(`/incidents/triage${next.toString() ? `?${next.toString()}` : ''}`);
+          }}
           className="rounded-md border border-slate-300 px-3 py-1.5 text-sm bg-white"
         >
           <option value="all">All Reports</option>
@@ -325,7 +350,7 @@ export default function TriagePage() {
                 selectedIdentity={selectedIdentity}
                 selectedReportId={selectedReportId}
                 onSelectItem={selectTriageItem}
-                onSelectReport={setSelectedReportId}
+                onSelectReport={selectReport}
               />
             </section>
             <TriageInvestigationBoard
@@ -345,23 +370,13 @@ export default function TriagePage() {
         <TriageEvidenceTable
           item={selectedItem}
           selectedReportId={selectedReportId}
-          onSelectReport={setSelectedReportId}
+          onSelectReport={selectReport}
         />
       )}
 
       {/* ── HCI Legend: explains clusters, trust scores, severity colors ── */}
       <TriageLegend />
 
-      <TriageInspectionModal
-        openCluster={openCluster}
-        inspectionMode={inspectionMode}
-        onClose={closeInspection}
-        onReloadQueue={loadQueue}
-        onMessage={setMessage}
-        onError={setError}
-        role={role}
-        currentUsername={currentUsername}
-      />
     </div>
   );
 }

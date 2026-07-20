@@ -8,7 +8,7 @@ export interface JurisdictionContextProps {
 }
 
 /**
- * Compact context strip for the inspection modal header.
+ * Compact context strip for the triage workflow header.
  * Surfaces the jurisdiction (province, derived from the nearest station's region)
  * and the nearest fire station (name, phone, distance) so the validator has
  * grounding context before acting. Read-only.

@@ -1,3 +1,10 @@
+## [2026-07-20] refactor(triage): retire modal for route-based evidence workspace
+
+- **Scope:** `/incidents/triage` now hands `Inspect / Act` to `/incidents/triage/[clusterId]` and preserves queue filters, selected item, and selected report through URL state. Deep links reconstruct the requested report when it belongs to the cluster.
+- **Workspace:** Dedicated route keeps sanitized evidence, credibility/contact reveal, location comparison, timelines, correction, and embedded Terminal/Split/Merge/Activity/Send Update controls. Remote polling marks drafts stale without overwriting them; owned claims refresh every five visible minutes.
+- **Safety:** Modal-only shell/state/CSS are retired. Two-step confirmation and no-commit-keyboard-shortcut policy remain. Backend evidence authorization is unchanged.
+- **Validation:** Focused route/workflow tests cover 37 of 37 cases; scoped ESLint reports 0 errors; production `npm run build` succeeds with pre-existing metadata/workspace-root warnings. Updated [[frontend/route-map]], [[frontend/components-deep]], [[frontend/validator-triage-shortcuts]], [[operations/civilian-triage-hci-polish]], [[subsystems/civilian-reporting-phase2]], and [[index]]. No FRS/code gap changed.
+
 ## [2026-07-19] fix(public-ui): align privacy, verification, and desktop reporting navigation
 
 - **Theme:** `/privacy` now uses only shared public-surface day/night tokens for its hero, policy card, consent notice, tables, code labels, and links; it no longer relies on legacy undefined theme variables or page-owned footer chrome.

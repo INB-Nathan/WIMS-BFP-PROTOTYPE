@@ -70,14 +70,14 @@ export function stripHtml(input: string | null | undefined): string {
 
 export type TriageActionTab = 'terminal' | 'split' | 'merge' | 'activity' | 'update';
 
-export interface TriageModalCallbacks {
-  onClose: () => void;
+export interface TriageWorkflowCallbacks {
+  onWorkflowComplete: () => void;
   onReloadQueue: () => Promise<void> | void;
   onMessage: (msg: string) => void;
   onError: (err: string) => void;
 }
 
-export interface TriageModalState {
+export interface TriageWorkflowState {
   // Tab & selection
   tab: TriageActionTab;
   setTab: (tab: TriageActionTab) => void;
@@ -136,13 +136,13 @@ export interface TriageModalState {
   busy: boolean;
 }
 
-export interface UseTriageModalStateArgs {
-  openCluster: TriageClusterEntry | null;
+export interface UseTriageWorkflowStateArgs {
+  cluster: TriageClusterEntry | null;
   inspectionMode: 'cluster' | 'singleton';
-  callbacks: TriageModalCallbacks;
+  callbacks: TriageWorkflowCallbacks;
 }
 
-export function useTriageModalState({ openCluster, inspectionMode, callbacks }: UseTriageModalStateArgs): TriageModalState {
+export function useTriageWorkflowState({ cluster, inspectionMode, callbacks }: UseTriageWorkflowStateArgs): TriageWorkflowState {
   const [tab, setTab] = useState<TriageActionTab>('terminal');
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [terminalStatus, setTerminalStatus] = useState<TerminalCitizenStatus>('ACTIONED');
@@ -167,9 +167,9 @@ export function useTriageModalState({ openCluster, inspectionMode, callbacks }: 
 
   // Reset and pre-select on cluster open
   useEffect(() => {
-    if (!openCluster) return;
+    if (!cluster) return;
     setTab(inspectionMode === 'singleton' ? 'terminal' : 'terminal');
-    setSelected(new Set(openCluster.reports.filter((report) => !isTerminalStatus(report.status)).map((report) => report.report_id)));
+    setSelected(new Set(cluster.reports.filter((report) => !isTerminalStatus(report.status)).map((report) => report.report_id)));
     setTerminalStatus('ACTIONED');
     setExplanation(TERMINAL_OPTIONS[0].template);
     setInternalNote('');
@@ -179,24 +179,24 @@ export function useTriageModalState({ openCluster, inspectionMode, callbacks }: 
     setActivity([]);
     setMergeCandidates([]);
     setUpdateStage('UNDER_REVIEW');
-    setUpdateStationName(openCluster.station?.name ?? '');
-    setUpdateJurisdiction(openCluster.province_name ?? '');
+    setUpdateStationName(cluster.station?.name ?? '');
+    setUpdateJurisdiction(cluster.province_name ?? '');
     setUpdateEta('');
     setUpdateArrivedAt('');
     setUpdateOutcomeSummary('');
     setUpdateDuplicateOf('');
     setUpdateReason('');
 
-    if (openCluster.cluster_id) {
+    if (cluster.cluster_id) {
       Promise.all([
-        fetchTriageClusterActivity(openCluster.cluster_id).catch(() => []),
-        fetchMergeCandidates(openCluster.cluster_id).catch(() => []),
+        fetchTriageClusterActivity(cluster.cluster_id).catch(() => []),
+        fetchMergeCandidates(cluster.cluster_id).catch(() => []),
       ]).then(([events, candidates]) => {
         setActivity(events.slice(-8).reverse());
         setMergeCandidates(candidates);
       });
     }
-  }, [openCluster, inspectionMode]);
+  }, [cluster, inspectionMode]);
 
   // Singleton mode hides cluster-only split and merge actions.
   useEffect(() => {
@@ -222,55 +222,55 @@ export function useTriageModalState({ openCluster, inspectionMode, callbacks }: 
   }, []);
 
   const applyTerminalAction = useCallback(async () => {
-    if (!openCluster?.cluster_id) return;
-    const reportIds = selectedReportIds(openCluster, selected);
+    if (!cluster?.cluster_id) return;
+    const reportIds = selectedReportIds(cluster, selected);
     if (reportIds.length === 0) {
       callbacks.onError('Select at least one non-terminal report.');
       return;
     }
     setBusy(true);
     try {
-      await applyTriageTerminalAction(openCluster.cluster_id, {
+      await applyTriageTerminalAction(cluster.cluster_id, {
         report_ids: reportIds,
         status: terminalStatus,
         status_explanation: explanation,
         internal_note: internalNote || undefined,
       });
       callbacks.onMessage(`Applied ${terminalStatus} to ${reportIds.length} report(s).`);
-      callbacks.onClose();
+      callbacks.onWorkflowComplete();
       await callbacks.onReloadQueue();
     } catch (err) {
       callbacks.onError(err instanceof Error ? err.message : 'Failed to apply terminal action.');
     } finally {
       setBusy(false);
     }
-  }, [openCluster, selected, terminalStatus, explanation, internalNote, callbacks]);
+  }, [cluster, selected, terminalStatus, explanation, internalNote, callbacks]);
 
   const applySplit = useCallback(async () => {
-    if (!openCluster?.cluster_id) return;
-    const reportIds = selectedReportIds(openCluster, selected);
+    if (!cluster?.cluster_id) return;
+    const reportIds = selectedReportIds(cluster, selected);
     if (reportIds.length < 2 || !splitNote.trim()) {
       callbacks.onError('Split requires at least two selected reports and an internal note.');
       return;
     }
     setBusy(true);
     try {
-      await splitTriageCluster(openCluster.cluster_id, {
+      await splitTriageCluster(cluster.cluster_id, {
         report_ids: reportIds,
         internal_note: splitNote,
       });
       callbacks.onMessage(`Split ${reportIds.length} report(s) into a new cluster.`);
-      callbacks.onClose();
+      callbacks.onWorkflowComplete();
       await callbacks.onReloadQueue();
     } catch (err) {
       callbacks.onError(err instanceof Error ? err.message : 'Failed to split cluster.');
     } finally {
       setBusy(false);
     }
-  }, [openCluster, selected, splitNote, callbacks]);
+  }, [cluster, selected, splitNote, callbacks]);
 
   const applyMerge = useCallback(async () => {
-    if (!openCluster?.cluster_id) return;
+    if (!cluster?.cluster_id) return;
     const sourceId = Number(mergeSourceClusterId);
     if (!Number.isInteger(sourceId) || sourceId <= 0 || !mergeNote.trim()) {
       callbacks.onError('Merge requires a source cluster id and internal note.');
@@ -278,23 +278,23 @@ export function useTriageModalState({ openCluster, inspectionMode, callbacks }: 
     }
     setBusy(true);
     try {
-      await mergeTriageClusters(openCluster.cluster_id, {
+      await mergeTriageClusters(cluster.cluster_id, {
         source_cluster_id: sourceId,
         internal_note: mergeNote,
       });
-      callbacks.onMessage(`Merged cluster ${sourceId} into cluster ${openCluster.cluster_id}.`);
-      callbacks.onClose();
+      callbacks.onMessage(`Merged cluster ${sourceId} into cluster ${cluster.cluster_id}.`);
+      callbacks.onWorkflowComplete();
       await callbacks.onReloadQueue();
     } catch (err) {
       callbacks.onError(err instanceof Error ? err.message : 'Failed to merge clusters.');
     } finally {
       setBusy(false);
     }
-  }, [openCluster, mergeSourceClusterId, mergeNote, callbacks]);
+  }, [cluster, mergeSourceClusterId, mergeNote, callbacks]);
 
   const applyStatusUpdate = useCallback(async () => {
-    if (!openCluster) return;
-    const reportId = openCluster.anchor_report_id ?? openCluster.reports[0]?.report_id;
+    if (!cluster) return;
+    const reportId = cluster.anchor_report_id ?? cluster.reports[0]?.report_id;
     if (!reportId) {
       callbacks.onError('No report available to update.');
       return;
@@ -350,14 +350,14 @@ export function useTriageModalState({ openCluster, inspectionMode, callbacks }: 
         metadata: Object.keys(metadata).length ? metadata : null,
       });
       callbacks.onMessage(`Sent status update (${updateStage}) to report #${reportId}.`);
-      callbacks.onClose();
+      callbacks.onWorkflowComplete();
       await callbacks.onReloadQueue();
     } catch (err) {
       callbacks.onError(err instanceof Error ? err.message : 'Failed to send status update.');
     } finally {
       setBusy(false);
     }
-  }, [openCluster, updateStage, updateStationName, updateJurisdiction, updateEta, updateArrivedAt, updateOutcomeSummary, updateDuplicateOf, updateReason, callbacks]);
+  }, [cluster, updateStage, updateStationName, updateJurisdiction, updateEta, updateArrivedAt, updateOutcomeSummary, updateDuplicateOf, updateReason, callbacks]);
 
   const claimCluster = useCallback(
     async (clusterId: number | null, reason?: string) => {
@@ -366,8 +366,8 @@ export function useTriageModalState({ openCluster, inspectionMode, callbacks }: 
       try {
         await claimTriageCluster(clusterId, reason);
         const msg = reason
-          ? `Snatched cluster ${clusterId} from ${openCluster?.assigned_to ?? 'previous owner'}.`
-          : openCluster?.assigned_to
+          ? `Snatched cluster ${clusterId} from ${cluster?.assigned_to ?? 'previous owner'}.`
+          : cluster?.assigned_to
             ? `Cluster ${clusterId} claim refreshed.`
             : `Cluster ${clusterId} claimed.`;
         callbacks.onMessage(msg);
@@ -378,7 +378,7 @@ export function useTriageModalState({ openCluster, inspectionMode, callbacks }: 
         setBusy(false);
       }
     },
-    [callbacks, openCluster],
+    [callbacks, cluster],
   );
 
   return {

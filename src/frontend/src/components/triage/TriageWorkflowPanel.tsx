@@ -12,17 +12,16 @@ import { SplitActionPanel } from './SplitActionPanel';
 import { StatusUpdatePanel, STAGE_TERMINAL, STAGE_TONE } from './StatusUpdatePanel';
 import { TerminalActionPanel } from './TerminalActionPanel';
 import { TriageActionTabs } from './TriageActionTabs';
-import { TriageSpatialPanel } from './TriageSpatialPanel';
 import {
   TERMINAL_OPTIONS,
   selectedReportIds,
-  useTriageModalState,
-} from './useTriageModalState';
+  useTriageWorkflowState,
+} from './useTriageWorkflowState';
 
-export interface TriageInspectionModalProps {
-  openCluster: TriageClusterEntry | null;
+export interface TriageWorkflowPanelProps {
+  cluster: TriageClusterEntry | null;
   inspectionMode: 'cluster' | 'singleton';
-  onClose: () => void;
+  onWorkflowComplete: () => void;
   onReloadQueue: () => Promise<void> | void;
   onMessage: (msg: string) => void;
   onError: (err: string) => void;
@@ -42,33 +41,23 @@ interface PendingConfirm {
   run: () => Promise<void>;
 }
 
-export function TriageInspectionModal({
-  openCluster,
+export function TriageWorkflowPanel({
+  cluster: openCluster,
   inspectionMode,
-  onClose,
+  onWorkflowComplete,
   onReloadQueue,
   onMessage,
   onError,
   role,
   currentUsername,
-}: TriageInspectionModalProps) {
-  const state = useTriageModalState({
-    openCluster,
+}: TriageWorkflowPanelProps) {
+  const state = useTriageWorkflowState({
+    cluster: openCluster,
     inspectionMode,
-    callbacks: { onClose, onReloadQueue, onMessage, onError },
+    callbacks: { onWorkflowComplete, onReloadQueue, onMessage, onError },
   });
   const [pending, setPending] = useState<PendingConfirm | null>(null);
   const [snatchReason, setSnatchReason] = useState('');
-
-  // Backdrop click + Escape to close
-  useEffect(() => {
-    if (!openCluster) return;
-    const originalOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = originalOverflow;
-    };
-  }, [openCluster]);
 
   // Backend allows only NATIONAL_VALIDATOR and REGIONAL_ENCODER to push civilian
   // status updates (triage.py role gate). SYSTEM_ADMIN may work clusters but not
@@ -78,11 +67,6 @@ export function TriageInspectionModal({
   useEffect(() => {
     if (!openCluster) return;
     function handleKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        onClose();
-        return;
-      }
       const tag = (e.target as HTMLElement).tagName;
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes(tag)) return;
       // Tab navigation only — per system-wiki/frontend/validator-triage-shortcuts.md,
@@ -97,7 +81,7 @@ export function TriageInspectionModal({
     }
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [openCluster, onClose, inspectionMode, state, canSendStatusUpdate]);
+  }, [openCluster, inspectionMode, state, canSendStatusUpdate]);
 
   const reportIds = useMemo(
     () => selectedReportIds(openCluster, state.selected),
@@ -254,24 +238,15 @@ export function TriageInspectionModal({
     !isAssignedToMe;
 
   return (
-    <div
-      className="triage-modal"
-      data-testid="triage-modal-backdrop"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
+    <div className="triage-workflow" data-testid="triage-workspace-actions">
       <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="triage-modal-title"
-        className="triage-modal__panel"
-        onMouseDown={(e) => e.stopPropagation()}
+        role="region"
+        aria-labelledby="triage-workflow-title"
+        className="triage-workflow__panel"
       >
         <ClusterSummaryHeader
           cluster={openCluster}
           inspectionMode={inspectionMode}
-          onClose={onClose}
         />
 
         <JurisdictionContext cluster={openCluster} />
@@ -293,7 +268,7 @@ export function TriageInspectionModal({
         {canRefreshOwnClaim && (
           <div className="triage-claim-bar">
             <span>
-              Claimed by you. Refresh your claim before applying actions if the modal reports a
+              Claimed by you. Refresh your claim before applying actions if the workspace reports a
               stale claim.
             </span>
             <button
@@ -365,18 +340,8 @@ export function TriageInspectionModal({
           </div>
         )}
 
-        <div className="triage-modal__body">
-          <aside className="triage-modal__spatial">
-            <TriageSpatialPanel
-              cluster={openCluster}
-              selectedReportId={reportIds[0] ?? null}
-              suggestedReportIds={suggestedReportIds}
-              inspectionMode={inspectionMode}
-              onSelectReport={(reportId) => state.toggleSelected(reportId)}
-            />
-          </aside>
-
-          <main className="triage-modal__center" data-testid="triage-evidence-panel">
+        <div className="triage-workflow__body">
+          <main className="triage-workflow__center" data-testid="triage-evidence-panel">
             <ReportsListPanel
               cluster={openCluster}
               inspectionMode={inspectionMode}
@@ -386,7 +351,7 @@ export function TriageInspectionModal({
             />
           </main>
 
-          <aside className="triage-modal__right" data-testid="triage-action-rail">
+          <aside className="triage-workflow__right" data-testid="triage-action-rail">
             <div className="triage-action-rail__tabs">
               <TriageActionTabs
                 tab={state.tab}

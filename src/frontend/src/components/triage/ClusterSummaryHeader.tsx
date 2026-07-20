@@ -1,6 +1,6 @@
 'use client';
 
-import { AlertTriangle, Clock, Flame, MapPin, Phone, Shield, Users, X } from 'lucide-react';
+import { AlertTriangle, Clock, Flame, MapPin, Phone, Shield, Users } from 'lucide-react';
 import type { TriageClusterEntry } from '@/lib/api';
 import { formatTrustPercent } from '@/lib/trustColors';
 import { useEffect, useState } from 'react';
@@ -8,7 +8,6 @@ import { useEffect, useState } from 'react';
 export interface ClusterSummaryHeaderProps {
   cluster: TriageClusterEntry;
   inspectionMode: 'cluster' | 'singleton';
-  onClose: () => void;
 }
 
 function formatAge(iso: string): string {
@@ -32,14 +31,14 @@ function useNow(intervalMs: number): number {
 }
 
 /**
- * Sticky top header for the triage inspection modal.
+ * Sticky summary header for the dedicated triage workflow.
  * - Cluster / singleton breadcrumb
  * - Severity, life-safety, timeout risk, danger badges
  * - Member count, average trust, station, age
  * - Esc shortcut hint
  */
-export function ClusterSummaryHeader({ cluster, inspectionMode, onClose }: ClusterSummaryHeaderProps) {
-  // Tick once per 30s so the relative-age label stays fresh while modal is open.
+export function ClusterSummaryHeader({ cluster, inspectionMode }: ClusterSummaryHeaderProps) {
+  // Tick once per 30s so the relative-age label stays fresh while the workspace is open.
   const now = useNow(30_000);
   const ageIso = cluster.oldest_report_at;
   const isCluster = inspectionMode === 'cluster' && cluster.cluster_id !== null;
@@ -51,28 +50,28 @@ export function ClusterSummaryHeader({ cluster, inspectionMode, onClose }: Clust
   void now;
 
   return (
-    <header className="triage-modal-header">
-      <div className="triage-modal-header__crumb">
-        <span className="triage-modal-header__crumb-tag">TRIAGE</span>
-        <span className="triage-modal-header__crumb-sep">/</span>
-        <span className="triage-modal-header__crumb-tag triage-modal-header__crumb-tag--accent">QUEUE</span>
-        <span className="triage-modal-header__crumb-sep">/</span>
-        <span className="triage-modal-header__crumb-current">{typeLabel}</span>
+    <header className="triage-workflow-header">
+      <div className="triage-workflow-header__crumb">
+        <span className="triage-workflow-header__crumb-tag">TRIAGE</span>
+        <span className="triage-workflow-header__crumb-sep">/</span>
+        <span className="triage-workflow-header__crumb-tag triage-workflow-header__crumb-tag--accent">QUEUE</span>
+        <span className="triage-workflow-header__crumb-sep">/</span>
+        <span className="triage-workflow-header__crumb-current">{typeLabel}</span>
       </div>
 
-      <div className="triage-modal-header__row">
-        <div className="triage-modal-header__title-block">
-          <h2 id="triage-modal-title" className="triage-modal-header__title">
+      <div className="triage-workflow-header__row">
+        <div className="triage-workflow-header__title-block">
+          <h2 id="triage-workflow-title" className="triage-workflow-header__title">
             {titleText}
           </h2>
-          <p className="triage-modal-header__subtitle">
+          <p className="triage-workflow-header__subtitle">
             {isCluster
               ? 'Inspect, split, merge, or apply a terminal action to this cluster.'
               : 'Inspect this single report and apply a terminal action.'}
           </p>
         </div>
 
-        <div className="triage-modal-header__badges">
+        <div className="triage-workflow-header__badges">
           <span className={`triage-sev triage-sev--${cluster.severity.toLowerCase()}`}>
             <Flame className="h-3 w-3" />
             {cluster.severity}
@@ -104,7 +103,7 @@ export function ClusterSummaryHeader({ cluster, inspectionMode, onClose }: Clust
         </div>
       </div>
 
-      <div className="triage-modal-header__meta">
+      <div className="triage-workflow-header__meta">
         <span className="triage-meta">
           <Users className="h-3.5 w-3.5" />
           <strong>{cluster.member_count}</strong>&nbsp;member{cluster.member_count === 1 ? '' : 's'}
@@ -128,17 +127,7 @@ export function ClusterSummaryHeader({ cluster, inspectionMode, onClose }: Clust
           <Clock className="h-3.5 w-3.5" />
           oldest&nbsp;<strong>{ageText}</strong>
         </span>
-        <span className="triage-modal-header__spacer" />
-        <span className="triage-modal-header__hint">Esc close</span>
-        <button
-          type="button"
-          aria-label="Close inspection modal"
-          onClick={onClose}
-          className="triage-modal-header__close"
-        >
-          <X className="h-4 w-4" />
-          Close
-        </button>
+        <span className="triage-workflow-header__spacer" />
       </div>
     </header>
   );

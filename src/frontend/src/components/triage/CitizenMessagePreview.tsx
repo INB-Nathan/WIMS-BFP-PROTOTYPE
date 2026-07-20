@@ -2,7 +2,7 @@
 
 import { Smartphone } from 'lucide-react';
 import type { TerminalCitizenStatus } from '@/lib/api';
-import { TERMINAL_OPTIONS } from './useTriageModalState';
+import { TERMINAL_OPTIONS } from './useTriageWorkflowState';
 
 export interface CitizenMessagePreviewProps {
   status: TerminalCitizenStatus;

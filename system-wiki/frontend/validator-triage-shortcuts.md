@@ -1,73 +1,55 @@
 ---
 title: Validator Triage Shortcuts
 created: 2026-05-20
-updated: 2026-06-21
+updated: 2026-07-20
 type: frontend
 tags: [wims-bfp, frontend, triage, validation, ui-ux, hci]
-sources: [system-wiki/decisions/0001-civilian-reporting-overhaul.md, src/frontend/src/app/incidents/triage/page.tsx, src/frontend/src/components/triage/TriageInspectionModal.tsx]
-status: current
+sources: [system-wiki/decisions/0001-civilian-reporting-overhaul.md, src/frontend/src/app/incidents/triage/page.tsx, src/frontend/src/app/incidents/triage/[clusterId]/page.tsx, src/frontend/src/components/triage/TriageWorkflowPanel.tsx, src/frontend/src/components/triage/ConfirmActionDialog.tsx]
+status: verified
 related: [subsystems/civilian-reporting-phase2, operations/civilian-triage-hci-polish, frontend/route-map]
 ---
 
 # Validator Triage Shortcuts
 
-This page defines the safe keyboard shortcut scope for the civilian report triage workflow. It is linked to [[decisions/0001-civilian-reporting-overhaul]] and [[frontend/route-map]].
+Current safe keyboard policy for civilian-report triage. See [[subsystems/civilian-reporting-phase2]] and [[frontend/route-map]].
 
-## Modal-Scoped Shortcuts (Triage Inspection Modal)
+## Workspace Action Navigation
 
-While the inspection modal is open (`src/frontend/src/components/triage/TriageInspectionModal.tsx`), the following shortcuts are active. The handler is suppressed when focus is inside an `INPUT` / `TEXTAREA` / `SELECT` so typing is never hijacked.
-
-| Shortcut | Action | Notes |
-|---|---|---|
-| `Esc` | Close modal | Does not save or apply actions. Cancels any open destructive confirm. |
-| `1` | Switch to **Terminal** tab | Navigation only |
-| `2` | Switch to **Split** tab | Cluster mode only |
-| `3` | Switch to **Merge** tab | Cluster mode only |
-| `4` | Switch to **Activity** tab | Navigation only |
-| `5` | Switch to **Send Update** tab | Capability-gated |
-
-The destructive confirm dialog also traps `Esc` (capture phase) so it cancels without closing the parent modal.
-
-## Queue-Level Shortcuts (existing)
+`src/frontend/src/components/triage/TriageWorkflowPanel.tsx` installs these shortcuts while route-based workspace action controls are mounted. Handler ignores events from `INPUT`, `TEXTAREA`, and `SELECT` elements.
 
 | Shortcut | Action | Notes |
 |---|---|---|
-| `/` | Focus search | Search/filter focus only |
-| `j` | Move to next queue item | Navigation only |
-| `k` | Move to previous queue item | Navigation only |
-| `f` | Open filters | Opens quick filter panel/menu |
-| `m` | Open map/table modal | Opens inspection modal for focused cluster |
-| `Esc` | Close modal/panel | Does not save or apply actions |
+| `1` | Terminal tab | Navigation only |
+| `2` | Split tab | Cluster mode only |
+| `3` | Merge tab | Cluster mode only |
+| `4` | Activity tab | Navigation only |
+| `5` | Send Update tab | NATIONAL_VALIDATOR or REGIONAL_ENCODER capability only |
 
-## Explicitly Not Allowed (unchanged policy)
+Retired modal-level `Esc` close behavior no longer exists. Browser/route navigation returns from `/incidents/triage/[clusterId]` to URL-preserved queue state. `Esc` remains local to `ConfirmActionDialog`, where it cancels confirmation.
 
-Terminal or bulk actions must not have keyboard shortcuts. The commit step is always a deliberate UI click:
+## Queue-Level State
 
-- `ACTIONED` (or any `REJECTED_*`) terminal action
-- Split cluster
-- Merge cluster
-- Bulk apply
-- Claim takeover
+`/incidents/triage` currently provides clickable map/board/report selection and URL-backed filters. It does not implement `/`, `j`, `k`, `f`, `m`, or queue-level `Esc` handlers. Those shortcuts remain design guidance in [[decisions/0001-civilian-reporting-overhaul]], not current implementation claims.
 
-These actions require a deliberate UI click, the citizen-visible `status_explanation` preview, and (for destructive or audit-visible actions) a two-step destructive confirm before the API call lands. Report correction is no longer exposed by the modal. The commit button in each panel reads "click to confirm" rather than showing a `⌘↵` shortcut, to make the no-shortcut policy visible to the operator.
+## No Commit Shortcuts
 
-## Rationale
+No keyboard shortcut may commit:
 
-The Triage inspection modal previously showed no in-modal shortcuts at all. The 1–5 tab navigation is safe because it changes the *form* the operator is editing, never commits. Splitting tab navigation from commit-key keeps the operator's muscle memory for tab management without exposing destructive paths to a stray keystroke. The audit trail for terminal / split / merge actions always shows the deliberate click as the trigger event.
+- `ACTIONED` or any `REJECTED_*` terminal action;
+- split or merge;
+- correction;
+- status update;
+- claim takeover.
+
+Commit controls require deliberate clicks. Destructive/caution terminal decisions, split, merge, correction, takeover, and status-update flows use explicit confirmation where their panel contract requires it. Citizen-visible terminal copy remains previewed before commit.
 
 ## Related Files
 
 | File | Role |
 |---|---|
-| `src/frontend/src/components/triage/TriageInspectionModal.tsx` | Tab-nav + Esc-close keydown handler |
-| `src/frontend/src/components/triage/ConfirmActionDialog.tsx` | `Esc` cancel for destructive confirm (capture phase) |
-| `src/frontend/src/components/triage/TriageActionTabs.tsx` | Tab buttons with 1–5 number-key hints |
-| `src/frontend/src/components/triage/TerminalActionPanel.tsx` | Terminal commit button (click only) |
-| `src/frontend/src/components/triage/SplitActionPanel.tsx` | Split commit button (click only) |
-| `src/frontend/src/components/triage/MergeActionPanel.tsx` | Merge commit button (click only) |
-
-## Implementation Notes
-
-- Shortcuts apply only when the triage queue has focus and no text input/textarea/select is active.
-- Shortcut help should be visible from the validator triage page, for example a help button or command/help modal.
-- Terminal action dialogs must trap focus and ignore queue navigation shortcuts while open.
+| `src/frontend/src/components/triage/TriageWorkflowPanel.tsx` | Action-tab keyboard navigation and confirmation orchestration |
+| `src/frontend/src/components/triage/ConfirmActionDialog.tsx` | Focus-contained two-step confirmation and `Esc` cancel |
+| `src/frontend/src/components/triage/TriageActionTabs.tsx` | Action-tab buttons and numeric hints |
+| `src/frontend/src/components/triage/TerminalActionPanel.tsx` | Click-only terminal commit and citizen preview |
+| `src/frontend/src/components/triage/SplitActionPanel.tsx` | Click-only split commit |
+| `src/frontend/src/components/triage/MergeActionPanel.tsx` | Click-only merge commit |
