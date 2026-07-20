@@ -1,3 +1,9 @@
+## [2026-07-20] fix(database): repair persistent civilian photo core schema
+
+- **Incident:** The production cluster workspace returned HTTP 500 because `wims.report_photos` came from Alembic `0003`'s minimal fallback shape and lacked `media_type`, image dimensions, and encrypted artifact columns expected by the evidence projection.
+- **Repair:** Alembic `0030` restores parity with clean-bootstrap SQL 82 and required indexes. It refuses automatic repair when an occupied partial table would require invented encrypted-evidence metadata; the affected production table was verified empty. RLS and ownership policies are unchanged.
+- **Validation:** Migration/workspace contract tests pass 9 of 9; Ruff and diff checks pass. Updated [[database/schema-overview]]. No FRS/code gap changed.
+
 ## [2026-07-20] refactor(triage): retire modal for route-based evidence workspace
 
 - **Scope:** `/incidents/triage` now hands `Inspect / Act` to `/incidents/triage/[clusterId]` and preserves queue filters, selected item, and selected report through URL state. Deep links reconstruct the requested report when it belongs to the cluster.
