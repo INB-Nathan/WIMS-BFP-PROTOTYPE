@@ -120,7 +120,7 @@ describe('PublicHeader', () => {
       expect(screen.getByRole('link', { name: 'Fire stations' })).toHaveAttribute('href', '/fire-stations');
       expect(screen.getByTestId('header-register')).toHaveAttribute('href', '/register');
       expect(screen.getByTestId('header-signin')).toHaveAttribute('href', '/login');
-      expect(screen.queryByTestId('header-report')).not.toBeInTheDocument();
+      expect(screen.getByTestId('header-report')).toHaveAttribute('href', '/report');
     });
 
     it('renders theme-toggle button', () => {

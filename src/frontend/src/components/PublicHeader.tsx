@@ -20,7 +20,7 @@ import { defaultRouteForRole } from '@/lib/roleRedirect';
  * in browser code. Anonymous navigation stays on the approved public surface;
  * authenticated users also receive their role-appropriate dashboard link.
  *
- * The "Report a Fire" CTA is authenticated-only and hidden on /report.
+ * The desktop "Report a Fire" CTA is available to every visitor and hidden on /report.
  */
 export function PublicHeader() {
   const { user, loading, logout } = useAuth();
@@ -117,8 +117,12 @@ export function PublicHeader() {
           </button>
         )}
 
-        {isAuthenticated && !isReportPage && (
-          <Link href="/report" className="btn-primary" data-testid="header-report">
+        {!isReportPage && (
+          <Link
+            href="/report"
+            className="btn-primary landing-header-report-desktop"
+            data-testid="header-report"
+          >
             Report a Fire
           </Link>
         )}

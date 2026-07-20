@@ -1,3 +1,10 @@
+## [2026-07-19] fix(public-ui): align privacy, verification, and desktop reporting navigation
+
+- **Theme:** `/privacy` now uses only shared public-surface day/night tokens for its hero, policy card, consent notice, tables, code labels, and links; it no longer relies on legacy undefined theme variables or page-owned footer chrome.
+- **Verification:** `/verify` now matches `/verify-sent` and registration through the shared card, form, alert, icon, guidance, and persisted theme patterns without changing code verification or redirect behavior.
+- **Navigation:** The shared desktop public navbar now exposes Report a Fire to anonymous and authenticated visitors and still hides the action on `/report`; mobile visibility is unchanged.
+- **Wiki:** Updated [[frontend/route-map]] and [[index]]. No API, schema, security boundary, or FRS/code gap changed.
+
 ## [2026-07-19] ops(install): add self-contained VPS installer + maintenance script (run.sh)
 
 - **Scope:** New root `run.sh` is the single command for installation and maintenance of the WIMS-BFP stack on any VPS. `install` bootstraps a bare host (docker + compose plugin + git + certbot), clones the repo into `/opt/wims-bfp`, generates `src/.env.production` from the example (auto-deriving `KEYCLOAK_REALM_URL` and auto-generating `WIMS_MASTER_KEY`/`WIMS_KEYCLOAK_EVENT_SECRET`), issues the Let's Encrypt cert via standalone ACME, installs the certbot renewal cron, and runs the first deploy via `scripts/deploy-vps.sh`. Maintenance subcommands: `deploy`/`update`, `status`, `logs`, `restart` (nginx recreated to fix bind-mount staleness per gotcha #20), `stop`/`start`, `health`, `migrate` (alembic upgrade head), `backup` (pg_dump), `rollback`, `shell`, `env`.

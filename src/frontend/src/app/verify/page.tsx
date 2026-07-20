@@ -3,6 +3,7 @@
 import { Suspense, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { KeyRound, ShieldCheck } from 'lucide-react';
 import { verifyCivilianRegistration } from '@/lib/api/civilian';
 
 function VerifyContent() {
@@ -42,66 +43,43 @@ function VerifyContent() {
   }
 
   return (
-    <main
-      className="verify-page"
-      style={{
-        minHeight: '100vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 24,
-        background: 'linear-gradient(160deg, #5A1515 0%, #8E1B1B 40%, #C62828 100%)',
-      }}
-    >
-      <div
-        className="verify-card"
-        style={{
-          width: '100%',
-          maxWidth: 480,
-          background: 'var(--card-bg, #fff)',
-          borderRadius: 16,
-          padding: 32,
-          boxShadow: '0 10px 40px rgba(0,0,0,0.25)',
-        }}
-      >
-        <h1
-          style={{
-            fontSize: '1.4rem',
-            fontWeight: 800,
-            color: 'var(--text-primary)',
-            marginBottom: 4,
-          }}
-        >
-          Verify Your Email
-        </h1>
-        <p
-          style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: 24 }}
-        >
+    <section className="ps-has-mesh flex min-h-[calc(100vh-7rem)] items-center justify-center px-4 py-12">
+      <div className="ps-card w-full max-w-lg">
+        <div className="mb-6 flex items-start gap-4">
+          <div
+            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full"
+            style={{ background: 'var(--primary-bg)', color: 'var(--primary)' }}
+          >
+            <KeyRound className="h-6 w-6" aria-hidden="true" />
+          </div>
+          <div>
+            <p
+              className="mb-1 text-xs font-semibold uppercase tracking-[0.18em]"
+              style={{ color: 'var(--primary)' }}
+            >
+              Email verification
+            </p>
+            <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
+              Verify Your Email
+            </h1>
+          </div>
+        </div>
+
+        <p className="mb-6 leading-6" style={{ color: 'var(--text-secondary)' }}>
           Enter the 6-digit code we emailed you to finish creating your account.
         </p>
 
         {error && (
-          <div
-            role="alert"
-            data-testid="verify-error"
-            style={{
-              background: '#FEF2F2',
-              color: '#B91C1C',
-              border: '1px solid #FECACA',
-              borderRadius: 8,
-              padding: '10px 14px',
-              marginBottom: 16,
-              fontSize: '0.82rem',
-            }}
-          >
+          <div role="alert" className="ps-error-alert" data-testid="verify-error">
             {error}
           </div>
         )}
 
-        <form onSubmit={handleSubmit} noValidate style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <label style={labelStyle}>
-            <span style={labelStyle}>Email</span>
+        <form onSubmit={handleSubmit} noValidate>
+          <label className="ps-field" htmlFor="verify-email">
+            <span className="ps-label">Email</span>
             <input
+              id="verify-email"
               type="email"
               name="email"
               value={email}
@@ -110,13 +88,14 @@ function VerifyContent() {
               aria-label="Email"
               data-testid="verify-email"
               readOnly
-              style={{ ...inputStyle, opacity: 0.85 }}
+              className="ps-input opacity-[0.85]"
             />
           </label>
 
-          <label style={labelStyle}>
-            <span style={labelStyle}>Verification code</span>
+          <label className="ps-field" htmlFor="verify-code">
+            <span className="ps-label">Verification code</span>
             <input
+              id="verify-code"
               type="text"
               name="code"
               value={code}
@@ -128,7 +107,7 @@ function VerifyContent() {
               autoComplete="one-time-code"
               maxLength={6}
               readOnly={codeFromUrl}
-              style={{ ...inputStyle, ...(codeFromUrl ? { opacity: 0.85 } : {}) }}
+              className={`ps-input ${codeFromUrl ? 'opacity-[0.85]' : ''}`}
             />
           </label>
 
@@ -136,50 +115,30 @@ function VerifyContent() {
             type="submit"
             disabled={submitting}
             data-testid="verify-submit"
-            style={{
-              marginTop: 4,
-              padding: '14px 24px',
-              borderRadius: 8,
-              fontSize: '0.9rem',
-              fontWeight: 700,
-              border: 'none',
-              cursor: submitting ? 'not-allowed' : 'pointer',
-              background: submitting ? '#9CA3AF' : '#C62828',
-              color: '#fff',
-            }}
+            className="ps-btn ps-btn-auth w-full"
           >
-            {submitting ? 'Verifying…' : 'Verify'}
+            {submitting ? 'Verifying…' : 'Verify email'}
           </button>
         </form>
 
-        <p
-          style={{
-            marginTop: 20,
-            fontSize: '0.82rem',
-            color: 'var(--text-secondary)',
-            textAlign: 'center',
-          }}
+        <div
+          className="mt-6 rounded-[var(--radius)] border p-4 text-sm"
+          style={{ borderColor: 'var(--border)', background: 'var(--bg-base)', color: 'var(--text-secondary)' }}
         >
-          Didn&apos;t receive the email? Check your spam folder.
-        </p>
+          <p className="flex gap-2">
+            <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" style={{ color: 'var(--green-light)' }} aria-hidden="true" />
+            Didn&apos;t receive the email? Check your spam folder.
+          </p>
+        </div>
 
-        <p
-          style={{
-            marginTop: 12,
-            fontSize: '0.82rem',
-            color: 'var(--text-secondary)',
-            textAlign: 'center',
-          }}
-        >
-          <Link
-            href="/login"
-            style={{ color: '#C62828', fontWeight: 600, textDecoration: 'underline' }}
-          >
+        <p className="mt-6 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
+          Already verified?{' '}
+          <Link href="/login" className="font-semibold" style={{ color: 'var(--primary)' }}>
             Back to sign in
           </Link>
         </p>
       </div>
-    </main>
+    </section>
   );
 }
 
@@ -190,21 +149,3 @@ export default function VerifyPage() {
     </Suspense>
   );
 }
-
-const labelStyle: React.CSSProperties = {
-  display: 'block',
-  fontSize: '0.78rem',
-  fontWeight: 600,
-  color: 'var(--text-secondary)',
-  marginBottom: 6,
-};
-
-const inputStyle: React.CSSProperties = {
-  width: '100%',
-  padding: '11px 12px',
-  borderRadius: 8,
-  border: '1px solid var(--border-color, #e5e7eb)',
-  fontSize: '0.9rem',
-  background: 'var(--card-bg, #fff)',
-  color: 'var(--text-primary, #1A1D23)',
-};
