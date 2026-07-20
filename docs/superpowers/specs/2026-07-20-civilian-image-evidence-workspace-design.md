@@ -11,6 +11,24 @@
 - `system-wiki/decisions/0001-civilian-reporting-overhaul.md`
 - `system-wiki/subsystems/civilian-reporting-phase2.md`
 
+**Execution specifications:**
+- `docs/superpowers/specs/2026-07-20-civilian-image-evidence-backend-security.md`
+- `docs/superpowers/specs/2026-07-20-civilian-image-evidence-frontend-workspace.md`
+- `docs/superpowers/specs/2026-07-20-civilian-image-evidence-operations-validation.md`
+
+## Document ownership
+
+This document is the canonical behavioral contract: product decisions, trust
+boundaries, cross-layer invariants, acceptance criteria, and non-goals. The three
+execution specifications decompose backend/security, frontend workspace, and
+operations/validation work without redefining behavior. If an execution document
+conflicts with this contract, this document wins until the conflict is explicitly
+resolved and approved.
+
+Implementation-specific endpoints, component boundaries, commands, and current
+storage mechanisms may evolve while preserving this document's behavior. The
+execution specifications own those details and their focused checklists.
+
 ## 1. Problem
 
 The existing civilian photo pipeline accepts JPEG/PNG uploads, extracts metadata,
@@ -409,19 +427,19 @@ Tests must cover:
   and absence of plaintext PII in localStorage/IndexedDB operation records;
 - production Next.js build.
 
-### 9.3 Infrastructure smoke test
+### 9.3 Operations and persistence validation
 
-Against an authorized non-destructive environment:
+The durable behavioral requirement is storage-backend independent: committed
+sanitized evidence remains available with preserved integrity and authorization
+after supported routine deployment, restart, and application-container replacement
+operations. Validation must also prove that originals remain inaccessible.
 
-1. upload a civilian JPEG/PNG;
-2. verify the DB photo row and encrypted artifacts exist beneath the configured
-   named-volume path without printing sensitive metadata;
-3. recreate the backend container without deleting volumes;
-4. retrieve the sanitized image through the validator route;
-5. verify the response hash matches the expected sanitized plaintext and the
-   original remains inaccessible.
-
-The smoke test must not use `docker compose down -v`.
+The current implementation uses a Docker named volume, but acceptance does not
+permanently depend on its name, host path, or encryption implementation. The safe
+procedure, pass criteria, migration sequencing, observability, and rollback checks
+are owned by
+`docs/superpowers/specs/2026-07-20-civilian-image-evidence-operations-validation.md`.
+Destructive volume operations are prohibited as smoke tests.
 
 ## 10. Rollout Order
 
@@ -438,8 +456,9 @@ The smoke test must not use `docker compose down -v`.
 
 ## 11. Acceptance Criteria
 
-1. Encrypted civilian image bytes survive an ordinary backend container recreation
-   and remain readable through the validator-only sanitized endpoint.
+1. A committed civilian image remains available as authorized sanitized evidence,
+   with preserved integrity, after supported routine deployment, restart, and
+   application-container replacement operations.
 2. National Validators can view sanitized images and safe metadata in a dedicated
    cluster workspace; originals cannot be rendered or downloaded.
 3. The comparison map represents every available approved source: report pin,
