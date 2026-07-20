@@ -2,26 +2,29 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 
 export const metadata: Metadata = {
-  title: 'Data Retention Policy — WIMS-BFP',
-  description: 'Data Retention Policy for the WIMS-BFP Web Incident Management System',
+  title: 'Data Privacy and Retention Policy — WIMS-BFP',
+  description: 'Data Privacy and Retention Policy for the WIMS-BFP Web Incident Management System',
 };
 
 export default function PrivacyPage() {
   return (
-    <div className="min-h-screen" style={{ background: 'var(--content-bg)' }}>
+    <div className="ps-has-mesh min-h-screen">
       {/* ── Hero ────────────────────────────────────────────────────── */}
       <header
-        className="text-center py-8 px-4 relative overflow-hidden"
-        style={{ background: 'var(--bfp-gradient)' }}
+        className="relative overflow-hidden border-b px-4 py-8 text-center"
+        style={{
+          background: 'linear-gradient(160deg, var(--bg-elevated), var(--bg-base))',
+          borderColor: 'var(--border)',
+        }}
       >
         <div
-          className="w-14 h-14 mx-auto mb-3 rounded-full flex items-center justify-center"
-          style={{ background: 'rgba(255,255,255,0.12)' }}
+          className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full"
+          style={{ background: 'var(--red-bg)', color: 'var(--red-light)' }}
         >
           <svg
             viewBox="0 0 24 24"
             fill="none"
-            stroke="rgba(255,255,255,0.9)"
+            stroke="currentColor"
             strokeWidth="1.5"
             strokeLinecap="round"
             strokeLinejoin="round"
@@ -30,18 +33,18 @@ export default function PrivacyPage() {
             <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
           </svg>
         </div>
-        <p className="text-xs text-white/50 uppercase tracking-[0.12em] mb-1">
+        <p className="mb-1 text-xs uppercase tracking-[0.12em]" style={{ color: 'var(--text-muted)' }}>
           Bureau of Fire Protection
         </p>
-        <h1 className="text-[1.625rem] font-bold text-white leading-tight">
-          Data Retention Policy
+        <h1 className="text-[1.625rem] font-bold leading-tight" style={{ color: 'var(--text-primary)' }}>
+          Data Privacy and Retention Policy
         </h1>
-        <p className="text-sm text-white/50 mt-0.5">
+        <p className="mt-0.5 text-sm" style={{ color: 'var(--text-secondary)' }}>
           WIMS-BFP — Web Incident Management System
         </p>
         <span
-          className="inline-block mt-3 px-3 py-1 rounded-full text-[0.675rem] font-medium tracking-wider text-white/70"
-          style={{ background: 'rgba(255,255,255,0.1)' }}
+          className="mt-3 inline-block rounded-full px-3 py-1 text-[0.675rem] font-medium tracking-wider"
+          style={{ background: 'var(--bg-surface)', color: 'var(--text-secondary)' }}
         >
           Last updated: June 2026
         </span>
@@ -51,11 +54,8 @@ export default function PrivacyPage() {
       <main>
         <div className="max-w-3xl mx-auto px-4 -mt-6 pb-8">
           <div
-            className="rounded-xl overflow-hidden relative z-10"
-            style={{
-              background: 'var(--card-bg)',
-              boxShadow: '0 4px 24px rgba(0,0,0,0.08), 0 1px 4px rgba(0,0,0,0.04)',
-            }}
+            className="ps-card relative z-10 overflow-hidden shadow-[var(--shadow-soft)]"
+            style={{ padding: 0 }}
           >
             <div className="p-6 sm:p-8 space-y-8">
 
@@ -96,20 +96,19 @@ export default function PrivacyPage() {
                   starts the report wizard.
                 </p>
                 <div
-                  className="rounded-lg p-4 border border-l-4 mt-3"
+                  className="mt-3 rounded-lg border border-l-4 p-4"
                   style={{
-                    background: 'rgba(251,191,36,0.08)',
-                    borderColor: 'rgba(251,191,36,0.35)',
-                    borderLeftColor: '#d97706',
+                    background: 'var(--yellow-bg)',
+                    borderColor: 'var(--yellow)',
                   }}
                 >
                   <p
                     className="text-[0.675rem] font-bold uppercase tracking-[0.08em] mb-2"
-                    style={{ color: '#92400e' }}
+                    style={{ color: 'var(--yellow-light)' }}
                   >
                     Consent Fineprint
                   </p>
-                  <p className="text-sm leading-relaxed" style={{ color: '#78350f' }}>
+                  <p className="text-sm leading-relaxed" style={{ color: 'var(--text-primary)' }}>
                     By submitting a fire report through this application, you consent to
                     the collection, processing, and retention of your personal data in
                     accordance with this Data Retention Policy. Submission implies
@@ -256,25 +255,11 @@ export default function PrivacyPage() {
         </div>
       </main>
 
-      {/* ── Footer ──────────────────────────────────────────────────── */}
-      <footer className="text-center pb-8 px-4">
-        <p className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>
-          Bureau of Fire Protection · WIMS-BFP
-        </p>
-        <p className="text-[0.675rem] mt-0.5" style={{ color: 'var(--text-muted)' }}>
-          Web Incident Management System — Republic of the Philippines
-        </p>
-        <p className="text-[0.675rem] mt-1" style={{ color: 'var(--text-muted)' }}>
-          Last updated: June 2026 ·{' '}
-          <Link
-            href="/"
-            className="underline underline-offset-2"
-            style={{ color: 'var(--bfp-maroon-dark)' }}
-          >
-            Return to Report
-          </Link>
-        </p>
-      </footer>
+      <div className="px-4 pb-8 text-center text-xs" style={{ color: 'var(--text-muted)' }}>
+        <Link href="/" className="font-semibold underline underline-offset-2" style={{ color: 'var(--primary)' }}>
+          Return home
+        </Link>
+      </div>
     </div>
   );
 }
@@ -295,13 +280,13 @@ function Section({
       <h2
         className="flex items-center gap-2 text-lg font-bold pb-2 mb-4"
         style={{
-          color: 'var(--bfp-maroon-dark)',
-          borderBottom: '2px solid rgba(198,40,40,0.12)',
+          color: 'var(--text-primary)',
+          borderBottom: '2px solid var(--red-bg)',
         }}
       >
         <span
           className="inline-flex items-center justify-center w-7 h-7 rounded-full text-white text-xs font-bold flex-shrink-0"
-          style={{ background: 'var(--bfp-maroon-dark)' }}
+          style={{ background: 'var(--red)', color: '#fff' }}
         >
           {num}
         </span>
@@ -372,7 +357,7 @@ function BulletList({
           >
             <span
               className="absolute left-0 top-[0.6rem] w-1.5 h-1.5 rounded-full"
-              style={{ background: 'var(--bfp-maroon)', opacity: 0.5 }}
+              style={{ background: 'var(--red)', opacity: 0.7 }}
             />
             {content}
           </li>
@@ -386,18 +371,18 @@ function Table({ headers, rows }: { headers: string[]; rows: string[][] }) {
   return (
     <div
       className="overflow-x-auto rounded-lg border my-3"
-      style={{ borderColor: 'var(--border-color)' }}
+      style={{ borderColor: 'var(--border)' }}
     >
       <table className="w-full border-collapse text-sm">
-        <thead style={{ background: 'rgba(153,27,27,0.04)' }}>
+        <thead style={{ background: 'var(--bg-surface)' }}>
           <tr>
             {headers.map((h) => (
               <th
                 key={h}
                 className="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-[0.05em]"
                 style={{
-                  color: 'var(--bfp-maroon-dark)',
-                  borderBottom: '2px solid rgba(198,40,40,0.1)',
+                  color: 'var(--text-primary)',
+                  borderBottom: '2px solid var(--border-strong)',
                 }}
               >
                 {h}
@@ -414,7 +399,7 @@ function Table({ headers, rows }: { headers: string[]; rows: string[][] }) {
                   className="px-4 py-2.5 align-top"
                   style={{
                     color: 'var(--text-secondary)',
-                    borderBottom: i < rows.length - 1 ? '1px solid var(--border-color)' : 'none',
+                    borderBottom: i < rows.length - 1 ? '1px solid var(--border)' : 'none',
                   }}
                 >
                   {cell}
@@ -434,8 +419,8 @@ function Code({ children }: { children: string }) {
       className="text-xs px-1.5 py-0.5 rounded"
       style={{
         fontFamily: "'SF Mono', 'Fira Code', 'Cascadia Code', monospace",
-        background: 'rgba(153,27,27,0.05)',
-        color: 'var(--bfp-maroon-dark)',
+        background: 'var(--red-bg)',
+        color: 'var(--red-light)',
       }}
     >
       {children}

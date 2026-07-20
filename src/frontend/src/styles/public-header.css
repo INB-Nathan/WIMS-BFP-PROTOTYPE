@@ -203,6 +203,9 @@
   .btn-primary {
     padding-inline: 0.5rem;
   }
+  .landing-header-report-desktop {
+    display: none;
+  }
 }
 .landing-header-avatar {
   width: 32px;
