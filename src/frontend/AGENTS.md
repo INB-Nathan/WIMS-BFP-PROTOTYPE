@@ -17,11 +17,9 @@ Read on demand:
 - `public/sw.js` and `public/manifest.webmanifest` — PWA runtime
 - `package.json`, `eslint.config.mjs`, `vitest.config.ts`, `tsconfig.json` — gates
 
-Architecture references:
-
-- `system-wiki/frontend/route-map.md`
-- `system-wiki/architecture/pwa-tests-cicd.md`
-- the task-specific pack in `system-wiki/operations/agent-routing-guide.md`
+Discover routes from the live tree: `find src/app/ -name 'page.tsx' -o -name 'route.ts' | sort`.
+PWA/offline design is documented inline in the offline store, sync engine, and
+connectivity modules under `src/lib/`.
 
 ## App and Data Boundaries
 
@@ -44,7 +42,7 @@ Architecture references:
 
 ## Offline/PWA Contract
 
-Read `system-wiki/architecture/pwa-tests-cicd.md` and the adjacent tests before any
+Read the adjacent offline-store tests and the sync-engine source before any
 offline change.
 
 - Preserve IndexedDB upgrade migrations and existing stores; never delete or rename

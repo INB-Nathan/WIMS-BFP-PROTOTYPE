@@ -15,7 +15,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 logger = logging.getLogger(__name__)
 
-SMTP_HOST = os.getenv("SMTP_HOST", "mailhog")
+SMTP_HOST = os.getenv("SMTP_HOST", "localhost")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "1025"))
 SMTP_FROM = os.getenv("SMTP_FROM", "no-reply@bfp.gov.ph")
 SMTP_USER = os.getenv("SMTP_USER", "")

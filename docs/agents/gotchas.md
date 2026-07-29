@@ -6,7 +6,7 @@ Each is a real mistake a sub-agent made.
 
 1. **Don't cite a line you didn't read.** If you say file.ts:42, read line 42 first.
 2. **Verify security claims.** Zero evidence in the file means don't claim it.
-3. **Never cite an FRS module without reading the source file.** The module map (`system-wiki/concepts/frs-module-map.md`) is a routing index with abbreviated names — not a requirements summary. Module names are misleading (e.g., Module 15 is "Reference Data Service", not "Offline-First"). Before stating "FRS Module N requires X," always `read system-wiki/raw/frs/frs-*.md` for that module and quote the exact line. If the FRS doesn't say it, don't claim it does.
+3. **Never cite an FRS module without reading the source file.** The FRS modules are defined across `src/backend/services/` — read the relevant service, its tests, and any scoped `AGENTS.md` before claiming a module requires X. Quote the exact line. If the code doesn't say it, don't claim it does.
 4. **Don't bypass the spec unless you can justify it.** If an implementation deviates from an issue, PRD, acceptance criterion, file name, API contract, migration number, or explicit user instruction, the agent must state the deviation, explain why it is necessary, and show how it materially improves correctness, safety, maintainability, or user value. Otherwise, follow the spec exactly or ask first.
 5. **Don't switch implementation approach without asking.** If the user's request implies a fundamentally different architecture than what you were planning (e.g., Pi-driven vs CI-driven, local vs remote), and changing approaches would conflict with existing files, agents, chains, or workflows, ask the user first. Don't silently build the wrong thing.
 

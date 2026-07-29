@@ -46,7 +46,7 @@ src/
 │   ├── tasks/              # Celery tasks (Suricata, exports, drafts)
 │   └── utils/              # crypto (AES-256-GCM), session revocation, audit
 ├── frontend/               # Next.js 16 (App Router), React 19, TypeScript, TailwindCSS 4
-├── postgres-init/          # 74 SQL bootstrap files — see system-wiki/database/sql-init-files.md
+├── postgres-init/          # 75 SQL bootstrap files (ordered, run at first boot)
 ├── keycloak/               # Realm import JSON (bfp-realm.json)
 ├── openbao/                # OpenBao init/bootstrap for KMS
 ├── suricata/               # Suricata IDS rules/log mounts
@@ -107,18 +107,21 @@ The frontend supports offline-first operation for encoders, validators, analysts
 - `src/frontend/src/lib/api/offline*.ts` — Offline-aware read wrappers for analytics, regional, validator, and admin.
 - Public manifest at `src/frontend/public/manifest.webmanifest`.
 
-See `system-wiki/architecture/pwa-tests-cicd.md` and `docs/PR-offline-first-encoder.md`.
+The offline/PWA architecture is expressed in the source modules themselves. Read `src/frontend/src/lib/offlineStore.ts`, `syncEngine.ts`, `connectivity.ts`, and the offline-aware API wrappers for the current state. See `docs/agents/gotchas.md` for known failure modes.
 
 ## Agent Routing
 
-Before non-trivial changes, read the relevant subsystem page:
-- Auth/RBAC/RLS → `system-wiki/security/security-baseline.md`
-- Incident workflow → `system-wiki/operations/agent-routing-guide.md`
-- Analytics → `system-wiki/subsystems/regional-dashboard.md`
-- Database schema → `system-wiki/database/schema-overview.md`
-- Offline/PWA → `system-wiki/architecture/pwa-tests-cicd.md`
+The code is the source of truth. Read the relevant source, tests, config, and scoped AGENTS.md before changing anything:
 
-The `system-wiki/` directory is the authoritative agent-routing knowledgebase. Raw FRS files live in `system-wiki/raw/frs/`.
+| Topic | Read first |
+|---|---|
+| Auth/RBAC/RLS | `src/backend/services/auth.py`, `src/backend/utils/database.py` (RLS context), `src/postgres-init/` (RLS policies) |
+| Incident workflow | `src/backend/api/routes/`, related service in `src/backend/services/` |
+| Analytics | `src/backend/services/analytics/`, `src/backend/api/routes/analytics/` |
+| Database schema | `src/postgres-init/*.sql` (ordered bootstrap), `src/backend/alembic/versions/` (migrations) |
+| Offline/PWA | `src/frontend/src/lib/offlineStore.ts`, `syncEngine.ts`, `connectivity.ts` |
+| Infrastructure | `src/docker-compose*.yml`, `src/nginx/`, `src/AGENTS.md` |
+| Security baseline | `src/AGENTS.md` (non-negotiable rules), `docs/agents/gotchas.md` |
 
 ## Agent skills
 
@@ -130,9 +133,9 @@ Issues and PRDs are tracked in GitHub Issues for `x1n4te/WIMS-BFP-PROTOTYPE` via
 
 The canonical triage labels are `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, and `wontfix`. See `docs/agents/triage-labels.md`.
 
-### Domain docs
+### Domain context
 
-Single-repo context: use `AGENTS.md`, `CLAUDE.md`, and `system-wiki/` for domain and architecture context. See `docs/agents/domain.md`.
+`AGENTS.md` and `CLAUDE.md` are the entry points. Read the relevant scoped AGENTS.md (`src/AGENTS.md`, `src/backend/AGENTS.md`, `src/frontend/AGENTS.md`) for deeper subsystem rules. The root AGENTS.md "Code as Source of Truth" section governs: if a written claim conflicts with the code, the code wins.
 
 ## Testing
 

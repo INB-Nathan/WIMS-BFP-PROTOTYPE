@@ -48,17 +48,15 @@ Evidence rules:
 
 Use the narrowest authoritative source for each claim:
 
-1. User-approved requirements, accepted issues/PRDs, raw FRS sources, and recorded
-   decisions define intended behavior.
+1. User-approved requirements, accepted issues/PRDs, and recorded decisions define
+   intended behavior.
 2. Live code, tests, SQL, Compose, and CI configuration define current behavior.
-3. `system-wiki/` is the authoritative routing and implementation synthesis, but
-   it is downstream of raw FRS and live code.
-4. `.github/workflows/ci.yml` is the executable merge-gate source; the Makefile and
+3. `.github/workflows/ci.yml` is the executable merge-gate source; the Makefile and
    `docs/agents/ci-preflight.md` are convenience guidance and must stay aligned.
 
-If FRS, a decision, and implementation disagree, do not silently choose one.
-Record or update the gap and request a decision when the correct outcome is not
-already approved.
+If a requirement, decision, and implementation disagree, surface the conflict and
+request a decision. The code is the closest thing to ground truth; any written
+claim about routing, schema, or behavior that the code disproves is stale.
 
 ## Repository Routing
 
@@ -66,21 +64,13 @@ already approved.
 |---|---|
 | Pi resources under `.pi/` | `.pi/AGENTS.md`, `.pi/README.md` |
 | Shared `src/` infrastructure, Compose, SQL, Keycloak, Nginx, OpenBao, Suricata | `src/AGENTS.md` |
-| GitHub workflows, deploy scripts, CI/CD | `src/AGENTS.md`, `docs/agents/ci-preflight.md`, relevant operations wiki page |
-| FastAPI, Celery, backend tests | `src/AGENTS.md`, `src/backend/AGENTS.md`, `system-wiki/backend/api-route-map.md` |
-| Next.js, UI, browser API, offline/PWA | `src/AGENTS.md`, `src/frontend/AGENTS.md`, `system-wiki/frontend/route-map.md` |
+| GitHub workflows, deploy scripts, CI/CD | `src/AGENTS.md`, `docs/agents/ci-preflight.md` |
+| FastAPI, Celery, backend tests | `src/AGENTS.md`, `src/backend/AGENTS.md` — discover routes via `find src/backend/api/routes/ -name '*.py'` |
+| Next.js, UI, browser API, offline/PWA | `src/AGENTS.md`, `src/frontend/AGENTS.md` — discover routes via `find src/frontend/src/app/ -name 'page.tsx' -o -name 'route.ts'` |
 | Documentation and GitHub issue workflow | `docs/AGENTS.md` |
-| System-wiki or FRS alignment | `system-wiki/AGENTS.md` |
 
-Cross-cutting work also requires the relevant context pack from
-`system-wiki/operations/agent-routing-guide.md`. In particular, read:
-
-- `system-wiki/security/security-baseline.md` for auth, RBAC, RLS, PII, audit,
-  IDS/XAI, or public-DMZ changes.
-- `system-wiki/database/schema-overview.md` for schema or migration changes.
-- `system-wiki/architecture/pwa-tests-cicd.md` for offline/PWA or CI changes.
-- `CLAUDE.md` for the broad architecture overview, while verifying volatile facts
-  against current source/configuration.
+`CLAUDE.md` has the broad architecture overview — verify volatile facts against
+current source/configuration.
 
 ## Non-Negotiable Architecture and Security Boundaries
 
@@ -123,8 +113,6 @@ Cross-cutting work also requires the relevant context pack from
   network captures, or secret-bearing logs.
 - Do not edit or review as project source: `node_modules/`, `.next/`, caches,
   virtualenvs, `.pi/npm/`, `.pi/git/`, `.pi/sessions/`, or inactive `.worktrees/`.
-- Treat `system-wiki/raw/` as immutable source capture unless replacing it with a
-  newer authoritative batch.
 - Use `master` as the PR base; the repository's `main` branch is stale. Verify with
   `gh pr view <N> --json baseRefName` when handling a PR.
 
@@ -143,19 +131,21 @@ Run commands from the directory shown.
 If a check cannot run, report the exact command, prerequisite or failure, and the
 best substitute; never describe an unrun gate as passing.
 
-## Documentation Synchronization
+## Code as Source of Truth
 
-When a change alters behavior, API surface, schema, security posture, workflow,
-infrastructure, environment configuration, or durable documentation sources:
+The repository code, tests, CI configuration, and Compose files are the
+authoritative reference. If a written claim about routing, schema, behavior, or
+infrastructure conflicts with what the code does, the code wins.
 
-1. Update the relevant `system-wiki/` synthesis page.
-2. Append `system-wiki/log.md`.
-3. Update the gap register only if FRS/code alignment changed.
-4. Follow `system-wiki/AGENTS.md` for index/frontmatter/link requirements.
+When changing something:
 
-Use semantic impact, not a line-count threshold. Typo-only, formatting-only, and
-behavior-neutral maintenance do not require wiki churn unless a wiki statement
-would otherwise become false.
+1. Read the relevant source, tests, config, and call sites before editing.
+2. After the change, verify the diff accurately reflects the intent.
+3. Update any runbook, README, or handoff doc that would otherwise mislead.
+
+Do not create or keep stale documentation that duplicates what the code already
+expresses. A grep command in an AGENTS.md that discovers routes from the live
+tree stays correct; a hard-coded route table goes out of date.
 
 ## Ponytail Guardrails
 
@@ -174,5 +164,4 @@ State:
 
 - files changed and the behavioral/documentation outcome;
 - checks run with results and checks skipped with reasons;
-- final `git status` summary, including unrelated pre-existing changes;
-- whether the system wiki and gap register were updated or why they were not.
+- final `git status` summary, including unrelated pre-existing changes.

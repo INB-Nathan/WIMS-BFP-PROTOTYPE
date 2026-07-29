@@ -16,12 +16,9 @@ Read on demand:
 - `alembic/` plus `../postgres-init/` — persistent upgrades and clean bootstrap
 - `tests/`, `pytest.ini`, `pyproject.toml` — test tiers and executable conventions
 
-Architecture maps:
-
-- `system-wiki/backend/api-route-map.md`
-- `system-wiki/database/schema-overview.md`
-- `system-wiki/security/security-baseline.md`
-- the task-specific pack in `system-wiki/operations/agent-routing-guide.md`
+Discover routes from the live tree: `find api/routes/ -name '*.py' | sort`. Read
+models, schemas, and the nearest `AGENTS.md` before making assumptions about
+database structure or security boundaries.
 
 ## Implementation Boundaries
 

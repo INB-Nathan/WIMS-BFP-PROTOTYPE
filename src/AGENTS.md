@@ -15,13 +15,13 @@ implemented under `src/`; `../infra/AGENTS.md` is a compatibility routing index.
 
 | Area | Primary files and context |
 |---|---|
-| Compose/runtime topology | `docker-compose.yml`, the selected overlay, `.env` contract, `system-wiki/architecture/infrastructure-config.md` |
-| Database/migrations | `backend/alembic/`, `postgres-init/`, `system-wiki/database/schema-overview.md` |
-| Keycloak | `keycloak/`, `system-wiki/security/security-baseline.md` |
+| Compose/runtime topology | `docker-compose.yml`, the selected overlay, `.env` contract |
+| Database/migrations | `backend/alembic/`, `postgres-init/` — read models + schemas for column/types, grep for RLS/grants |
+| Keycloak | `keycloak/` — read realm JSON, theme files, SPI sources |
 | Nginx | `nginx/nginx.conf`, `nginx/nginx.local.conf`, `nginx/nginx.ci.conf` |
 | OpenBao | `openbao/`, `docs/operations/openbao-kms-runbook.md` |
-| Suricata/IDS | `suricata/`, backend ingestion/tasks, `system-wiki/security/security-baseline.md` |
-| Backend/frontend | The nearer `AGENTS.md` plus the appropriate system-wiki route map |
+| Suricata/IDS | `suricata/`, backend ingestion/tasks |
+| Backend/frontend | The nearer `AGENTS.md` — discover routes from the live tree (`find api/routes/ -name '*.py'`) |
 
 Read every Compose fragment participating in the target environment. Never infer
 production behavior from the base file alone.

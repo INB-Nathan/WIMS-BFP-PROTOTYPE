@@ -70,4 +70,4 @@ If a legitimate bot/UA/referrer is blocked:
 
 ---
 
-*Vendored 2026-07-09. See `system-wiki/log.md` for deployment history.*
+*Vendored 2026-07-09.*

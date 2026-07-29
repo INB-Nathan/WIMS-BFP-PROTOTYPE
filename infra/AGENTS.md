@@ -10,8 +10,7 @@ Suricata, Dockerfiles, or CI/CD:
 
 1. Read the root `AGENTS.md`.
 2. Read `src/AGENTS.md` (the canonical scoped infrastructure rules).
-3. Read the relevant system-wiki architecture/security/database page.
-4. Read every environment-specific config or overlay affected by the change.
+3. Read every environment-specific config or overlay affected by the change.
 
 Do not duplicate service inventories, image versions, port maps, environment
 variables, or migration counts here; derive them from current configuration.
