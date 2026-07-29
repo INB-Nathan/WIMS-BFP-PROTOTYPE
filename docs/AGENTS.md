@@ -8,18 +8,15 @@ reviewable source, not harmless prose.
 
 ## Authority and Placement
 
-- Raw product requirements live in `system-wiki/raw/frs/`. Read the exact raw FRS
-  file before attributing a requirement to a module; the module map is only a
-  routing index.
-- Current implementation facts come from live code/config/tests. `system-wiki/`
-  synthesizes those facts for agents and must cite its sources.
-- Durable architecture decisions live in `system-wiki/decisions/`. Surface a
-  conflict before proposing or documenting a different architecture.
+- Current implementation facts come from live code, config, and tests. Written docs
+  are downstream and may be stale; verify every claim against source.
 - Put user/operations/security runbooks and durable project documentation in the
   appropriate `docs/` subtree.
 - Specs and plans describe intended work; reviews, handoffs, PR notes, audits, and
   dated reports are historical evidence. Do not present them as current behavior
   without re-verifying the implementation.
+- Use WIMS terminology from `CONTEXT.md`. Do not normalize distinct concepts into a
+  convenient synonym.
 
 Before creating a new document, search for an existing owner page. Update that page
 instead of creating a second source of truth unless the new artifact has a distinct
@@ -34,8 +31,8 @@ lifecycle or audience.
 - Avoid volatile hard-coded counts, versions, ports, image tags, route inventories,
   or test totals. Derive them from configuration and include an as-of date/command
   when the number is itself important.
-- Use WIMS terminology from `CONTEXT.md` and the relevant system-wiki subsystem
-  page. Do not normalize distinct concepts into a convenient synonym.
+- Use WIMS terminology from `CONTEXT.md`. Do not normalize distinct concepts into a
+  convenient synonym.
 - Record deviations from an issue/spec explicitly; do not rewrite acceptance
   criteria after implementation to make a mismatch disappear.
 - Never include secrets, real credentials, private keys, access tokens, PII, raw
@@ -78,7 +75,4 @@ Additionally verify:
 - dates/status labels and affected issue/PR numbers are accurate;
 - the diff does not rewrite unrelated historical material.
 
-If a durable documentation source changes implementation knowledge, update the
-relevant system-wiki synthesis/index/log under `system-wiki/AGENTS.md`. In the final
-response, state which docs were validated and whether wiki synchronization was
-needed.
+In the final response, state which docs were validated.
