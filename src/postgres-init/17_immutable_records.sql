@@ -57,29 +57,15 @@ CREATE RULE no_delete_ivh AS
     DO INSTEAD NOTHING;
 
 -- ---------------------------------------------------------------------------
--- 5. Block DELETE and UPDATE on system_audit_trails (immutable audit log)
---    All audit records must be permanently retained for forensic completeness.
---    Addresses GH #240 — audit trail immutability.
---
---    TRADEOFF: These rules will also block legitimate schema migrations that
---    UPDATE or DELETE existing rows.  If a future migration needs to backfill
---    columns, temporarily drop these rules first and recreate them afterward:
---        DROP RULE IF EXISTS no_update_audit ON wims.system_audit_trails;
---        DROP RULE IF EXISTS no_delete_audit ON wims.system_audit_trails;
---        -- … backfill migration …
---        CREATE RULE no_update_audit AS ON UPDATE TO wims.system_audit_trails DO INSTEAD NOTHING;
---        CREATE RULE no_delete_audit AS ON DELETE TO wims.system_audit_trails DO INSTEAD NOTHING;
+-- 5. system_audit_trails immutability (GH #240) is NOT enforced here anymore.
+--    The no_update_audit / no_delete_audit RULES that used to live here were
+--    removed because 72_partition_audit_trail.sql replaces this plain table
+--    with a range-partitioned parent, and PostgreSQL rules cannot enforce on
+--    partitions. The canonical append-only control for the final partitioned
+--    schema lives in 100_audit_trail_immutability.sql (parent-level BEFORE
+--    UPDATE/DELETE triggers that raise an error) and its Alembic twin,
+--    revision 0031, for existing databases.
 -- ---------------------------------------------------------------------------
-
-DROP RULE IF EXISTS no_delete_audit ON wims.system_audit_trails;
-CREATE RULE no_delete_audit AS
-    ON DELETE TO wims.system_audit_trails
-    DO INSTEAD NOTHING;
-
-DROP RULE IF EXISTS no_update_audit ON wims.system_audit_trails;
-CREATE RULE no_update_audit AS
-    ON UPDATE TO wims.system_audit_trails
-    DO INSTEAD NOTHING;
 
 -- ---------------------------------------------------------------------------
 -- 6. Analytics schema expansion — required for sync_incident_to_analytics (#84)

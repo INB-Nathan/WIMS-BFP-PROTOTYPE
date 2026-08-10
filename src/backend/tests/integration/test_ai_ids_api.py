@@ -236,9 +236,9 @@ def test_analyze_threat_log_ollama_timeout_returns_502(mock_system_admin, threat
 def audit_trail_rows(db_session):
     """Insert dummy system_audit_trail rows and return audit_ids.
 
-    Teardown cleanup is intentionally omitted: the ``no_delete_audit`` RULE
-    in ``17_immutable_records.sql`` blocks all DELETEs on
-    ``wims.system_audit_trails`` (GH #240 — audit trail immutability).
+    Teardown cleanup is intentionally omitted: the append-only immutability
+    triggers (``100_audit_trail_immutability.sql`` / alembic 0031) raise on any
+    DELETE of ``wims.system_audit_trails`` (GH #240 — audit trail immutability).
     These rows accumulate in the integration-test database; tests rely on
     specific RETURNING audit_ids and are not affected by the accumulation.
     """
@@ -265,7 +265,7 @@ def audit_trail_rows(db_session):
         ids.append(row[0])
     db_session.commit()
     yield ids
-    # Teardown: no-op by design — DELETE is blocked by no_delete_audit RULE.
+    # Teardown: no-op by design — DELETE raises via the audit immutability trigger.
 
 
 # ---------------------------------------------------------------------------

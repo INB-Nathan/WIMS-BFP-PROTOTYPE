@@ -177,7 +177,7 @@ export default function PrivacyPage() {
                   </p>
                   <BulletList
                     items={[
-                      '7 years (NPC Circular 16-01 recommendation; already enforced by no_delete_audit rule)',
+                      '7 years (NPC Circular 16-01 recommendation; enforced by database-level append-only triggers)',
                       'Authoritative basis: RA 9470 for government records management',
                     ]}
                     strongFirst

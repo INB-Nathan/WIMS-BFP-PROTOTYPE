@@ -26,6 +26,16 @@ def _get_engine():
     return create_engine(url, isolation_level="AUTOCOMMIT")
 
 
+def _canonical_audit_immutability_sql() -> str:
+    """Read the canonical append-only trigger DDL (100_audit_trail_immutability.sql)."""
+    from pathlib import Path
+
+    sql_file = (
+        Path(__file__).resolve().parents[3] / "postgres-init" / "100_audit_trail_immutability.sql"
+    )
+    return sql_file.read_text(encoding="utf-8")
+
+
 @pytest.fixture
 def client():
     """TestClient for FastAPI app."""
@@ -66,25 +76,32 @@ def mock_user_and_override(client):
                 text("DELETE FROM wims.fire_incidents WHERE encoder_id = :uid"),
                 {"uid": user_id},
             )
-            # The no_delete_audit rule (17_immutable_records.sql) replaces
-            # DELETE on system_audit_trails with DO INSTEAD NOTHING, making
-            # cleanup silently ineffective. Temporarily drop the rule so we
-            # can remove audit rows created by this test, then recreate it
-            # immediately to preserve immutability for other tests.
-            conn.execute(text("DROP RULE IF EXISTS no_delete_audit ON wims.system_audit_trails"))
+            # The append-only immutability triggers (100_audit_trail_immutability.sql /
+            # alembic 0031) raise an error on DELETE, making cleanup silently
+            # impossible. Temporarily drop the triggers so we can remove audit
+            # rows created by this test, then recreate them from the canonical
+            # SQL to preserve immutability for other tests.
+            conn.execute(
+                text(
+                    "DROP TRIGGER IF EXISTS trg_audit_trails_no_update ON wims.system_audit_trails"
+                )
+            )
+            conn.execute(
+                text(
+                    "DROP TRIGGER IF EXISTS trg_audit_trails_no_delete ON wims.system_audit_trails"
+                )
+            )
             try:
                 conn.execute(
                     text("DELETE FROM wims.system_audit_trails WHERE user_id = :uid"),
                     {"uid": user_id},
                 )
             finally:
-                conn.execute(
-                    text(
-                        "CREATE RULE no_delete_audit AS"
-                        " ON DELETE TO wims.system_audit_trails"
-                        " DO INSTEAD NOTHING"
-                    )
-                )
+                # Recreate the triggers from the canonical SQL via the raw
+                # DBAPI connection (multi-statement scripts need no parameter
+                # binding, which SQLAlchemy's exec_driver_sql always injects).
+                with engine.raw_connection() as raw:
+                    raw.cursor().execute(_canonical_audit_immutability_sql())
             conn.execute(
                 text("DELETE FROM wims.users WHERE user_id = :uid"),
                 {"uid": user_id},
