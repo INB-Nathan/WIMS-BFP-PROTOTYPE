@@ -91,7 +91,14 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """Drop the append-only triggers (restores the pre-#732 state)."""
+    """Drop the append-only UPDATE/DELETE triggers.
+
+    WARNING: this removes the only superuser-resistant append-only enforcement
+    on ``wims.system_audit_trails`` and returns the partitioned audit trail to
+    the pre-#732 (unprotected) state: any principal that bypasses RLS (e.g. a
+    superuser maintenance path) can UPDATE or DELETE audit rows again. Run only
+    when the audit trail is intentionally allowed to become mutable.
+    """
     connection = op.get_bind()
     exists = connection.execute(
         text("SELECT to_regclass('wims.system_audit_trails') IS NOT NULL")
@@ -108,4 +115,8 @@ def downgrade() -> None:
     )
     # The trigger function is shared and harmless; keep it so a later upgrade
     # can recreate the triggers without redefining the function.
-    logger.info("Append-only triggers dropped from wims.system_audit_trails (downgrade)")
+    logger.warning(
+        "Append-only UPDATE/DELETE triggers dropped from wims.system_audit_trails "
+        "(downgrade) — append-only enforcement is removed and the partitioned "
+        "audit trail is mutable to any principal that bypasses RLS"
+    )

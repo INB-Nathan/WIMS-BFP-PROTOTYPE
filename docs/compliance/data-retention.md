@@ -46,7 +46,7 @@ True crypto-shred (destroying derived per-record keys to make ciphertexts unreco
 even from backups) requires an encryption-architecture change to per-record key derivation.
 This is tracked as a follow-up; the blob-erasure here is the shippable-now layer.
 
-### No-op tables
+### Append-only tables
 - `incident_verification_history`: hash-chain integrity prevents any row removal.
 - `system_audit_trails`: parent-level immutability triggers (`100_audit_trail_immutability.sql` / alembic 0031) raise an error on any UPDATE/DELETE, on current and future partitions.
 
