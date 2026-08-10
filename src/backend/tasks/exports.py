@@ -1030,13 +1030,18 @@ def export_scheduled_report(
 
     Public interface used by ``tasks.scheduled_reports``: maps the report
     format to the shared bulk writer and delegates to :func:`_export`, which
-    writes the file and records exactly one ``analytics_export_log`` row plus
-    one ``BULK_EXPORT`` system-audit event. The filename keeps the
+    writes the file and, on success, commits one ``analytics_export_log`` row
+    plus a ``BULK_EXPORT`` system-audit mirror. The filename keeps the
     ``scheduled_<report_id>_`` prefix so scheduled deliveries stay
     distinguishable from dashboard exports.
 
-    Raises ``ValueError`` for unsupported formats; writer/DB failures propagate
-    without inserting any log or audit row.
+    Failure behavior: raises ``ValueError`` for unsupported formats. Any
+    failure before the log-row insert (data fetch, file write, or the insert
+    itself) propagates and leaves no committed ``analytics_export_log`` row.
+    The audit mirror is intentionally fail-open: if it fails, a warning is
+    logged and the export log row is still committed. File writes are not
+    transactional — an already-written file is not removed when a later step
+    fails.
     """
     writers = {
         "csv": ("csv", "text/csv", _write_csv),
