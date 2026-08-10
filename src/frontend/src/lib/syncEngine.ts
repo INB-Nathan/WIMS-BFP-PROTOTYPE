@@ -701,6 +701,7 @@ export async function syncPendingIncidents(
 import {
   getPendingPublicOps,
   getLinkedPublicOp,
+  recoverStalePublicSyncingOps,
   markPublicOpSyncing,
   markPublicOpSynced,
   markPublicOpFailed,
@@ -848,6 +849,12 @@ export async function syncPublicOfflineOps(
   if (!(await isReachable())) {
     return { ...empty, abortReason: 'offline' };
   }
+
+  // Recover ops stranded in 'syncing' by a previous tab close or page crash
+  // BEFORE the queue is filtered for replay, so no operation can remain
+  // permanently invisible to the civilian. Recent in-flight ops inside the
+  // threshold stay 'syncing' and are not double-replayed.
+  await recoverStalePublicSyncingOps(deviceId);
 
   const ops = await getPendingPublicOps(deviceId);
 

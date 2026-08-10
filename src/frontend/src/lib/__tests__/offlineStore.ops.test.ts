@@ -120,6 +120,7 @@ const {
   queueIncident,
   cacheIncident,
   getCachedIncidents,
+  STALE_SYNC_THRESHOLD_MS,
 } = await import('../offlineStore');
 
 const ENCODER_ID = 'enc-001';
@@ -197,6 +198,24 @@ describe('recoverStaleSyncingOps', () => {
     const count = await recoverStaleSyncingOps(ENCODER_ID);
     expect(count).toBe(1);
     expect(opsStore.get(unstarted.localId)?.syncStatus).toBe('pending');
+  });
+
+  it('uses the shared STALE_SYNC_THRESHOLD_MS as its default', async () => {
+    const edgeStale = makeOp({
+      syncStatus: 'syncing',
+      lastAttemptAt: Date.now() - STALE_SYNC_THRESHOLD_MS - 1000,
+    });
+    const edgeRecent = makeOp({
+      syncStatus: 'syncing',
+      lastAttemptAt: Date.now() - STALE_SYNC_THRESHOLD_MS + 1000,
+    });
+    opsStore.set(edgeStale.localId, edgeStale);
+    opsStore.set(edgeRecent.localId, edgeRecent);
+
+    const count = await recoverStaleSyncingOps(ENCODER_ID);
+    expect(count).toBe(1);
+    expect(opsStore.get(edgeStale.localId)?.syncStatus).toBe('pending');
+    expect(opsStore.get(edgeRecent.localId)?.syncStatus).toBe('syncing');
   });
 
   it('only processes ops belonging to the given encoder', async () => {

@@ -99,6 +99,8 @@ const {
   getLinkedPublicOp,
   purgeSyncedPublicOps,
   getPendingPublicOpsCount,
+  recoverStalePublicSyncingOps,
+  STALE_SYNC_THRESHOLD_MS,
 } = await import('../offlineStore');
 
 const DEVICE_ID = 'device-aaa';
@@ -297,6 +299,93 @@ describe('getPendingPublicOpsCount', () => {
 
     const count = await getPendingPublicOpsCount(DEVICE_ID);
     expect(count).toBe(2);
+  });
+});
+
+// ─── recoverStalePublicSyncingOps ────────────────────────────────────────────
+
+describe('recoverStalePublicSyncingOps', () => {
+  it('returns 0 when there are no syncing ops for the device', async () => {
+    await queuePublicOfflineOp(makeOp({ localId: 'p1', status: 'pending' }));
+    await queuePublicOfflineOp(makeOp({ localId: 'f1', status: 'failed' }));
+
+    const count = await recoverStalePublicSyncingOps(DEVICE_ID);
+    expect(count).toBe(0);
+  });
+
+  it('does not recover a recent syncing op (within threshold)', async () => {
+    await queuePublicOfflineOp(makeOp({
+      localId: 'recent',
+      status: 'syncing',
+      lastAttemptAt: Date.now() - 30_000, // 30s ago — within 5-min default
+    }));
+
+    const count = await recoverStalePublicSyncingOps(DEVICE_ID, 5 * 60 * 1000);
+    expect(count).toBe(0);
+    expect(publicOpsStore.get('recent')?.status).toBe('syncing');
+  });
+
+  it('recovers a stale syncing op to pending without incrementing retryCount', async () => {
+    const staleAt = Date.now() - 10 * 60 * 1000; // 10 min ago — past 5-min default
+    await queuePublicOfflineOp(makeOp({
+      localId: 'stale',
+      status: 'syncing',
+      lastAttemptAt: staleAt,
+      retryCount: 2,
+      payload: { general_category: 'STRUCTURAL' },
+    }));
+
+    const count = await recoverStalePublicSyncingOps(DEVICE_ID);
+    expect(count).toBe(1);
+
+    const recovered = publicOpsStore.get('stale');
+    expect(recovered?.status).toBe('pending');
+    // Retry ceiling and idempotency key untouched; dependent-chain fields intact.
+    expect(recovered?.retryCount).toBe(2);
+    expect(recovered?.localId).toBe('stale');
+    expect(recovered?.lastAttemptAt).toBe(staleAt);
+    expect(recovered?.payload).toEqual({ general_category: 'STRUCTURAL' });
+  });
+
+  it('recovers a syncing op with null lastAttemptAt (defensive)', async () => {
+    await queuePublicOfflineOp(makeOp({ localId: 'never', status: 'syncing', lastAttemptAt: null }));
+
+    const count = await recoverStalePublicSyncingOps(DEVICE_ID);
+    expect(count).toBe(1);
+    expect(publicOpsStore.get('never')?.status).toBe('pending');
+  });
+
+  it('uses the shared STALE_SYNC_THRESHOLD_MS as its default', async () => {
+    await queuePublicOfflineOp(makeOp({
+      localId: 'edge-stale',
+      status: 'syncing',
+      lastAttemptAt: Date.now() - STALE_SYNC_THRESHOLD_MS - 1000,
+    }));
+    await queuePublicOfflineOp(makeOp({
+      localId: 'edge-recent',
+      status: 'syncing',
+      lastAttemptAt: Date.now() - STALE_SYNC_THRESHOLD_MS + 1000,
+    }));
+
+    const count = await recoverStalePublicSyncingOps(DEVICE_ID);
+    expect(count).toBe(1);
+    expect(publicOpsStore.get('edge-stale')?.status).toBe('pending');
+    expect(publicOpsStore.get('edge-recent')?.status).toBe('syncing');
+  });
+
+  it('never recovers another device\'s operations', async () => {
+    await queuePublicOfflineOp(makeOp({ localId: 'mine', status: 'syncing', lastAttemptAt: null }));
+    await queuePublicOfflineOp(makeOp({
+      localId: 'theirs',
+      status: 'syncing',
+      lastAttemptAt: null,
+      deviceId: 'other-device',
+    }));
+
+    const count = await recoverStalePublicSyncingOps(DEVICE_ID);
+    expect(count).toBe(1);
+    expect(publicOpsStore.get('mine')?.status).toBe('pending');
+    expect(publicOpsStore.get('theirs')?.status).toBe('syncing'); // untouched
   });
 });
 

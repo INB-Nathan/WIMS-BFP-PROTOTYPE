@@ -19,6 +19,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../offlineStore', () => ({
   getPendingPublicOps: vi.fn(),
+  recoverStalePublicSyncingOps: vi.fn().mockResolvedValue(0),
   markPublicOpSyncing: vi.fn(),
   markPublicOpSynced: vi.fn(),
   markPublicOpFailed: vi.fn(),
@@ -38,6 +39,7 @@ vi.mock('../connectivity', () => ({
 
 const {
   getPendingPublicOps,
+  recoverStalePublicSyncingOps,
   markPublicOpSyncing,
   markPublicOpSynced,
   markPublicOpFailed,
@@ -100,6 +102,7 @@ function makeJsonResponse(status: number, body: unknown): Response {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(isReachable).mockResolvedValue(true);
+  vi.mocked(recoverStalePublicSyncingOps).mockResolvedValue(0);
   vi.mocked(markPublicOpSyncing).mockResolvedValue(undefined);
   vi.mocked(markPublicOpSynced).mockResolvedValue(undefined);
   vi.mocked(markPublicOpFailed).mockResolvedValue(undefined);
@@ -155,6 +158,45 @@ describe('syncPublicOfflineOps — replay order', () => {
     expect(result.synced).toBe(2);
     expect(markPublicOpSynced).toHaveBeenCalledWith('sub-1', 42);
     expect(markPublicOpSynced).toHaveBeenCalledWith('app-1', 42);
+  });
+});
+
+// ── Stale sync recovery ───────────────────────────────────────────
+
+describe('syncPublicOfflineOps — stale sync recovery', () => {
+  it('recovers stale syncing ops for the device before the queue is filtered', async () => {
+    vi.mocked(getPendingPublicOps).mockResolvedValue([makeOp({ localId: 'sub-1' })]);
+    fetchSpy.mockResolvedValue(makeJsonResponse(200, { report_id: 1 }));
+
+    await syncPublicOfflineOps(DEVICE_ID);
+
+    expect(recoverStalePublicSyncingOps).toHaveBeenCalledWith(DEVICE_ID);
+    const recoveryOrder = vi.mocked(recoverStalePublicSyncingOps).mock.invocationCallOrder[0];
+    const queueOrder = vi.mocked(getPendingPublicOps).mock.invocationCallOrder[0];
+    // Recovery must complete before the replay queue is read, so an op re-armed
+    // by recovery is visible to this pass.
+    expect(recoveryOrder).toBeLessThan(queueOrder);
+  });
+
+  it('replays ops re-armed by recovery in the same pass', async () => {
+    const op = makeOp({ localId: 'sub-1', operation: 'submit' });
+    vi.mocked(recoverStalePublicSyncingOps).mockResolvedValue(1);
+    vi.mocked(getPendingPublicOps).mockResolvedValue([op]);
+    fetchSpy.mockResolvedValue(makeJsonResponse(200, { report_id: 9 }));
+
+    const result = await syncPublicOfflineOps(DEVICE_ID);
+
+    expect(markPublicOpSynced).toHaveBeenCalledWith('sub-1', 9);
+    expect(result.synced).toBe(1);
+  });
+
+  it('does not recover when offline (replay aborts before recovery)', async () => {
+    vi.mocked(isReachable).mockResolvedValue(false);
+
+    const result = await syncPublicOfflineOps(DEVICE_ID);
+
+    expect(result.abortReason).toBe('offline');
+    expect(recoverStalePublicSyncingOps).not.toHaveBeenCalled();
   });
 });
 
