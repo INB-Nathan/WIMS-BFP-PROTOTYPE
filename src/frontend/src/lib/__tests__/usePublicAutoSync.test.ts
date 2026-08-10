@@ -231,6 +231,8 @@ describe('usePublicAutoSync — stale recovery on mount', () => {
 
     expect(storeMocks.recoverStalePublicSyncingOps).toHaveBeenCalledWith(DEVICE_ID);
     expect(result.current.pendingCount).toBe(0);
+    // Nothing was recovered, so no mount sync is scheduled.
+    expect(syncMocks.syncPublicOfflineOps).not.toHaveBeenCalled();
   });
 });
 

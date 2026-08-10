@@ -1625,9 +1625,9 @@ export async function markPublicOpFailed(
 }
 
 /**
- * Mark a public op as currently syncing. The sync engine calls this before each
- * HTTP attempt so recoverStalePublicSyncingOps can re-arm ops stuck in this
- * state from a previous tab close.
+ * Mark a public op permanently failed immediately, bypassing the retry
+ * ceiling — used when the op can never succeed (e.g. reporter identity is
+ * no longer decryptable) and the user must re-submit manually.
  */
 export async function markPublicOpPermanentlyFailed(
     localId: string,
@@ -1648,6 +1648,11 @@ export async function markPublicOpPermanentlyFailed(
     await tx.done;
 }
 
+/**
+ * Mark a public op as currently syncing. The sync engine calls this before each
+ * HTTP attempt so recoverStalePublicSyncingOps can re-arm ops stuck in this
+ * state from a previous tab close.
+ */
 export async function markPublicOpSyncing(localId: string): Promise<void> {
     const db = await getDB();
     const tx = db.transaction(PUBLIC_OPS_STORE, 'readwrite');
