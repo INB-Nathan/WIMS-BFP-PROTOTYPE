@@ -933,6 +933,7 @@ def _export(
     incident_ids: list[int] | None = None,
     export_type: str = "analytics",
     data_provider: Callable[[Session, int], dict[str, Any]] | None = None,
+    filename_prefix: str = "analytics_export",
 ) -> str:
     valid_cols = _valid_columns(columns)
     logger.info(
@@ -951,7 +952,7 @@ def _export(
         else:
             rows = get_export_rows(db, filters or {}, valid_cols)
         os.makedirs(EXPORT_DIR, exist_ok=True)
-        path = os.path.join(EXPORT_DIR, f"analytics_export_{uuid.uuid4().hex[:12]}.{extension}")
+        path = os.path.join(EXPORT_DIR, f"{filename_prefix}_{uuid.uuid4().hex[:12]}.{extension}")
         writer(path, rows, valid_cols)
         _insert_export_log(
             db,
@@ -1014,6 +1015,54 @@ def _export_single_incident(
 
     logger.info("AFOR %s export complete: %s", export_format.upper(), path)
     return path
+
+
+def export_scheduled_report(
+    *,
+    task_id: str | None,
+    user_id: str,
+    report_id: int,
+    export_format: str,
+    filters: dict[str, Any],
+    columns: list[str],
+) -> str:
+    """Generate a scheduled analytics export through the canonical export seam.
+
+    Public interface used by ``tasks.scheduled_reports``: maps the report
+    format to the shared bulk writer and delegates to :func:`_export`, which
+    writes the file and records exactly one ``analytics_export_log`` row plus
+    one ``BULK_EXPORT`` system-audit event. The filename keeps the
+    ``scheduled_<report_id>_`` prefix so scheduled deliveries stay
+    distinguishable from dashboard exports.
+
+    Raises ``ValueError`` for unsupported formats; writer/DB failures propagate
+    without inserting any log or audit row.
+    """
+    writers = {
+        "csv": ("csv", "text/csv", _write_csv),
+        "pdf": ("pdf", "application/pdf", _write_pdf),
+        "excel": (
+            "xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            _write_xlsx,
+        ),
+    }
+    if export_format not in writers:
+        raise ValueError(f"Unsupported export format: {export_format}")
+
+    extension, content_type, writer = writers[export_format]
+    return _export(
+        task_id=task_id,
+        user_id=user_id,
+        filters=filters,
+        columns=columns,
+        export_format=export_format,
+        extension=extension,
+        content_type=content_type,
+        writer=writer,
+        export_type="analytics",
+        filename_prefix=f"scheduled_{report_id}",
+    )
 
 
 # ─── Bulk Export Tasks (unchanged — for dashboard queue) ────────────────────────

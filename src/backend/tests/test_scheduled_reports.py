@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
+from database import SYSTEM_TASK_USER_ID
+from tasks.exports import export_scheduled_report
 from tasks.scheduled_reports import execute_due_reports
 
 
@@ -359,3 +364,176 @@ class TestGenerateReportExport:
                     assert result["due"] == 2
                     assert result["executed"] == 2
                     assert result["skipped"] == 0
+
+
+class TestScheduledExportSeam:
+    """Issue #729 — scheduled exports route through the canonical export seam."""
+
+    def test_due_report_records_file_export_log_and_audit_mirror(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """One due report: file output, exactly one analytics_export_log row,
+        exactly one BULK_EXPORT audit event, under the system-task identity."""
+        list_db = MagicMock()
+        list_db.execute.side_effect = [
+            MagicMock(
+                fetchall=MagicMock(
+                    return_value=[
+                        (1, "Daily CSV", "0 6 * * *", "csv", {}, ["admin@test.com"]),
+                    ]
+                )
+            ),
+            MagicMock(scalar=MagicMock(return_value=None)),
+        ]
+        update_db = MagicMock()
+        export_db = MagicMock()
+        send_email = MagicMock()
+        set_rls = MagicMock()
+
+        monkeypatch.setattr(
+            "tasks.scheduled_reports.get_session",
+            MagicMock(side_effect=[list_db, update_db]),
+        )
+        monkeypatch.setattr("tasks.scheduled_reports.set_rls_context", MagicMock())
+        monkeypatch.setattr("tasks.scheduled_reports.send_email_task", send_email)
+        monkeypatch.setattr("tasks.exports.get_session", lambda: export_db)
+        monkeypatch.setattr("tasks.exports.set_rls_context", set_rls)
+        monkeypatch.setattr(
+            "tasks.exports.get_export_rows",
+            MagicMock(return_value=[{"incident_id": 1}, {"incident_id": 2}]),
+        )
+        monkeypatch.setattr("tasks.exports.EXPORT_DIR", str(tmp_path))
+
+        result = execute_due_reports()
+
+        assert result["status"] == "ok"
+        assert result["due"] == 1
+        assert result["executed"] == 1
+        assert result["skipped"] == 0
+
+        # File output with the scheduled filename prefix.
+        files = sorted(tmp_path.glob("scheduled_1_*.csv"))
+        assert len(files) == 1
+        assert "incident_id" in files[0].read_text(encoding="utf-8").splitlines()[0]
+
+        # Exactly one analytics_export_log row under the system-task identity.
+        calls = export_db.execute.call_args_list
+        export_log_calls = [c for c in calls if "analytics_export_log" in str(c.args[0])]
+        assert len(export_log_calls) == 1
+        params = export_log_calls[0].args[1]
+        assert params["user_id"] == str(SYSTEM_TASK_USER_ID)
+        assert params["export_type"] == "analytics"
+        assert params["row_count"] == 2
+        assert "task_id" in params
+
+        # Exactly one BULK_EXPORT audit event.
+        audit_calls = [
+            c
+            for c in calls
+            if "system_audit_trails" in str(c.args[0]) and c.args[1].get("action") == "BULK_EXPORT"
+        ]
+        assert len(audit_calls) == 1
+
+        # RLS identity: the export session ran as the system task user.
+        assert set_rls.call_args.args[0] is export_db
+        assert set_rls.call_args.args[1] == SYSTEM_TASK_USER_ID
+
+        # Orchestration preserved: email dispatched, last_run_at advanced.
+        send_email.delay.assert_called_once()
+        update_db.execute.assert_called()
+        update_db.commit.assert_called()
+
+    def test_failed_export_creates_no_success_records(self, tmp_path, monkeypatch) -> None:
+        """A failed export writes no export-log/audit rows, sends no email,
+        does not advance last_run_at, and counts as skipped."""
+        list_db = MagicMock()
+        list_db.execute.side_effect = [
+            MagicMock(
+                fetchall=MagicMock(
+                    return_value=[
+                        (1, "Failing CSV", "0 6 * * *", "csv", {}, ["admin@test.com"]),
+                    ]
+                )
+            ),
+            MagicMock(scalar=MagicMock(return_value=None)),
+        ]
+        update_db = MagicMock()
+        export_db = MagicMock()
+        send_email = MagicMock()
+
+        monkeypatch.setattr(
+            "tasks.scheduled_reports.get_session",
+            MagicMock(side_effect=[list_db, update_db]),
+        )
+        monkeypatch.setattr("tasks.scheduled_reports.set_rls_context", MagicMock())
+        monkeypatch.setattr("tasks.scheduled_reports.send_email_task", send_email)
+        monkeypatch.setattr("tasks.exports.get_session", lambda: export_db)
+        monkeypatch.setattr("tasks.exports.set_rls_context", MagicMock())
+        monkeypatch.setattr(
+            "tasks.exports.get_export_rows",
+            MagicMock(side_effect=RuntimeError("read model unavailable")),
+        )
+        monkeypatch.setattr("tasks.exports.EXPORT_DIR", str(tmp_path))
+
+        result = execute_due_reports()
+
+        assert result["executed"] == 0
+        assert result["skipped"] == 1
+
+        # No misleading success records, email, or last_run_at advance.
+        calls = export_db.execute.call_args_list
+        assert not any("analytics_export_log" in str(c.args[0]) for c in calls)
+        assert not any("system_audit_trails" in str(c.args[0]) for c in calls)
+        send_email.delay.assert_not_called()
+        update_db.execute.assert_not_called()
+        update_db.commit.assert_not_called()
+        assert not list(tmp_path.glob("scheduled_1_*.csv"))
+
+    def test_export_scheduled_report_prefixes_filename_and_logs(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """export_scheduled_report keeps the scheduled_<report_id>_ prefix and
+        records the export with the caller's task id and system identity."""
+        export_db = MagicMock()
+        monkeypatch.setattr("tasks.exports.EXPORT_DIR", str(tmp_path))
+        monkeypatch.setattr("tasks.exports.get_session", lambda: export_db)
+        monkeypatch.setattr("tasks.exports.set_rls_context", MagicMock())
+        monkeypatch.setattr(
+            "tasks.exports.get_export_rows",
+            MagicMock(return_value=[{"incident_id": 42}]),
+        )
+
+        path = export_scheduled_report(
+            task_id="task-sched-1",
+            user_id=str(SYSTEM_TASK_USER_ID),
+            report_id=7,
+            export_format="csv",
+            filters={"region_id": 1},
+            columns=["incident_id"],
+        )
+
+        assert path.startswith(str(tmp_path))
+        assert path.endswith(".csv")
+        assert Path(path).name.startswith("scheduled_7_")
+        assert Path(path).is_file()
+
+        calls = export_db.execute.call_args_list
+        export_log_calls = [c for c in calls if "analytics_export_log" in str(c.args[0])]
+        assert len(export_log_calls) == 1
+        params = export_log_calls[0].args[1]
+        assert params["task_id"] == "task-sched-1"
+        assert params["user_id"] == str(SYSTEM_TASK_USER_ID)
+        assert params["export_type"] == "analytics"
+        assert params["row_count"] == 1
+
+    def test_export_scheduled_report_rejects_unknown_format(self) -> None:
+        """Unknown formats raise instead of silently writing a CSV."""
+        with pytest.raises(ValueError):
+            export_scheduled_report(
+                task_id=None,
+                user_id=str(SYSTEM_TASK_USER_ID),
+                report_id=1,
+                export_format="html",
+                filters={},
+                columns=["incident_id"],
+            )
