@@ -305,6 +305,51 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Verify ZAP rules contract (.zap/rules.tsv)
+        run: |
+          RULES_FILE=".zap/rules.tsv"
+
+          if [ ! -f "$RULES_FILE" ]; then
+            echo "ERROR: $RULES_FILE is missing — the OWASP ZAP baseline scan requires this rules contract (restored in issue #737). Restore the file before running the scan." >&2
+            exit 1
+          fi
+          if [ ! -s "$RULES_FILE" ]; then
+            echo "ERROR: $RULES_FILE is empty — it must contain at least one non-comment rule row (ruleId<TAB>FAIL|WARN|IGNORE[<TAB>comment])." >&2
+            exit 1
+          fi
+
+          INVALID=0
+          ROW_COUNT=0
+          while IFS= read -r line || [ -n "$line" ]; do
+            case "$line" in
+              '#'*|'') continue ;;
+            esac
+            ROW_COUNT=$((ROW_COUNT + 1))
+            RULE_ID=$(printf '%s' "$line" | cut -f1)
+            ACTION=$(printf '%s' "$line" | cut -f2 | tr '[:lower:]' '[:upper:]')
+            if [ -z "$RULE_ID" ] || ! printf '%s' "$RULE_ID" | grep -Eq '^[0-9]+$'; then
+              echo "ERROR: $RULES_FILE: row $ROW_COUNT has invalid rule ID '$RULE_ID': $line" >&2
+              INVALID=1
+            fi
+            case "$ACTION" in
+              FAIL|WARN|IGNORE) ;;
+              *)
+                echo "ERROR: $RULES_FILE: row $ROW_COUNT has invalid action '$ACTION' (expected FAIL, WARN, or IGNORE): $line" >&2
+                INVALID=1
+                ;;
+            esac
+          done < "$RULES_FILE"
+
+          if [ "$ROW_COUNT" -eq 0 ]; then
+            echo "ERROR: $RULES_FILE contains no non-comment rule rows — the ZAP baseline scan would run without suppressions." >&2
+            exit 1
+          fi
+          if [ "$INVALID" -ne 0 ]; then
+            echo "ERROR: $RULES_FILE contains invalid rows — fix or restore it before running the ZAP baseline scan." >&2
+            exit 1
+          fi
+          echo "ZAP rules contract OK: $ROW_COUNT non-comment row(s) in $RULES_FILE"
+
       - name: Validate Suricata configuration
         run: |
           docker run --rm --network none --entrypoint suricata \
