@@ -314,7 +314,7 @@ jobs:
             exit 1
           fi
           if [ ! -s "$RULES_FILE" ]; then
-            echo "ERROR: $RULES_FILE is empty — it must contain at least one non-comment rule row (ruleId<TAB>FAIL|WARN|IGNORE[<TAB>comment])." >&2
+            echo "ERROR: $RULES_FILE is empty — it must contain at least one non-comment rule row (ruleId<TAB>FAIL|WARN|IGNORE<TAB>comment)." >&2
             exit 1
           fi
 
@@ -325,8 +325,15 @@ jobs:
               '#'*|'') continue ;;
             esac
             ROW_COUNT=$((ROW_COUNT + 1))
+            # Mirror ZAP load_config: at least 3 tab-delimited fields (>= 2 tabs).
+            UNTABBED=${line//$'\t'/}
+            if [ $(( ${#line} - ${#UNTABBED} )) -lt 2 ]; then
+              echo "ERROR: $RULES_FILE: row $ROW_COUNT has fewer than three tab-delimited fields (expected ruleId<TAB>FAIL|WARN|IGNORE<TAB>comment): $line" >&2
+              INVALID=1
+              continue
+            fi
             RULE_ID=$(printf '%s' "$line" | cut -f1)
-            ACTION=$(printf '%s' "$line" | cut -f2 | tr '[:lower:]' '[:upper:]')
+            ACTION=$(printf '%s' "$line" | cut -f2)
             if [ -z "$RULE_ID" ] || ! printf '%s' "$RULE_ID" | grep -Eq '^[0-9]+$'; then
               echo "ERROR: $RULES_FILE: row $ROW_COUNT has invalid rule ID '$RULE_ID': $line" >&2
               INVALID=1
@@ -334,7 +341,7 @@ jobs:
             case "$ACTION" in
               FAIL|WARN|IGNORE) ;;
               *)
-                echo "ERROR: $RULES_FILE: row $ROW_COUNT has invalid action '$ACTION' (expected FAIL, WARN, or IGNORE): $line" >&2
+                echo "ERROR: $RULES_FILE: row $ROW_COUNT has invalid action '$ACTION' (expected exactly FAIL, WARN, or IGNORE — case-sensitive): $line" >&2
                 INVALID=1
                 ;;
             esac
