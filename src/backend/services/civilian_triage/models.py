@@ -138,7 +138,7 @@ class TriageReportEntry(BaseModel):
     linked_to_report_id: int | None = None
     trust_breakdown: TrustBreakdown
     severity: str  # HIGH | MEDIUM | LOW
-    related_count: int  # reports within 100m / 1hr (excl. self)
+    related_count: int  # reports within related-report policy window (excl. self)
     linked_count: int
     created_at: datetime
     reported_at: datetime | None
@@ -170,7 +170,7 @@ class TriageClusterEntry(BaseModel):
     is_aging: bool
     is_timeout_risk: bool
     is_danger: bool  # cluster has any member > 120 min with no validator action
-    related_count: int  # total suggested in 100m/1hr window
+    related_count: int  # total suggested in the related-report policy window
     reports: list[TriageReportEntry]
     station: StationContext
 

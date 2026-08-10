@@ -1803,3 +1803,91 @@ class TestMergeCandidates:
         assert resp.status_code == 200
         candidate_ids = [c["cluster_id"] for c in resp.json()["candidates"]]
         assert target_cid not in candidate_ids
+
+    def test_policy_override_expands_and_tightens_candidate_window(
+        self,
+        client_with_validator,
+        db_session,
+        monkeypatch,
+    ):
+        """Issue #718: candidate discovery reads TRIAGE_POLICY at call time."""
+        from services.civilian_triage import policies
+
+        target_rid = make_report(db_session, 121.05, 14.60)
+        target_cid = make_cluster(db_session, anchor_report_id=target_rid)
+        add_to_cluster(db_session, target_cid, target_rid)
+
+        # ~556m away: outside the default 250m policy, inside a widened policy.
+        cand_rid = make_report(db_session, 121.055, 14.605)
+        cand_cid = make_cluster(db_session, anchor_report_id=cand_rid)
+        add_to_cluster(db_session, cand_cid, cand_rid)
+
+        resp = client_with_validator.get(f"/api/triage/clusters/{target_cid}/merge-candidates")
+        assert resp.status_code == 200
+        assert len(resp.json()["candidates"]) == 0
+
+        monkeypatch.setattr(
+            policies,
+            "TRIAGE_POLICY",
+            policies.TriagePolicy(merge_candidate_radius_meters=1000),
+        )
+        resp = client_with_validator.get(f"/api/triage/clusters/{target_cid}/merge-candidates")
+        assert resp.status_code == 200
+        assert [c["cluster_id"] for c in resp.json()["candidates"]] == [cand_cid]
+
+        monkeypatch.setattr(
+            policies,
+            "TRIAGE_POLICY",
+            policies.TriagePolicy(merge_candidate_radius_meters=50),
+        )
+        resp = client_with_validator.get(f"/api/triage/clusters/{target_cid}/merge-candidates")
+        assert resp.status_code == 200
+        assert len(resp.json()["candidates"]) == 0
+
+    def test_merge_revalidation_uses_same_policy_as_discovery(
+        self,
+        client_with_validator,
+        db_session,
+        monkeypatch,
+    ):
+        """Issue #718: final merge revalidation reads the same TRIAGE_POLICY as discovery."""
+        from services.civilian_triage import policies
+
+        target_rid = make_report(db_session, 121.05, 14.60)
+        source_rid = make_report(db_session, 121.055, 14.605)  # ~556m away
+        target_cluster_id = make_cluster(db_session, anchor_report_id=target_rid)
+        source_cluster_id = make_cluster(db_session, anchor_report_id=source_rid)
+        add_to_cluster(db_session, target_cluster_id, target_rid)
+        add_to_cluster(db_session, source_cluster_id, source_rid)
+        claim = client_with_validator.post(
+            f"/api/triage/clusters/{target_cluster_id}/claim", json={}
+        )
+        assert claim.status_code == 200, claim.text
+
+        # Default 250m policy rejects the ~556m merge.
+        resp = client_with_validator.post(
+            f"/api/triage/clusters/{target_cluster_id}/merge",
+            json={"source_cluster_id": source_cluster_id, "internal_note": "policy test"},
+        )
+        assert resp.status_code == 422
+
+        # Widened policy admits the same merge.
+        monkeypatch.setattr(
+            policies,
+            "TRIAGE_POLICY",
+            policies.TriagePolicy(merge_candidate_radius_meters=1000),
+        )
+        resp = client_with_validator.post(
+            f"/api/triage/clusters/{target_cluster_id}/merge",
+            json={"source_cluster_id": source_cluster_id, "internal_note": "policy test"},
+        )
+        assert resp.status_code == 200, resp.text
+        source_status = db_session.execute(
+            text(
+                "SELECT status, merged_into_cluster_id FROM wims.citizen_report_clusters "
+                "WHERE cluster_id = :cid"
+            ),
+            {"cid": source_cluster_id},
+        ).fetchone()
+        assert source_status.status == "CLUSTER_CLOSED"
+        assert source_status.merged_into_cluster_id == target_cluster_id

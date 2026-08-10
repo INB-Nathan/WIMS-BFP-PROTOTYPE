@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from fastapi import HTTPException
@@ -15,14 +16,45 @@ TERMINAL_REPORT_STATUSES = {
 }
 
 CLAIM_STALE_MINUTES = 10
-RELATED_REPORT_RADIUS_METERS = 100
-RELATED_REPORT_WINDOW_HOURS = 1
-MERGE_CANDIDATE_RADIUS_METERS = 250
-MERGE_CANDIDATE_WINDOW_SECONDS = 3600
 AGING_MINUTES = 60
 TIMEOUT_RISK_MINUTES = 90
 DANGER_MINUTES = 120
-GPS_MISMATCH_METERS = 200
+
+
+@dataclass(frozen=True)
+class TriagePolicy:
+    """Single triage-policy interface for civilian-report proximity/time values.
+
+    SQL callers bind these values as SQLAlchemy parameters so a policy change
+    takes effect at every query seam without editing SQL text (issue #718).
+    """
+
+    related_report_radius_meters: int = 100
+    related_report_window_hours: int = 1
+    merge_candidate_radius_meters: int = 250
+    merge_candidate_window_seconds: int = 3600
+    gps_mismatch_meters: int = 200
+
+
+TRIAGE_POLICY = TriagePolicy()
+
+__all__ = [
+    "TERMINAL_REPORT_STATUSES",
+    "CLAIM_STALE_MINUTES",
+    "AGING_MINUTES",
+    "TIMEOUT_RISK_MINUTES",
+    "DANGER_MINUTES",
+    "TriagePolicy",
+    "TRIAGE_POLICY",
+    "is_cluster_claim_stale",
+    "validate_terminal_status",
+    "severity",
+    "aging_flags",
+    "role_can_access_queue",
+    "role_can_work_cluster",
+    "role_can_take_over_claim",
+    "role_can_correct_terminal",
+]
 
 
 def is_cluster_claim_stale(updated_at: datetime | None, now: datetime | None = None) -> bool:

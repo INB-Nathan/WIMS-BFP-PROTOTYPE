@@ -16,6 +16,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from database import set_rls_context
+from services.civilian_triage import policies
 from services.civilian_triage.models import (
     FollowupSummary,
     StationContext,
@@ -120,8 +121,9 @@ def get_queue(
     Grouping logic:
     - Reports that are explicit members of the same cluster are grouped together.
     - Reports without an explicit cluster appear as singleton entries.
-    - Each cluster entry also carries a `related_count` of reports within 100m/1hr
-      (ST_DWithin computed at read time) to support severity and outlier detection.
+    - Each cluster entry also carries a `related_count` of reports within the
+      triage related-report policy window (ST_DWithin computed at read time)
+      to support severity and outlier detection.
 
     Ordering: life-safety → danger → aging → timeout_risk → severity →
               cluster_size → avg_trust → oldest_report_time
@@ -133,6 +135,11 @@ def get_queue(
     user_id = user.get("user_id")
     now = datetime.now(timezone.utc)
     params: dict = {}
+
+    # Policy values ride as bound parameters so the projection always mirrors
+    # the triage policy module (single source, issue #718).
+    params["related_radius_m"] = policies.TRIAGE_POLICY.related_report_radius_meters
+    params["related_window_hours"] = policies.TRIAGE_POLICY.related_report_window_hours
 
     # ── Base filter ─────────────────────────────────────────────────────────
     # The default queue is active/non-terminal reports. Terminal quick filters
@@ -326,7 +333,7 @@ def get_queue(
                 ORDER BY cm.report_id, cc.updated_at DESC NULLS LAST
             ),
             related_counts AS (
-                -- Count reports within 100m / 1hr for each report (excl. self)
+                -- Count reports within the triage related-report policy window (excl. self)
                 SELECT
                     r.report_id,
                     COUNT(r2.report_id) AS related_count
@@ -337,9 +344,9 @@ def get_queue(
                     WHERE r2.report_id != r.report_id
                       AND r2.status NOT LIKE 'REJECTED_%'
                       AND r2.status != 'ACTIONED'
-                      AND ST_DWithin(r.location::geography, r2.location::geography, 100)
-                      AND r2.created_at >= r.created_at - interval '1 hour'
-                      AND r2.created_at <= r.created_at + interval '1 hour'
+                      AND ST_DWithin(r.location::geography, r2.location::geography, :related_radius_m)
+                      AND r2.created_at >= r.created_at - make_interval(hours => :related_window_hours)
+                      AND r2.created_at <= r.created_at + make_interval(hours => :related_window_hours)
                 ) r2 ON TRUE
                 WHERE r.status NOT LIKE 'REJECTED_%' AND r.status != 'ACTIONED'
                 GROUP BY r.report_id
@@ -539,7 +546,10 @@ def get_queue(
         )
         tb.duplicate_device_count_30m = int(row[36] or 0)
         gps_distance_m = row[12]
-        tb.gps_mismatch = bool(gps_distance_m is not None and float(gps_distance_m) > 200)
+        tb.gps_mismatch = bool(
+            gps_distance_m is not None
+            and float(gps_distance_m) > policies.TRIAGE_POLICY.gps_mismatch_meters
+        )
         tb.score = int(row[11] or 0)
 
         created_at_val = row[14]

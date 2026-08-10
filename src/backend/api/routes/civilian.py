@@ -20,7 +20,7 @@ from uuid import UUID
 
 from database import get_db
 from services.civilian_tracking import get_capability_tracking_projection
-from services.civilian_triage import get_public_status_updates
+from services.civilian_triage import get_public_status_updates, policies
 from services.event_bus import publish_verification_event_sync
 from services.geoip_evidence import persist_coarse_ip_evidence, resolve_coarse_ip_evidence
 from services.kms import get_crypto_provider
@@ -247,16 +247,23 @@ def _trust_score(
         score += 20
     elif body.reporting_context == "NEARBY":
         score += 10
-    if body.gps_distance_m is not None and body.gps_distance_m <= 200:
+    if (
+        body.gps_distance_m is not None
+        and body.gps_distance_m <= policies.TRIAGE_POLICY.gps_mismatch_meters
+    ):
         score += 10
     cluster = db.execute(
         text("""
             SELECT COUNT(*)
             FROM wims.citizen_reports
-            WHERE ST_DWithin(location, ST_GeogFromText(:wkt), 100)
-              AND created_at >= now() - interval '1 hour'
+            WHERE ST_DWithin(location, ST_GeogFromText(:wkt), :related_radius_m)
+              AND created_at >= now() - make_interval(hours => :related_window_hours)
         """),
-        {"wkt": wkt},
+        {
+            "wkt": wkt,
+            "related_radius_m": policies.TRIAGE_POLICY.related_report_radius_meters,
+            "related_window_hours": policies.TRIAGE_POLICY.related_report_window_hours,
+        },
     ).scalar()
     if cluster is not None and int(cluster) >= 3:
         score += 30
@@ -916,12 +923,16 @@ def suggest_duplicate_reports(
             FROM wims.citizen_reports cr
             LEFT JOIN wims.ref_fire_stations fs ON fs.station_id = cr.nearest_station_id
             WHERE cr.status IN ('PENDING', 'UNDER_REVIEW', 'LINKED')
-              AND ST_DWithin(cr.location::geography, ST_GeogFromText(:wkt)::geography, 100)
-              AND cr.created_at >= now() - interval '1 hour'
+              AND ST_DWithin(cr.location::geography, ST_GeogFromText(:wkt)::geography, :related_radius_m)
+              AND cr.created_at >= now() - make_interval(hours => :related_window_hours)
             ORDER BY distance_m ASC, cr.created_at DESC
             LIMIT 5
         """),
-        {"wkt": wkt},
+        {
+            "wkt": wkt,
+            "related_radius_m": policies.TRIAGE_POLICY.related_report_radius_meters,
+            "related_window_hours": policies.TRIAGE_POLICY.related_report_window_hours,
+        },
     ).fetchall()
 
     return DuplicateSuggestionResponse(
