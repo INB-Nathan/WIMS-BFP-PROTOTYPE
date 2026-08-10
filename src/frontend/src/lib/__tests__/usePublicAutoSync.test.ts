@@ -62,11 +62,13 @@ vi.mock('../syncEngine', () => ({
 
 // ── Mock offlineStore ──────────────────────────────────────────────
 const storeMocks = vi.hoisted(() => ({
+  recoverStalePublicSyncingOps: vi.fn(),
   getPendingPublicOpsCount: vi.fn(),
   getPendingPhotoCount: vi.fn(),
 }));
 
 vi.mock('../offlineStore', () => ({
+  recoverStalePublicSyncingOps: storeMocks.recoverStalePublicSyncingOps,
   getPendingPublicOpsCount: storeMocks.getPendingPublicOpsCount,
   getPendingPhotoCount: storeMocks.getPendingPhotoCount,
 }));
@@ -120,6 +122,7 @@ beforeEach(() => {
   notificationMocks.requestPermission = vi.fn();
   networkMocks.isOnline = true;
   networkMocks.isReconnecting = false;
+  storeMocks.recoverStalePublicSyncingOps.mockResolvedValue(0);
   storeMocks.getPendingPublicOpsCount.mockResolvedValue(0);
   storeMocks.getPendingPhotoCount.mockResolvedValue(0);
   syncMocks.syncPublicOfflineOps.mockResolvedValue(OK_RESULT);
@@ -170,6 +173,64 @@ describe('usePublicAutoSync — on-mount sync', () => {
 
     expect(syncMocks.syncPublicOfflineOps).toHaveBeenCalledTimes(1);
     expect(syncMocks.syncPublicOfflineOps).toHaveBeenCalledWith(DEVICE_ID);
+  });
+});
+
+// ── Stale recovery on mount ─────────────────────────────────────
+
+describe('usePublicAutoSync — stale recovery on mount', () => {
+  it('recovers stale syncing ops before the initial pending-count refresh', async () => {
+    storeMocks.recoverStalePublicSyncingOps.mockResolvedValue(1);
+    storeMocks.getPendingPublicOpsCount.mockResolvedValue(1);
+
+    renderHook(() => usePublicAutoSync());
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    expect(storeMocks.recoverStalePublicSyncingOps).toHaveBeenCalledWith(DEVICE_ID);
+    const recoveryOrder = storeMocks.recoverStalePublicSyncingOps.mock.invocationCallOrder[0];
+    const countOrder = storeMocks.getPendingPublicOpsCount.mock.invocationCallOrder[0];
+    // Recovery must complete before the badge count is read, so recovered ops
+    // are included in the queued-report badge.
+    expect(recoveryOrder).toBeLessThan(countOrder);
+  });
+
+  it('badge count reflects recovered operations after recovery completes', async () => {
+    storeMocks.recoverStalePublicSyncingOps.mockResolvedValue(2);
+    storeMocks.getPendingPublicOpsCount.mockResolvedValue(2);
+
+    const { result } = renderHook(() => usePublicAutoSync());
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    expect(result.current.pendingCount).toBe(2);
+  });
+
+  it('fires the on-mount replay after recovery re-arms stranded ops', async () => {
+    storeMocks.recoverStalePublicSyncingOps.mockResolvedValue(1);
+    storeMocks.getPendingPublicOpsCount.mockResolvedValue(1);
+    syncMocks.syncPublicOfflineOps.mockResolvedValue(OK_RESULT);
+
+    renderHook(() => usePublicAutoSync());
+    await new Promise((r) => setTimeout(r, 1700));
+
+    expect(storeMocks.recoverStalePublicSyncingOps).toHaveBeenCalledTimes(1);
+    expect(syncMocks.syncPublicOfflineOps).toHaveBeenCalledTimes(1);
+    expect(syncMocks.syncPublicOfflineOps).toHaveBeenCalledWith(DEVICE_ID);
+  });
+
+  it('recent in-flight syncing ops are not recovered (count stays 0, no mount sync)', async () => {
+    storeMocks.getPendingPublicOpsCount.mockResolvedValue(0);
+
+    const { result } = renderHook(() => usePublicAutoSync());
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    expect(storeMocks.recoverStalePublicSyncingOps).toHaveBeenCalledWith(DEVICE_ID);
+    expect(result.current.pendingCount).toBe(0);
   });
 });
 

@@ -16,7 +16,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNetworkStatus } from './useNetworkStatus';
 import { syncPublicOfflineOps, type PublicSyncResult, type PublicSyncedIncidentSummary } from './syncEngine';
-import { getPendingPublicOpsCount, getPendingPhotoCount } from './offlineStore';
+import { getPendingPublicOpsCount, getPendingPhotoCount, recoverStalePublicSyncingOps } from './offlineStore';
 import { toast } from 'sonner';
 
 export type { PublicSyncedIncidentSummary };
@@ -222,9 +222,14 @@ export function usePublicAutoSync(): PublicAutoSyncState {
     return () => clearTimeout(t);
   }, [isOnline, pendingCount, pendingPhotoCount, doSync]);
 
-  // On mount: refresh pending count
+  // On mount: recover any public ops stranded in 'syncing' (tab closed or
+  // page crashed mid-sync), then refresh the pending count so the badge
+  // reflects the full queue. Mirrors useAutoSync's recovery-then-refresh
+  // ordering for the authenticated queue.
   useEffect(() => {
-    void refreshPendingCount();
+    const deviceId = getDeviceId();
+    if (!deviceId) return;
+    void recoverStalePublicSyncingOps(deviceId).then(() => refreshPendingCount());
   }, [refreshPendingCount]);
 
   return { syncing, lastSyncedAt, pendingCount, failedCount, syncNow };

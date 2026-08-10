@@ -1626,8 +1626,8 @@ export async function markPublicOpFailed(
 
 /**
  * Mark a public op as currently syncing. The sync engine calls this before each
- * HTTP attempt so a stale-sync recovery (similar to recoverStaleSyncingOps) can
- * re-arm ops stuck in this state from a previous tab close.
+ * HTTP attempt so recoverStalePublicSyncingOps can re-arm ops stuck in this
+ * state from a previous tab close.
  */
 export async function markPublicOpPermanentlyFailed(
     localId: string,
@@ -1659,6 +1659,47 @@ export async function markPublicOpSyncing(localId: string): Promise<void> {
         await store.put(op);
     }
     await tx.done;
+}
+
+/**
+ * Recover public ops stranded in 'syncing' (e.g. the tab closed or the page
+ * crashed mid-sync) back to 'pending' so they are replayed on the next pass.
+ * Mirrors recoverStaleSyncingOps for the authenticated queue.
+ *
+ * An op is considered stale when its lastAttemptAt is older than
+ * staleThresholdMs (default 5 minutes). Ops with no lastAttemptAt are always
+ * recovered — they were marked syncing but never attempted (shouldn't happen,
+ * but handle defensively).
+ *
+ * Scope is strictly device-local: only ops whose deviceId matches the caller's
+ * are touched, so another browser/device's in-flight operations are never
+ * re-armed. Recovery does NOT increment retryCount — the retry ceiling and
+ * permanent-failure semantics are untouched, and pending/retryable replay
+ * ordering (oldest-first, dependent submit/append/follow-up chains) is
+ * preserved because createdAt, linkedLocalId, and the localId idempotency key
+ * are unchanged.
+ */
+export async function recoverStalePublicSyncingOps(
+    deviceId: string,
+    staleThresholdMs = 5 * 60 * 1000,
+): Promise<number> {
+    const db = await getDB();
+    const all: PublicOfflineOp[] = await db.getAllFromIndex(PUBLIC_OPS_STORE, 'by_deviceId', deviceId);
+    const cutoff = Date.now() - staleThresholdMs;
+    const stale = all.filter(
+        (op) =>
+            op.status === 'syncing' &&
+            (op.lastAttemptAt === null || op.lastAttemptAt < cutoff),
+    );
+    if (stale.length === 0) return 0;
+
+    const tx = db.transaction(PUBLIC_OPS_STORE, 'readwrite');
+    const store = tx.objectStore(PUBLIC_OPS_STORE);
+    for (const op of stale) {
+        await store.put({ ...op, status: 'pending' });
+    }
+    await tx.done;
+    return stale.length;
 }
 
 /**

@@ -11,6 +11,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../offlineStore', () => ({
   getPendingPublicOps: vi.fn(),
+  recoverStalePublicSyncingOps: vi.fn().mockResolvedValue(0),
   markPublicOpSyncing: vi.fn(),
   markPublicOpSynced: vi.fn(),
   markPublicOpFailed: vi.fn(),
