@@ -933,6 +933,7 @@ def _export(
     incident_ids: list[int] | None = None,
     export_type: str = "analytics",
     data_provider: Callable[[Session, int], dict[str, Any]] | None = None,
+    filename_prefix: str = "analytics_export",
 ) -> str:
     valid_cols = _valid_columns(columns)
     logger.info(
@@ -951,7 +952,7 @@ def _export(
         else:
             rows = get_export_rows(db, filters or {}, valid_cols)
         os.makedirs(EXPORT_DIR, exist_ok=True)
-        path = os.path.join(EXPORT_DIR, f"analytics_export_{uuid.uuid4().hex[:12]}.{extension}")
+        path = os.path.join(EXPORT_DIR, f"{filename_prefix}_{uuid.uuid4().hex[:12]}.{extension}")
         writer(path, rows, valid_cols)
         _insert_export_log(
             db,
@@ -1014,6 +1015,52 @@ def _export_single_incident(
 
     logger.info("AFOR %s export complete: %s", export_format.upper(), path)
     return path
+
+
+def export_scheduled_report(
+    *,
+    task_id: str | None,
+    user_id: str,
+    report_id: int,
+    export_format: str,
+    filters: dict[str, Any],
+    columns: list[str],
+) -> str:
+    """Generate a scheduled analytics export through the canonical export seam.
+
+    Public interface used by ``tasks.scheduled_reports``: maps the report
+    format to the shared bulk writer and delegates to :func:`_export`, which
+    writes the file and, on success, commits one ``analytics_export_log`` row
+    plus a ``BULK_EXPORT`` system-audit mirror. The filename keeps the
+    ``scheduled_<report_id>_`` prefix so scheduled deliveries stay
+    distinguishable from dashboard exports.
+
+    Failure behavior: raises ``ValueError`` for unsupported formats. Any
+    failure before the log-row insert (data fetch, file write, or the insert
+    itself) propagates and leaves no committed ``analytics_export_log`` row.
+    The audit mirror is intentionally fail-open — a failure is caught, logged
+    as a warning, and execution continues. However, a DB-level audit INSERT
+    failure leaves the PostgreSQL transaction aborted: the subsequent commit
+    fails, so no ``analytics_export_log`` row commits and the already-written
+    file may remain orphaned. File writes are not transactional — an
+    already-written file is not removed when a later step fails.
+    """
+    if export_format not in _BULK_EXPORT_WRITERS:
+        raise ValueError(f"Unsupported export format: {export_format}")
+
+    extension, content_type, writer = _BULK_EXPORT_WRITERS[export_format]
+    return _export(
+        task_id=task_id,
+        user_id=user_id,
+        filters=filters,
+        columns=columns,
+        export_format=export_format,
+        extension=extension,
+        content_type=content_type,
+        writer=writer,
+        export_type="analytics",
+        filename_prefix=f"scheduled_{report_id}",
+    )
 
 
 # ─── Bulk Export Tasks (unchanged — for dashboard queue) ────────────────────────
@@ -1126,19 +1173,10 @@ def export_analyst_incidents_task(
         )
 
     normalized_format = (format or "csv").lower()
-    writers = {
-        "csv": ("csv", "text/csv", _write_csv),
-        "pdf": ("pdf", "application/pdf", _write_pdf),
-        "excel": (
-            "xlsx",
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            _write_xlsx,
-        ),
-    }
-    if normalized_format not in writers:
+    if normalized_format not in _BULK_EXPORT_WRITERS:
         raise ValueError(f"Unsupported export format: {format}")
 
-    extension, content_type, writer = writers[normalized_format]
+    extension, content_type, writer = _BULK_EXPORT_WRITERS[normalized_format]
     return _export(
         task_id=getattr(self.request, "id", None),
         user_id=user_id,
@@ -1183,6 +1221,25 @@ def _write_pdf(path: str, rows: list[dict[str, Any]], columns: list[str]) -> Non
     )
     story.append(table)
     doc.build(story)
+
+
+# ─── Shared Bulk (Tabular) Writer Mapping ──────────────────────────────────────
+
+
+# Private shared mapping: bulk format -> (extension, content type, writer).
+# Used by export_scheduled_report and export_analyst_incidents_task bulk mode.
+# The AFOR single-incident mapping stays separate (see the _write_afor_* writers).
+_BULK_EXPORT_WRITERS: dict[
+    str, tuple[str, str, Callable[[str, list[dict[str, Any]], list[str]], None]]
+] = {
+    "csv": ("csv", "text/csv", _write_csv),
+    "pdf": ("pdf", "application/pdf", _write_pdf),
+    "excel": (
+        "xlsx",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        _write_xlsx,
+    ),
+}
 
 
 # ─── Workflow Export Tasks ─────────────────────────────────────────────────────

@@ -12,6 +12,7 @@ from sqlalchemy import text
 
 from celery_config import celery_app
 from database import get_session, set_rls_context, SYSTEM_TASK_USER_ID
+from tasks.exports import export_scheduled_report
 from tasks.notifications import send_email_task
 
 logger = logging.getLogger(__name__)
@@ -24,11 +25,17 @@ def _format_for(fmt: str) -> str:
     return (fmt or "").lower().strip()
 
 
-def _export_filename(report_id: int, name: str, fmt: str) -> str:
-    """Generate a human-readable export filename."""
-    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    safe_name = "".join(c if c.isalnum() or c in "._-" else "_" for c in name)[:64]
-    return f"scheduled_{report_id}_{safe_name}_{ts}.{fmt}"
+SCHEDULED_EXPORT_COLUMNS = [
+    "incident_id",
+    "notification_dt",
+    "region_name",
+    "province_name",
+    "municipality_name",
+    "general_category",
+    "alarm_level",
+    "estimated_damage_php",
+    "total_response_time_minutes",
+]
 
 
 @celery_app.task(
@@ -148,10 +155,12 @@ def execute_due_reports(self) -> dict:
             len(rrecipients),
         )
 
-        # Generate export using the existing export infrastructure
+        # Generate export through the canonical export and audit seam
         export_path = None
         try:
-            export_path = _generate_report_export(rid, rname, rfmt, rfilters)
+            export_path = _generate_report_export(
+                rid, rname, rfmt, rfilters, task_id=getattr(self.request, "id", None)
+            )
         except Exception as exc:
             logger.error(
                 "Failed to generate export for report %d (%s): %s",
@@ -159,6 +168,12 @@ def execute_due_reports(self) -> dict:
                 rname,
                 exc,
             )
+            skipped += 1
+            continue
+
+        if export_path is None:
+            # _generate_report_export already logged the failure: do not
+            # count the run as executed or advance last_run_at.
             skipped += 1
             continue
 
@@ -234,68 +249,26 @@ def _generate_report_export(
     name: str,
     fmt: str,
     filters: dict,
+    task_id: str | None = None,
 ) -> str | None:
     """Generate an analytics export file for a scheduled report.
 
-    Uses the same _export infrastructure as the dashboard export queue.
+    Routes through tasks.exports.export_scheduled_report — the same
+    canonical export seam used by the dashboard export queue — so every
+    successful run records exactly one analytics_export_log row and one
+    BULK_EXPORT system-audit event under the system-task identity
+    (SYSTEM_TASK_USER_ID, SYSTEM_ADMIN role, RLS-permitted insert).
     Returns the file path on success, or None on failure.
     """
-    import os as _os
-    import uuid
-
-    from database import get_session as _get_session, set_rls_context as _set_rls
-    from services.analytics_read_model import get_export_rows
-
-    valid_cols = [
-        "incident_id",
-        "notification_dt",
-        "region_name",
-        "province_name",
-        "municipality_name",
-        "general_category",
-        "alarm_level",
-        "estimated_damage_php",
-        "total_response_time_minutes",
-    ]
-
-    db = _get_session()
     try:
-        _set_rls(db, SYSTEM_TASK_USER_ID)
-        rows = get_export_rows(db, filters or {}, valid_cols)
-
-        export_dir = _os.environ.get("EXPORT_DIR", "/tmp/wims-exports")
-        _os.makedirs(export_dir, exist_ok=True)
-
-        ext_map = {"csv": "csv", "excel": "xlsx", "pdf": "pdf"}
-        ext = ext_map.get(fmt, "csv")
-        path = _os.path.join(
-            export_dir,
-            f"scheduled_{report_id}_{uuid.uuid4().hex[:12]}.{ext}",
+        return export_scheduled_report(
+            task_id=task_id,
+            user_id=str(SYSTEM_TASK_USER_ID),
+            report_id=report_id,
+            export_format=fmt,
+            filters=filters,
+            columns=SCHEDULED_EXPORT_COLUMNS,
         )
-
-        # Write based on format
-        from tasks.exports import _write_csv, _write_xlsx, _write_pdf
-
-        writers = {
-            "csv": _write_csv,
-            "excel": _write_xlsx,
-            "pdf": _write_pdf,
-        }
-        writer = writers.get(fmt)
-        if writer is None:
-            logger.error("Unsupported format '%s' for report %d", fmt, report_id)
-            return None
-
-        writer(path, rows, valid_cols)
-        logger.info(
-            "Scheduled report %d export: %d rows -> %s",
-            report_id,
-            len(rows),
-            path,
-        )
-        return path
     except Exception as exc:
         logger.error("Export generation failed for report %d: %s", report_id, exc)
         return None
-    finally:
-        db.close()
