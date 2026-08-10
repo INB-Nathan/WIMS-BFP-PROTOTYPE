@@ -23,6 +23,13 @@ const DEFAULT_BACK_COMPAT_TTL_MS = 30 * 60 * 1000;
 // IDB transaction open (Task 1 + Task 10 hard constraints).
 const MAX_EVICTIONS_PER_PASS = 500;
 
+// Shared staleness window for recovering ops stranded in 'syncing' (tab closed
+// or page crashed mid-sync). Used as the default threshold by both the
+// authenticated (recoverStaleSyncingOps) and public
+// (recoverStalePublicSyncingOps) recovery functions so the two queues stay in
+// lock-step.
+export const STALE_SYNC_THRESHOLD_MS = 5 * 60 * 1000;
+
 // ─── Legacy types (incident-queue) ────────────────────────────────────────
 
 // Advisory offline storage cap (MB). Default 50; overridden via initOfflineStorageLimit().
@@ -1294,12 +1301,13 @@ export async function getOfflineOp(localId: string): Promise<OfflineOpDecrypted 
  * (e.g. the tab closed mid-sync) back to 'pending' so they are retried.
  *
  * An op is considered stale when its lastAttemptAt is older than staleThresholdMs
- * (default 5 minutes). Ops with no lastAttemptAt are always reset — they were
- * marked syncing but never attempted (shouldn't happen, but handle defensively).
+ * (default STALE_SYNC_THRESHOLD_MS, 5 minutes). Ops with no lastAttemptAt are
+ * always reset — they were marked syncing but never attempted (shouldn't
+ * happen, but handle defensively).
  */
 export async function recoverStaleSyncingOps(
     encoderId: string,
-    staleThresholdMs = 5 * 60 * 1000,
+    staleThresholdMs = STALE_SYNC_THRESHOLD_MS,
 ): Promise<number> {
     const db = await getDB();
     const all: OfflineOp[] = await db.getAllFromIndex(OPS_STORE, 'by_encoder', encoderId);
@@ -1672,9 +1680,13 @@ export async function markPublicOpSyncing(localId: string): Promise<void> {
  * Mirrors recoverStaleSyncingOps for the authenticated queue.
  *
  * An op is considered stale when its lastAttemptAt is older than
- * staleThresholdMs (default 5 minutes). Ops with no lastAttemptAt are always
- * recovered — they were marked syncing but never attempted (shouldn't happen,
- * but handle defensively).
+ * staleThresholdMs (default STALE_SYNC_THRESHOLD_MS, 5 minutes). Ops with no
+ * lastAttemptAt are always recovered — they were marked syncing but never
+ * attempted (shouldn't happen, but handle defensively).
+ *
+ * Invariant: callers must run this recovery BEFORE reading pending ops or
+ * pending counts — an op re-armed here only shows up in reads performed after
+ * this call resolves.
  *
  * Scope is strictly device-local: only ops whose deviceId matches the caller's
  * are touched, so another browser/device's in-flight operations are never
@@ -1686,7 +1698,7 @@ export async function markPublicOpSyncing(localId: string): Promise<void> {
  */
 export async function recoverStalePublicSyncingOps(
     deviceId: string,
-    staleThresholdMs = 5 * 60 * 1000,
+    staleThresholdMs = STALE_SYNC_THRESHOLD_MS,
 ): Promise<number> {
     const db = await getDB();
     const all: PublicOfflineOp[] = await db.getAllFromIndex(PUBLIC_OPS_STORE, 'by_deviceId', deviceId);

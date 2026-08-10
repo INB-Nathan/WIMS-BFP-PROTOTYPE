@@ -100,6 +100,7 @@ const {
   purgeSyncedPublicOps,
   getPendingPublicOpsCount,
   recoverStalePublicSyncingOps,
+  STALE_SYNC_THRESHOLD_MS,
 } = await import('../offlineStore');
 
 const DEVICE_ID = 'device-aaa';
@@ -352,6 +353,24 @@ describe('recoverStalePublicSyncingOps', () => {
     const count = await recoverStalePublicSyncingOps(DEVICE_ID);
     expect(count).toBe(1);
     expect(publicOpsStore.get('never')?.status).toBe('pending');
+  });
+
+  it('uses the shared STALE_SYNC_THRESHOLD_MS as its default', async () => {
+    await queuePublicOfflineOp(makeOp({
+      localId: 'edge-stale',
+      status: 'syncing',
+      lastAttemptAt: Date.now() - STALE_SYNC_THRESHOLD_MS - 1000,
+    }));
+    await queuePublicOfflineOp(makeOp({
+      localId: 'edge-recent',
+      status: 'syncing',
+      lastAttemptAt: Date.now() - STALE_SYNC_THRESHOLD_MS + 1000,
+    }));
+
+    const count = await recoverStalePublicSyncingOps(DEVICE_ID);
+    expect(count).toBe(1);
+    expect(publicOpsStore.get('edge-stale')?.status).toBe('pending');
+    expect(publicOpsStore.get('edge-recent')?.status).toBe('syncing');
   });
 
   it('never recovers another device\'s operations', async () => {
