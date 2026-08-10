@@ -62,7 +62,11 @@ def _set_config(db, key: str, value: str):
 
 
 def _clear_audit_log(db):
-    """Delete audit log rows from the test run (if RULE allows)."""
+    """Best-effort cleanup of audit log rows from this test run.
+
+    The audit immutability trigger raises on DELETE, so this is a no-op
+    whenever the trigger is installed; callers tolerate leftover rows.
+    """
     try:
         db.execute(
             text("DELETE FROM wims.system_audit_trails WHERE action_type = 'DATA_RETENTION_PRUNE'")
@@ -475,7 +479,7 @@ class TestImmutableTablesNeverPruned:
             # Assert: no-op audit log entries exist
             assert _count_audit_logs(db_session) >= 1, "Expected at least 1 audit log entry"
         finally:
-            # Cleanup (best-effort; audit_trails may block DELETE via RULE)
+            # Cleanup (best-effort; the audit immutability trigger raises on DELETE)
             for hid in filter(None, [ivh_id]):
                 try:
                     db_session.execute(
@@ -493,7 +497,7 @@ class TestImmutableTablesNeverPruned:
                         {"aid": audit_id},
                     )
                 except Exception:
-                    pass  # RULE will block it
+                    pass  # the audit immutability trigger raises on DELETE
             if incident_id is not None:
                 try:
                     db_session.execute(

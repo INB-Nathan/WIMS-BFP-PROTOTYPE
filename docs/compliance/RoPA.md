@@ -110,7 +110,7 @@
 | Recipients | System Administrator (query via admin audit log UI) |
 | Third-country transfers | None |
 | Retention | 7 years |
-| Security measures | Immutable append-only table (PostgreSQL rule DO INSTEAD NOTHING on DELETE/UPDATE); RLS (read: SYSTEM_ADMIN or own records); partitioned by year |
+| Security measures | Immutable append-only partitioned table (parent-level BEFORE UPDATE/DELETE triggers raise an error on any prohibited mutation; enforced on current and future partitions, including against superuser-capable maintenance paths); RLS (read: SYSTEM_ADMIN or own records); partitioned by year |
 
 ### 3.6 Security Threat Logging and XAI Analysis
 
@@ -153,7 +153,7 @@
 | Encryption in transit | TLS 1.2/1.3; HSTS (max-age=31536000, includeSubDomains); Nginx edge gateway |
 | Access control | RBAC (5 roles); Keycloak OIDC; Row-Level Security (PostgreSQL GUC) |
 | Authentication | Min. 8-char password; TOTP MFA; account lockout after 5 attempts; 30-min idle timeout |
-| Audit and non-repudiation | Immutable `system_audit_trails` (partitioned, append-only); SHA-256 commit hash |
+| Audit and non-repudiation | Immutable `system_audit_trails` (partitioned, append-only; parent-level UPDATE/DELETE triggers raise an error); SHA-256 commit hash |
 | Intrusion detection | Suricata IDS (AF_PACKET host-mode); custom BFP rules + weekly ET Open ruleset; Qwen2.5-3B XAI |
 | Vulnerability management | Monthly Nmap/OWASP ZAP/sqlmap scanning; severity-SLA remediation; quarterly post-deployment |
 | Incident response | Automated breach record; 72h NPC notification window enforced; HITL threat review |

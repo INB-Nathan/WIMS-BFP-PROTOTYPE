@@ -48,7 +48,7 @@ This is tracked as a follow-up; the blob-erasure here is the shippable-now layer
 
 ### No-op tables
 - `incident_verification_history`: hash-chain integrity prevents any row removal.
-- `system_audit_trails`: the `no_delete_audit` RULE blocks DELETE unconditionally.
+- `system_audit_trails`: parent-level immutability triggers (`100_audit_trail_immutability.sql` / alembic 0031) raise an error on any UPDATE/DELETE, on current and future partitions.
 
 These tables are append-only by design (ASVS V7.3.1 / V7.4.1). Size is bounded by
 operational monitoring of the `system_audit_trails` table growth rate; a future
