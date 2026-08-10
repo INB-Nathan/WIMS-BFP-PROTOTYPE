@@ -1817,7 +1817,7 @@ class TestMergeCandidates:
         target_cid = make_cluster(db_session, anchor_report_id=target_rid)
         add_to_cluster(db_session, target_cid, target_rid)
 
-        # ~556m away: outside the default 250m policy, inside a widened policy.
+        # ~772m away: outside the default 250m policy, inside a widened policy.
         cand_rid = make_report(db_session, 121.055, 14.605)
         cand_cid = make_cluster(db_session, anchor_report_id=cand_rid)
         add_to_cluster(db_session, cand_cid, cand_rid)
@@ -1854,7 +1854,7 @@ class TestMergeCandidates:
         from services.civilian_triage import policies
 
         target_rid = make_report(db_session, 121.05, 14.60)
-        source_rid = make_report(db_session, 121.055, 14.605)  # ~556m away
+        source_rid = make_report(db_session, 121.055, 14.605)  # ~772m away
         target_cluster_id = make_cluster(db_session, anchor_report_id=target_rid)
         source_cluster_id = make_cluster(db_session, anchor_report_id=source_rid)
         add_to_cluster(db_session, target_cluster_id, target_rid)
@@ -1864,7 +1864,7 @@ class TestMergeCandidates:
         )
         assert claim.status_code == 200, claim.text
 
-        # Default 250m policy rejects the ~556m merge.
+        # Default 250m policy rejects the ~772m merge.
         resp = client_with_validator.post(
             f"/api/triage/clusters/{target_cluster_id}/merge",
             json={"source_cluster_id": source_cluster_id, "internal_note": "policy test"},
