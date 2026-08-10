@@ -1038,24 +1038,17 @@ def export_scheduled_report(
     Failure behavior: raises ``ValueError`` for unsupported formats. Any
     failure before the log-row insert (data fetch, file write, or the insert
     itself) propagates and leaves no committed ``analytics_export_log`` row.
-    The audit mirror is intentionally fail-open: if it fails, a warning is
-    logged and the export log row is still committed. File writes are not
-    transactional — an already-written file is not removed when a later step
-    fails.
+    The audit mirror is intentionally fail-open — a failure is caught, logged
+    as a warning, and execution continues. However, a DB-level audit INSERT
+    failure leaves the PostgreSQL transaction aborted: the subsequent commit
+    fails, so no ``analytics_export_log`` row commits and the already-written
+    file may remain orphaned. File writes are not transactional — an
+    already-written file is not removed when a later step fails.
     """
-    writers = {
-        "csv": ("csv", "text/csv", _write_csv),
-        "pdf": ("pdf", "application/pdf", _write_pdf),
-        "excel": (
-            "xlsx",
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            _write_xlsx,
-        ),
-    }
-    if export_format not in writers:
+    if export_format not in _BULK_EXPORT_WRITERS:
         raise ValueError(f"Unsupported export format: {export_format}")
 
-    extension, content_type, writer = writers[export_format]
+    extension, content_type, writer = _BULK_EXPORT_WRITERS[export_format]
     return _export(
         task_id=task_id,
         user_id=user_id,
@@ -1180,19 +1173,10 @@ def export_analyst_incidents_task(
         )
 
     normalized_format = (format or "csv").lower()
-    writers = {
-        "csv": ("csv", "text/csv", _write_csv),
-        "pdf": ("pdf", "application/pdf", _write_pdf),
-        "excel": (
-            "xlsx",
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            _write_xlsx,
-        ),
-    }
-    if normalized_format not in writers:
+    if normalized_format not in _BULK_EXPORT_WRITERS:
         raise ValueError(f"Unsupported export format: {format}")
 
-    extension, content_type, writer = writers[normalized_format]
+    extension, content_type, writer = _BULK_EXPORT_WRITERS[normalized_format]
     return _export(
         task_id=getattr(self.request, "id", None),
         user_id=user_id,
@@ -1237,6 +1221,25 @@ def _write_pdf(path: str, rows: list[dict[str, Any]], columns: list[str]) -> Non
     )
     story.append(table)
     doc.build(story)
+
+
+# ─── Shared Bulk (Tabular) Writer Mapping ──────────────────────────────────────
+
+
+# Private shared mapping: bulk format -> (extension, content type, writer).
+# Used by export_scheduled_report and export_analyst_incidents_task bulk mode.
+# The AFOR single-incident mapping stays separate (see the _write_afor_* writers).
+_BULK_EXPORT_WRITERS: dict[
+    str, tuple[str, str, Callable[[str, list[dict[str, Any]], list[str]], None]]
+] = {
+    "csv": ("csv", "text/csv", _write_csv),
+    "pdf": ("pdf", "application/pdf", _write_pdf),
+    "excel": (
+        "xlsx",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        _write_xlsx,
+    ),
+}
 
 
 # ─── Workflow Export Tasks ─────────────────────────────────────────────────────

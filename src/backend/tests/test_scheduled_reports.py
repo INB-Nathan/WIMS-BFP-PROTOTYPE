@@ -489,11 +489,24 @@ class TestScheduledExportSeam:
         update_db.commit.assert_not_called()
         assert not list(tmp_path.glob("scheduled_1_*.csv"))
 
+    @pytest.mark.parametrize(
+        ("export_format", "extension", "content_type"),
+        [
+            ("csv", ".csv", "text/csv"),
+            (
+                "excel",
+                ".xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ),
+            ("pdf", ".pdf", "application/pdf"),
+        ],
+    )
     def test_export_scheduled_report_prefixes_filename_and_logs(
-        self, tmp_path, monkeypatch
+        self, tmp_path, monkeypatch, export_format, extension, content_type
     ) -> None:
-        """export_scheduled_report keeps the scheduled_<report_id>_ prefix and
-        records the export with the caller's task id and system identity."""
+        """export_scheduled_report maps csv/excel/pdf to the shared bulk
+        writer, keeps the scheduled_<report_id>_ prefix, and records the
+        export with the caller's task id and system identity."""
         export_db = MagicMock()
         monkeypatch.setattr("tasks.exports.EXPORT_DIR", str(tmp_path))
         monkeypatch.setattr("tasks.exports.get_session", lambda: export_db)
@@ -507,13 +520,13 @@ class TestScheduledExportSeam:
             task_id="task-sched-1",
             user_id=str(SYSTEM_TASK_USER_ID),
             report_id=7,
-            export_format="csv",
+            export_format=export_format,
             filters={"region_id": 1},
             columns=["incident_id"],
         )
 
         assert path.startswith(str(tmp_path))
-        assert path.endswith(".csv")
+        assert path.endswith(extension)
         assert Path(path).name.startswith("scheduled_7_")
         assert Path(path).is_file()
 
@@ -525,6 +538,8 @@ class TestScheduledExportSeam:
         assert params["user_id"] == str(SYSTEM_TASK_USER_ID)
         assert params["export_type"] == "analytics"
         assert params["row_count"] == 1
+        assert params["format"] == export_format
+        assert params["content_type"] == content_type
 
     def test_export_scheduled_report_rejects_unknown_format(self) -> None:
         """Unknown formats raise instead of silently writing a CSV."""
