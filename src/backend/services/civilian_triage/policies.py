@@ -27,6 +27,44 @@ class TriagePolicy:
 
     SQL callers bind these values as SQLAlchemy parameters so a policy change
     takes effect at every query seam without editing SQL text (issue #718).
+    Distances are meters measured on PostGIS geography; time values use the
+    unit named in the field (hours or seconds). Field semantics:
+
+    related_report_radius_meters (meters):
+        Neighborhood radius for the related-report seams — intake trust
+        (api/routes/civilian.py _trust_score), duplicate suggestions
+        (suggest_duplicate_reports), and queue projection
+        (queue_projection.get_queue). All three test proximity with
+        ST_DWithin on geography, which admits pairs at the boundary
+        (distance <= radius).
+
+    related_report_window_hours (hours):
+        Time window for the same three seams, with seam-dependent direction:
+        - Intake trust and duplicate suggestions use a ONE-SIDED LOOKBACK:
+          ``created_at >= now() - make_interval(hours => ...)`` — only reports
+          created within the last N hours count.
+        - Queue projection uses a SYMMETRIC +/- window around each report's
+          own created_at: ``r2.created_at`` between ``r.created_at - N hours``
+          and ``r.created_at + N hours``.
+
+    merge_candidate_radius_meters (meters):
+        Radius for cluster merge candidate discovery
+        (workflow.get_merge_candidates_command) and final merge revalidation
+        (workflow.merge_clusters_command). Discovery uses ST_DWithin on
+        geography (admits pairs at the boundary); final revalidation
+        deliberately retains the PRE-EXISTING STRICT-DISTANCE BOUNDARY
+        (``ST_Distance(...) < radius``, strictly less than), so a pair exactly
+        at the radius is suggested but refused at merge time.
+
+    merge_candidate_window_seconds (seconds):
+        Symmetric time window for both merge seams:
+        ``ABS(EXTRACT(EPOCH FROM (created_at difference))) <= window``.
+        Unlike related_report_window_hours, there is no one-sided variant.
+
+    gps_mismatch_meters (meters):
+        GPS-consistency threshold. A report whose gps_distance_m is strictly
+        greater than this value is flagged gps_mismatch; intake trust grants
+        the +10 consistency signal only when gps_distance_m <= this value.
     """
 
     related_report_radius_meters: int = 100
