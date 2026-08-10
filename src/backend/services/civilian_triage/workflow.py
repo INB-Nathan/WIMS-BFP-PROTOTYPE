@@ -9,6 +9,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from services.event_bus import publish_verification_event_sync
+from services.civilian_triage import policies
 from services.civilian_triage.models import (
     ClusterActivityRequest,
     ClusterActivityResponse,
@@ -301,7 +302,8 @@ def get_merge_candidates_command(
     cluster_id: int,
     db: Session,
 ) -> MergeCandidateResponse:
-    """Return conservative nearby cluster merge candidates within 250m and 1 hour."""
+    """Return nearby cluster merge candidates within the triage merge-candidate
+    proximity/time policy (see services.civilian_triage.policies)."""
     cluster = db.execute(
         text("""
             SELECT c.cluster_id, c.anchor_report_id, a.location, a.created_at
@@ -333,14 +335,19 @@ def get_merge_candidates_command(
             ) target
             WHERE c.cluster_id != :cid
               AND c.status != 'CLUSTER_CLOSED'
-              AND ST_DWithin(a.location::geography, target.location::geography, 250)
-              AND ABS(EXTRACT(EPOCH FROM (a.created_at - target.created_at))) <= 3600
+              AND ST_DWithin(a.location::geography, target.location::geography, :merge_radius_m)
+              AND ABS(EXTRACT(EPOCH FROM (a.created_at - target.created_at))) <= :merge_window_seconds
             GROUP BY c.cluster_id, c.anchor_report_id, a.location, target.location,
                      a.created_at, target.created_at, c.status
             ORDER BY distance_m ASC, minutes_apart ASC
             LIMIT 10
         """),
-        {"cid": cluster_id, "anchor_report_id": cluster.anchor_report_id},
+        {
+            "cid": cluster_id,
+            "anchor_report_id": cluster.anchor_report_id,
+            "merge_radius_m": policies.TRIAGE_POLICY.merge_candidate_radius_meters,
+            "merge_window_seconds": policies.TRIAGE_POLICY.merge_candidate_window_seconds,
+        },
     ).fetchall()
 
     return MergeCandidateResponse(
@@ -703,7 +710,8 @@ def merge_clusters_command(
     Validates:
     - Target cluster is claimed by the current user.
     - Source cluster exists, is not closed, and is not actively claimed by another user.
-    - Source and target anchors are within 250m / 1 hour proximity.
+    - Source and target anchors are within the triage merge-candidate
+      proximity/time policy (see services.civilian_triage.policies).
 
     After merge, source cluster is set to CLUSTER_CLOSED with merged_into_cluster_id set.
     All source members are moved to the target cluster.
@@ -727,12 +735,12 @@ def merge_clusters_command(
                 detail="Source cluster is actively claimed by another user. Reassign or wait.",
             )
 
-        # Re-validate geospatial/time proximity (250m / 1hr) between anchors
+        # Re-validate geospatial/time proximity (merge-candidate policy) between anchors
         proximity_check = db.execute(
             text("""
                 SELECT
-                    ST_Distance(sa.location::geography, ta.location::geography) < 250
-                    AND ABS(EXTRACT(EPOCH FROM (sa.created_at - ta.created_at))) <= 3600
+                    ST_Distance(sa.location::geography, ta.location::geography) < :merge_radius_m
+                    AND ABS(EXTRACT(EPOCH FROM (sa.created_at - ta.created_at))) <= :merge_window_seconds
                     AS within_range
                 FROM wims.citizen_reports sa
                 CROSS JOIN wims.citizen_reports ta
@@ -743,13 +751,29 @@ def merge_clusters_command(
                     SELECT anchor_report_id FROM wims.citizen_report_clusters WHERE cluster_id = :target_cid
                 )
             """),
-            {"source_cid": body.source_cluster_id, "target_cid": target_cluster_id},
+            {
+                "source_cid": body.source_cluster_id,
+                "target_cid": target_cluster_id,
+                "merge_radius_m": policies.TRIAGE_POLICY.merge_candidate_radius_meters,
+                "merge_window_seconds": policies.TRIAGE_POLICY.merge_candidate_window_seconds,
+            },
         ).scalar()
         if not proximity_check:
+            policy = policies.TRIAGE_POLICY
+            if policy.merge_candidate_window_seconds % 3600 == 0:
+                window_hours = policy.merge_candidate_window_seconds // 3600
+                window_label = (
+                    f"{window_hours} hour" if window_hours == 1 else f"{window_hours} hours"
+                )
+            else:
+                window_label = f"{policy.merge_candidate_window_seconds} seconds"
             raise HTTPException(
                 status_code=422,
-                detail="Source cluster is outside 250m / 1 hour proximity from target cluster. "
-                "Only nearby clusters within the same time window can be merged.",
+                detail=(
+                    f"Source cluster is outside {policy.merge_candidate_radius_meters}m / "
+                    f"{window_label} proximity from target cluster. Only nearby clusters within "
+                    "the same time window can be merged."
+                ),
             )
 
         moved = db.execute(
