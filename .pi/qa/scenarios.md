@@ -9,11 +9,15 @@ reproducible defects.
 
 1. **Local stack running.** Start with `scripts/wims-local.sh start` from the
    repo root. The gateway is reachable at `http://localhost` (HTTP-only via
-   `nginx.ci.conf`). If port 80 is occupied or `172.18.0.0/24` conflicts with
-   k3d, set `WIMS_LOCAL_SUBNET` (see `scripts/wims-local.sh` usage).
+   `nginx.ci.conf`). The script already defaults to the k3d-safe subnet
+   `172.28.0.0/24`; set `WIMS_LOCAL_SUBNET` only when you need a different
+   range (see `scripts/wims-local.sh` usage).
 2. **Synthetic identities seeded** (authenticated scenarios only). See
-   [synthetic-identities.md](./synthetic-identities.md). The `keycloak-bootstrap`
-   Compose service imports `src/keycloak/import/bfp-realm.json` on first start.
+   [synthetic-identities.md](./synthetic-identities.md). The `keycloak`
+   Compose service imports `src/keycloak/import/bfp-realm.json` on first
+   start (`start-dev --import-realm`); the one-shot `keycloak-bootstrap`
+   service only patches the master-realm admin console and does not import
+   the `bfp` realm.
 3. **Playwright Chromium installed** once system-wide:
    `cd .pi/extensions/wims-browser && npx playwright install chromium`.
 4. **Invoke** `browser-qa` via pi-subagents:

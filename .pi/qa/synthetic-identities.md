@@ -4,10 +4,10 @@
 > Keycloak dev realm only. These values must NEVER be used as real
 > credentials, and real secrets must never be committed to this file or any
 > other repository file. Before any authenticated QA scenario runs, the
-> operator must seed these identities via the Keycloak Admin API or the
-> existing keycloak-bootstrap (see "Seeding" below), and should rotate the
-> placeholder passwords for any environment that is not a throwaway local
-> stack.
+> operator must seed these identities via the Keycloak Admin API or a fresh
+> local Keycloak volume that re-runs the realm import (see "Seeding" below),
+> and should rotate the placeholder passwords for any environment that is not
+> a throwaway local stack.
 
 This file documents the static set of well-known synthetic identities used by
 browser/API QA against the local WIMS stack. They exist in the local Keycloak
@@ -50,11 +50,14 @@ grants, `e-` executive, `r-` regional.
 The identities are **not** created by the browser QA harness. They must be
 seeded into the local Keycloak realm before authenticated scenarios run:
 
-- **Bootstrap path (local stack):** the `keycloak-bootstrap` Compose service
-  (`src/docker-compose.yml`, `src/docker-compose.local-demo.yml`) runs
-  `src/keycloak/bootstrap/bootstrap-master-realm.sh` against the Keycloak
-  container and imports `src/keycloak/import/bfp-realm.json` (realm `bfp`),
-  which contains the synthetic users above.
+- **Bootstrap path (local stack):** the `keycloak` Compose service imports
+  `src/keycloak/import/bfp-realm.json` (realm `bfp`, containing the synthetic
+  users above) on first start via `start-dev --import-realm`
+  (`src/docker-compose.yml`). The one-shot `keycloak-bootstrap` service runs
+  `src/keycloak/bootstrap/bootstrap-master-realm.sh` to patch the
+  master-realm admin console only — it does not import the `bfp` realm.
+  Re-import requires a fresh local Keycloak volume (or the Admin API path
+  below).
 - **Admin API path (any local environment):** use the Keycloak Admin REST API
   (`kcadm.sh` or the admin console) to (re)create users, assign the realm
   roles above, and set their passwords. This is the required path when the

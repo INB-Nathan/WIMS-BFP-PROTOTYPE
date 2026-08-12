@@ -12,8 +12,9 @@ the identity has `SKIP_MFA`.
 ## Prerequisites
 
 - Synthetic `encoder_ncr` (or `encoder_car`) is seeded in the local Keycloak
-  realm `bfp` via the `keycloak-bootstrap` import. Both placeholder passwords
-  are documented in `synthetic-identities.md`.
+  realm `bfp` (imported from `src/keycloak/import/bfp-realm.json` by the
+  `keycloak` Compose service on first start). Both placeholder passwords are
+  documented in `synthetic-identities.md`.
 - The local stack is running.
 
 ## Steps
@@ -44,7 +45,11 @@ the identity has `SKIP_MFA`.
   redirect loop, no `401` on authenticated API calls).
 - The triage queue loads reports scoped to the encoder's region.
 - Proximity/time policy values are visible and consistent with the frozen
-  `TriagePolicy` parameters (no stale or contradictory values).
+  constants in `src/backend/services/civilian_triage/policies.py`
+  (`CLAIM_STALE_MINUTES`, `RELATED_REPORT_RADIUS_METERS`,
+  `RELATED_REPORT_WINDOW_HOURS`, `MERGE_CANDIDATE_RADIUS_METERS`,
+  `AGING_MINUTES`, `TIMEOUT_RISK_MINUTES`, `DANGER_MINUTES`,
+  `GPS_MISMATCH_METERS` — no stale or contradictory values).
 - No unhandled console errors.
 
 ## Defects to report
