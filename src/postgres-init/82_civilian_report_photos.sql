@@ -127,9 +127,15 @@ CREATE TABLE IF NOT EXISTS wims.report_photos (
 
 -- Add the ownership column for installations that created the table before
 -- the device branch was introduced; new rows are subject to the XOR check.
+-- attached_at is added here (not only in 87_photo_preupload_schema.sql) because
+-- the report_photos_insert policy below references it; init scripts run
+-- lexicographically so 82 must create the column before its own policy needs it.
+-- 87's later ADD COLUMN IF NOT EXISTS becomes a no-op; 87's backfill UPDATE
+-- still runs correctly.
 ALTER TABLE wims.report_photos
     ADD COLUMN IF NOT EXISTS uploader_device_id UUID,
-    ADD COLUMN IF NOT EXISTS file_extension TEXT;
+    ADD COLUMN IF NOT EXISTS file_extension TEXT,
+    ADD COLUMN IF NOT EXISTS attached_at TIMESTAMPTZ;
 ALTER TABLE wims.report_photos
     ALTER COLUMN file_extension SET NOT NULL;
 

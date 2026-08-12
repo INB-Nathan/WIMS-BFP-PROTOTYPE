@@ -16,6 +16,9 @@ ALTER TABLE wims.citizen_reports ADD COLUMN IF NOT EXISTS routing_data_source   
 ALTER TABLE wims.citizen_reports ADD COLUMN IF NOT EXISTS routing_execution_path   TEXT;
 ALTER TABLE wims.citizen_reports ADD COLUMN IF NOT EXISTS routing_candidate_count   INTEGER;
 ALTER TABLE wims.citizen_reports ADD COLUMN IF NOT EXISTS routing_updated_at       TIMESTAMPTZ;
+ALTER TABLE wims.citizen_reports ADD COLUMN IF NOT EXISTS routing_geometry geometry(LineString, 4326);
+COMMENT ON COLUMN wims.citizen_reports.routing_geometry IS
+    'OSRM road-network route geometry (GeoJSON LineString stored as PostGIS geometry). NULL when OSRM unavailable or fallback routing used.';
 
 -- ── Contributor / anonymous session FK columns ───────────────────────────────
 -- contributor_user_id is NULL for unclaimed anonymous reports.
