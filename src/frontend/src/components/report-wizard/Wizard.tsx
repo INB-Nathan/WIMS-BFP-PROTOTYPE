@@ -343,8 +343,10 @@ export function ReportWizard() {
     setStepIndex(next);
   }
 
-  // Location is required: either valid coordinates or a non-empty landmark.
-  const locationProvided = latitude !== null && longitude !== null ? true : landmark.trim().length > 0;
+  // Location is required: valid coordinates (map pin or GPS). The landmark is
+  // optional supplementary context, not a substitute for coordinates
+  // (approved safe default — a fire report must have a pin/GPS location).
+  const locationProvided = latitude !== null && longitude !== null;
 
   function goBack() {
     setStepIndex((s) => Math.max(0, s - 1));
@@ -797,7 +799,7 @@ export function ReportWizard() {
               </div>
               {stepIndex === 0 && !locationProvided && (
                 <p className="text-xs flex items-center gap-1.5 pt-1" style={{ color: '#b91c1c' }}>
-                  <AlertTriangle className="w-3.5 h-3.5" /> Add a location - drop a pin, use your location, or enter a nearby landmark.
+                  <AlertTriangle className="w-3.5 h-3.5" /> Add a location - drop a pin or use your location.
                 </p>
               )}
               </>
