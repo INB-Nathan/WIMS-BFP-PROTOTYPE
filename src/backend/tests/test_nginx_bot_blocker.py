@@ -3,7 +3,7 @@
 Tests the vendored bot-blocker include directives, compose mount, zone-name
 collision safety, support file existence, and flood zone definition.
 
-The three nginx configs are parameterized so drift in any of them fails the
+The four nginx configs are parameterized so drift in any of them fails the
 build, matching the pattern from test_nginx_forwarded_headers.py.
 """
 
@@ -21,6 +21,7 @@ NGINX_CONFIGS = [
     REPO_ROOT / "nginx" / "nginx.conf",
     REPO_ROOT / "nginx" / "nginx.ci.conf",
     REPO_ROOT / "nginx" / "nginx.local.conf",
+    REPO_ROOT / "nginx" / "nginx.local-demo.conf",
 ]
 
 BOT_BLOCKER_DIR = REPO_ROOT / "nginx" / "bot-blocker"

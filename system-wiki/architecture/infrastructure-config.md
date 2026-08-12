@@ -118,9 +118,9 @@ Changing `.env.production` does not update database roles already stored in the 
 
 **Docker DNS upstream refresh:** Both nginx configs use Docker's embedded resolver (`127.0.0.11`) and shared upstream zones with `server backend:8000 resolve` (`backend_servers`) and `server frontend:3000 resolve` (`frontend_servers`). Nginx refreshes both addresses after Compose recreates containers instead of retaining stale IPs and returning `502 Connection refused`. The deploy workflow also runs `nginx -s reload` after `compose up` as a safety net, and checks the frontend `/login` route post-deploy in addition to the existing Keycloak and API health probes.
 
-**Real-IP trusted proxy range:** `nginx.conf`, `nginx.local.conf`, and `nginx.ci.conf` trust only `172.18.0.0/24` (the configured `wims_internal` subnet) plus `127.0.0.1` for `real_ip_header X-Forwarded-For`. Keep this range aligned with the Compose subnet; do not broaden it back to `172.18.0.0/16` unless the bridge subnet is widened too.
+**Real-IP trusted proxy range:** `nginx.conf`, `nginx.local.conf`, `nginx.ci.conf`, and `nginx.local-demo.conf` trust only `172.18.0.0/24` (the configured `wims_internal` subnet) plus `127.0.0.1` for `real_ip_header X-Forwarded-For`. Keep this range aligned with the Compose subnet; do not broaden it back to `172.18.0.0/16` unless the bridge subnet is widened too.
 
-**Bad-bot blocker at edge (issue #517):** All three nginx configs include a vendored
+**Bad-bot blocker at edge (issue #517):** All four nginx configs (`nginx.conf`, `nginx.local.conf`, `nginx.ci.conf`, `nginx.local-demo.conf`) include a vendored
 [nginx-ultimate-bad-bot-blocker](https://github.com/mitchellkrogza/nginx-ultimate-bad-bot-blocker)
 ruleset (MIT license, version V4.2026.07.6037) that blocks known bad user agents,
 bad referrers, and malicious IPs at the edge before they reach application

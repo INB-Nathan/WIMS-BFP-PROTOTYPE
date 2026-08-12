@@ -159,7 +159,7 @@ case "${1:-}" in
     ;;
   certs)
     cat <<'EOF'
-The wims-local stack is HTTP-only (nginx.ci.conf is mounted instead of the
+The wims-local stack is HTTP-only (nginx.local-demo.conf is mounted instead of the
 production TLS config), so it starts without certificates.
 
 If you want local HTTPS instead, the standard docker-compose.override.yml

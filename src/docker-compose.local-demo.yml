@@ -111,13 +111,16 @@ services:
 
   nginx-gateway:
     restart: "no"
-    # HTTP-only nginx.ci.conf (same mount as docker-compose.ci.yml) so nginx
-    # starts without /etc/letsencrypt certificates. Note: nginx.ci.conf pins
+    # HTTP-only nginx.local-demo.conf (derived from nginx.ci.conf) so nginx
+    # starts without /etc/letsencrypt certificates. nginx.local-demo.conf
+    # relaxes script-src with 'unsafe-inline' so Next.js inline hydration
+    # scripts run on http://localhost; the CI config (nginx.ci.conf) stays
+    # strict for the GitHub Actions security-scan job. Note: the config pins
     # set_real_ip_from to the base 172.18.0.0/24 subnet, which does not match
     # WIMS_LOCAL_SUBNET; that is cosmetic for this loopback-only stack because
     # local QA clients arrive from 127.0.0.1 (already trusted).
     volumes:
-      - ./nginx/nginx.ci.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/nginx.local-demo.conf:/etc/nginx/nginx.conf:ro
     networks:
       wims_internal:
         ipv4_address: ${WIMS_LOCAL_NGINX_IP:-172.28.0.132}
