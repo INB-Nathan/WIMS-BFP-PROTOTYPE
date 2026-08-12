@@ -9,7 +9,7 @@ reproducible defects.
 
 1. **Local stack running.** Start with `scripts/wims-local.sh start` from the
    repo root. The gateway is reachable at `http://localhost` (HTTP-only via
-   `nginx.ci.conf`). The script already defaults to the k3d-safe subnet
+   `nginx.local-demo.conf`). The script already defaults to the k3d-safe subnet
    `172.28.0.0/24`; set `WIMS_LOCAL_SUBNET` only when you need a different
    range (see `scripts/wims-local.sh` usage).
 2. **Synthetic identities seeded** (authenticated scenarios only). See
