@@ -6,8 +6,11 @@
 #
 # Supported entry point: scripts/wims-local.sh, which always starts the
 # explicit service list (postgres redis keycloak keycloak-bootstrap backend
-# frontend nginx-gateway). Raw `docker compose up <extra-service>` is
-# unsupported: inherited non-selected services (ollama, openbao,
+# frontend nginx-gateway). The reduced stack inherits the base file's fixed
+# container names and loopback ports, so stop the full stack before starting
+# it; the two topologies cannot run concurrently. Raw
+# `docker compose up <extra-service>` is unsupported: inherited non-selected
+# services (ollama, openbao,
 # celery-worker, wims-suricata, ...) keep the base file's static 172.18.0.x
 # addresses, which lie outside this stack's subnet, so their containers fail
 # to create and would corrupt the local network.
@@ -79,6 +82,10 @@ services:
 
   backend:
     restart: "no"
+    # WIMS_LOCAL_ENV_FILE configures Compose interpolation only. Runtime
+    # secrets such as WIMS_MASTER_KEY continue to come from the base service's
+    # optional src/.env env_file; create that ignored file for crypto-backed
+    # report flows.
     # Re-point the base file's extra_hosts pins (172.18.0.x) at this stack's
     # subnet; the ollama/osrm entries are dropped because those services are
     # not part of the reduced topology.

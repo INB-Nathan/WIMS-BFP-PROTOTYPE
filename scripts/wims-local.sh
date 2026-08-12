@@ -24,8 +24,10 @@ Commands:
   certs       Print instructions for optional local HTTPS (self-signed certs)
 
 Environment:
-  WIMS_LOCAL_ENV_FILE  Use a private ignored env file instead of .env.example.
-                       Never point it at production credentials.
+  WIMS_LOCAL_ENV_FILE  Use a private ignored Compose interpolation env file
+                       instead of .env.example. Never point it at production
+                       credentials. Backend runtime secrets such as
+                       WIMS_MASTER_KEY still come from src/.env.
   WIMS_LOCAL_SUBNET    CIDR for the local docker network
                        (wims-local_wims_internal), default 172.28.0.0/24 (k3d
                        clusters occupy 172.18.0.0/16, the base compose
@@ -34,6 +36,10 @@ Environment:
                        accepted; host bits are masked onto the network
                        boundary; each octet must be 0..255 with no leading
                        zeros.
+
+The reduced stack inherits fixed container names and loopback ports from the
+full stack. Stop the full stack before starting wims-local; the two topologies
+cannot run concurrently.
 EOF
 }
 

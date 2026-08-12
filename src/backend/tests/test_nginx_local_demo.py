@@ -107,3 +107,13 @@ def test_local_demo_is_loopback_http_only() -> None:
     assert "ssl_certificate" not in conf
     compose = _read(LOCAL_DEMO_COMPOSE)
     assert "127.0.0.1:80:80" in compose
+
+
+def test_local_demo_documents_runtime_secret_and_full_stack_boundaries() -> None:
+    """Operators must not confuse interpolation env or run both stacks together."""
+    compose = _read(LOCAL_DEMO_COMPOSE)
+    launcher = _read(REPO_ROOT.parent / "scripts" / "wims-local.sh")
+    for text in (compose, launcher):
+        assert "WIMS_MASTER_KEY" in text
+        assert "src/.env" in text
+        assert "cannot run concurrently" in text
