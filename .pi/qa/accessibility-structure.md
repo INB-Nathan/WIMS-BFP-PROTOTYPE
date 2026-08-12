@@ -43,3 +43,12 @@ a structural pass, not a full WCAG audit (the tool has no screen reader).
 - Missing top-level landmark or heading on any page.
 - Layout breaks at mobile width (horizontal scroll, clipped controls).
 - Unhandled console errors.
+
+## Known deferred findings (browser QA follow-up — no code change this layer)
+
+- **D2 — Leaflet `_leaflet_pos` console error** after toggling the fire-station
+  marker layer on the landing map. Appears tile/environment-dependent; left as
+  a documented finding for a follow-up decision.
+- **D3 — Intent modal has no Escape/dismiss path.** Per the approved safe
+  default, intent selection remains mandatory — do NOT add an Escape/close
+  bypass; improved accessibility is a separate follow-up.

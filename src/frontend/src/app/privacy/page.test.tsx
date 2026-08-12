@@ -11,4 +11,13 @@ describe('PrivacyPage', () => {
     expect(container.querySelector('.ps-card')).toBeInTheDocument();
     expect(container.innerHTML).not.toMatch(/--content-bg|--card-bg|--bfp-|--border-color/);
   });
+
+  it('does not add a second <main> landmark (the public shell provides the only one)', () => {
+    const { container } = render(<PrivacyPage />);
+    // Browser-QA D5 regression: the page must not nest a <main> inside the
+    // shell's top-level <main> (PublicThemeProvider supplies that one).
+    expect(container.querySelectorAll('main')).toHaveLength(0);
+    // The content block still renders with the page heading.
+    expect(screen.getByRole('heading', { name: 'Data Privacy and Retention Policy' })).toBeInTheDocument();
+  });
 });

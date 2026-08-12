@@ -51,7 +51,10 @@ export default function PrivacyPage() {
       </header>
 
       {/* ── Card ────────────────────────────────────────────────────── */}
-      <main>
+      {/* Inner landmark wrapper: the public shell (PublicThemeProvider) already
+          provides the single top-level <main>, so this content block must not
+          be a second <main> (browser QA D5 — nested landmark). */}
+      <section>
         <div className="max-w-3xl mx-auto px-4 -mt-6 pb-8">
           <div
             className="ps-card relative z-10 overflow-hidden shadow-[var(--shadow-soft)]"
@@ -253,7 +256,7 @@ export default function PrivacyPage() {
             </div>
           </div>
         </div>
-      </main>
+      </section>
 
       <div className="px-4 pb-8 text-center text-xs" style={{ color: 'var(--text-muted)' }}>
         <Link href="/" className="font-semibold underline underline-offset-2" style={{ color: 'var(--primary)' }}>

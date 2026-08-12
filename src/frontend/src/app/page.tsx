@@ -368,7 +368,13 @@ export default function LandingPage() {
         /* ── Map overlay controls ──────────────────────────────────────── */
         .landing-map-controls {
           position: absolute;
-          top: 64px;
+          /* Layering fix (browser QA D1): the overlay previously sat at
+             top:64px, directly over Leaflet's default top-left zoom control
+             (the map starts at top:52px; the zoom bar spans ~10-123px), so
+             clicks on zoom-in hit this button instead. Move the overlay below
+             the zoom control — pointer-events tricks cannot help because the
+             button itself covers the zoom-in control. */
+          top: 132px;
           left: 12px;
           z-index: 90;
           display: flex;

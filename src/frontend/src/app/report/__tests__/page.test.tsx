@@ -518,6 +518,30 @@ describe('Report Wizard — submit error / loading UX (#604 hardening)', () => {
     expect(await screen.findByText('Add a photo', { exact: false })).toBeInTheDocument();
   });
 
+  it('SAFE DEFAULT: a landmark alone does not enable Continue; only coordinates do', async () => {
+    const { default: ReportPage } = await import('../page');
+    render(<ReportPage />);
+    // Step 0 (Location) with no pin and no GPS: Continue is disabled.
+    expect(screen.getByText('Where is the fire?')).toBeInTheDocument();
+    expect(screen.getByText('Continue').closest('button')).toBeDisabled();
+
+    // A landmark is optional supplementary context and must NOT satisfy the
+    // location requirement (approved safe default — coordinates are mandatory).
+    await userEvent.type(screen.getByLabelText(/Nearby landmark/), 'near Jollibee on Rizal Ave');
+    expect(screen.getByText('Continue').closest('button')).toBeDisabled();
+    // The validation hint still shows the exact mandatory-coordinates copy
+    // (not the old "…or enter a nearby landmark" text) and the wizard does
+    // not advance.
+    expect(await screen.findByText('Add a location - drop a pin or use your location.')).toBeInTheDocument();
+    expect(screen.queryByText('Add a photo', { exact: false })).not.toBeInTheDocument();
+
+    // Dropping a pin provides coordinates and enables Continue.
+    dropPin();
+    expect(screen.getByText('Continue').closest('button')).not.toBeDisabled();
+    fireEvent.click(screen.getByText('Continue')); // step 0 -> 1
+    expect(await screen.findByText('Add a photo', { exact: false })).toBeInTheDocument();
+  });
+
   it('LOADING: shows "Submitting…" label and disables submit while in-flight', async () => {
     // Never-resolving promise keeps the submitting state true.
     offlineMocks.submitCivilianReportOfflineAware.mockImplementation(() => new Promise(() => {}));
