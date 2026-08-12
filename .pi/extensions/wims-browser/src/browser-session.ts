@@ -76,6 +76,7 @@ export class BrowserSession {
   private currentRefs = new Map<string, { pageId: string; selector: string; description: string }>();
   private tracingActive = false;
   private lastTracePath: string | undefined;
+  private offline = false;
 
   constructor(config: BrowserLaunchConfig) {
     this.config = config;
@@ -177,6 +178,176 @@ export class BrowserSession {
     return {
       text: `Navigated to ${page.url()}`,
       details: { url: page.url() },
+    };
+  }
+
+  async reload(bypassCache = false): Promise<TextResult> {
+    const page = await this.getCurrentPage();
+    if (bypassCache) {
+      // Mimic a hard reload: browsers send Cache-Control: no-cache plus
+      // Pragma: no-cache for the whole document request. The reload goes
+      // through the same loopback request guard as every other navigation.
+      const context = await this.getContext();
+      await context.setExtraHTTPHeaders({ "Cache-Control": "no-cache", Pragma: "no-cache" });
+      try {
+        await page.reload({ waitUntil: "domcontentloaded" });
+      } finally {
+        await context.setExtraHTTPHeaders({}).catch(() => undefined);
+      }
+    } else {
+      await page.reload({ waitUntil: "domcontentloaded" });
+    }
+    await page.waitForLoadState("networkidle", { timeout: this.config.navigationTimeoutMs }).catch(() => undefined);
+    return {
+      text: `Reloaded ${page.url()}${bypassCache ? " (bypassing cache)" : ""}`,
+      details: { url: page.url(), bypassCache },
+    };
+  }
+
+  async goBack(): Promise<TextResult> {
+    const page = await this.getCurrentPage();
+    const response = await page.goBack({ waitUntil: "domcontentloaded" });
+    await page.waitForLoadState("networkidle", { timeout: this.config.navigationTimeoutMs }).catch(() => undefined);
+    if (!response) {
+      return { text: `No history entry to go back to; stayed on ${page.url()}`, details: { url: page.url(), moved: false } };
+    }
+    return { text: `Went back to ${page.url()}`, details: { url: page.url(), moved: true } };
+  }
+
+  async goForward(): Promise<TextResult> {
+    const page = await this.getCurrentPage();
+    const response = await page.goForward({ waitUntil: "domcontentloaded" });
+    await page.waitForLoadState("networkidle", { timeout: this.config.navigationTimeoutMs }).catch(() => undefined);
+    if (!response) {
+      return { text: `No forward history entry; stayed on ${page.url()}`, details: { url: page.url(), moved: false } };
+    }
+    return { text: `Went forward to ${page.url()}`, details: { url: page.url(), moved: true } };
+  }
+
+  async setViewport(width: number, height: number): Promise<TextResult> {
+    const page = await this.getCurrentPage();
+    if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) {
+      throw new Error("browser_viewport: width and height must be positive integers");
+    }
+    await page.setViewportSize({ width, height });
+    const viewport = page.viewportSize();
+    return {
+      text: `Viewport resized to ${viewport?.width ?? width}x${viewport?.height ?? height}`,
+      details: { width: viewport?.width ?? width, height: viewport?.height ?? height },
+    };
+  }
+
+  async selectTab(index: number): Promise<TextResult> {
+    const context = await this.getContext();
+    const pages = context.pages();
+    if (!Number.isInteger(index) || index < 0 || index >= pages.length) {
+      throw new Error(`browser_tab_select: tab index ${index} out of range (0..${pages.length - 1})`);
+    }
+    const target = pages[index];
+    if (!target) {
+      throw new Error(`browser_tab_select: tab index ${index} out of range (0..${pages.length - 1})`);
+    }
+    await target.bringToFront();
+    this.currentPageId = this.getPageId(target);
+    return {
+      text: `Selected tab [${index}] ${target.url() || "about:blank"}`,
+      details: { tabIndex: index, url: target.url() || undefined, tabCount: pages.length },
+    };
+  }
+
+  async closeTab(index?: number): Promise<TextResult> {
+    const context = await this.getContext();
+    const pages = context.pages();
+    const targetIndex = index ?? pages.findIndex((candidate) => this.getPageId(candidate) === this.currentPageId);
+    if (!Number.isInteger(targetIndex) || targetIndex < 0 || targetIndex >= pages.length) {
+      throw new Error(`browser_tab_close: tab index ${targetIndex} out of range (0..${pages.length - 1})`);
+    }
+    if (pages.length <= 1) {
+      return {
+        text: "Cannot close the last tab. Use browser_close to end the browser run.",
+        details: { closed: false, tabCount: pages.length },
+      };
+    }
+    const target = pages[targetIndex];
+    if (!target) {
+      throw new Error(`browser_tab_close: tab index ${targetIndex} out of range (0..${pages.length - 1})`);
+    }
+    const closedUrl = target.url();
+    await target.close();
+    // Focus another tab: prefer the one that shifted into the same slot,
+    // otherwise the last remaining one.
+    const remaining = context.pages();
+    const next = remaining[Math.min(targetIndex, remaining.length - 1)] ?? remaining[0];
+    if (!next) {
+      throw new Error("browser_tab_close: no tab left to focus after close");
+    }
+    await next.bringToFront();
+    this.currentPageId = this.getPageId(next);
+    return {
+      text: `Closed tab [${targetIndex}] ${closedUrl || "about:blank"}. Now on tab [${remaining.indexOf(next)}] ${next.url() || "about:blank"}`,
+      details: {
+        closed: true,
+        closedIndex: targetIndex,
+        closedUrl: closedUrl || undefined,
+        tabCount: remaining.length,
+        activeTabIndex: remaining.indexOf(next),
+        activeTabUrl: next.url() || undefined,
+      },
+    };
+  }
+
+  async setOffline(offline: boolean): Promise<TextResult> {
+    const context = await this.getContext();
+    this.offline = offline;
+    await context.setOffline(offline);
+    return {
+      text: offline
+        ? "Browser is now OFFLINE. Network requests are disabled; the loopback-only request guard still applies, so any external request is still blocked and recorded as evidence."
+        : "Browser is back ONLINE.",
+      details: { offline },
+    };
+  }
+
+  async setGeolocation(latitude: number, longitude: number): Promise<TextResult> {
+    const context = await this.getContext();
+    if (
+      !Number.isFinite(latitude) ||
+      !Number.isFinite(longitude) ||
+      latitude < -90 ||
+      latitude > 90 ||
+      longitude < -180 ||
+      longitude > 180
+    ) {
+      throw new Error("browser_set_geolocation: latitude must be in [-90, 90] and longitude in [-180, 180]");
+    }
+    // Pages only receive geolocation when the permission is granted.
+    await context.grantPermissions(["geolocation"]);
+    await context.setGeolocation({ latitude, longitude });
+    return {
+      text: `Geolocation set to (${latitude}, ${longitude}) and the geolocation permission was granted.`,
+      details: { latitude, longitude, permission: "granted" },
+    };
+  }
+
+  async clearGeolocation(): Promise<TextResult> {
+    const context = await this.getContext();
+    await context.setGeolocation(null);
+    return { text: "Geolocation cleared (browser default coordinates).", details: { cleared: true } };
+  }
+
+  async setPermission(permission: "geolocation" | "notifications", grant: boolean): Promise<TextResult> {
+    const context = await this.getContext();
+    if (grant) {
+      await context.grantPermissions([permission]);
+      return { text: `Granted ${permission} permission.`, details: { permission, grant: true } };
+    }
+    // Playwright has no per-permission revoke: clearPermissions removes all
+    // overrides and the browser returns to its default behavior (denial in
+    // headless Chromium, since no prompt UI exists).
+    await context.clearPermissions();
+    return {
+      text: `Denied ${permission}: all permission overrides cleared; the browser returns to its default (permission denial) behavior.`,
+      details: { permission, grant: false },
     };
   }
 
@@ -522,6 +693,18 @@ export class BrowserSession {
         await route.abort("blockedbyclient").catch(() => undefined);
         return;
       }
+      // Offline mode: context.setOffline() alone would not affect requests
+      // fulfilled through route.fetch() (the passthrough below fetches via
+      // Playwright's own network stack, which ignores the offline flag). The
+      // guard therefore enforces offline itself by aborting every request
+      // with the network error the browser would see when offline. This stays
+      // fail-closed: route.continue() is never used, so no request can escape
+      // the guard while offline.
+      if (this.offline) {
+        this.recordBlockedRequest(route, rawUrl, "offline");
+        await route.abort("internetdisconnected").catch(() => undefined);
+        return;
+      }
       // Network passthrough: fetch the response ourselves so that redirect
       // targets can be validated before the browser follows them. Playwright
       // only routes the first request of a redirect chain, so a plain
@@ -565,6 +748,21 @@ export class BrowserSession {
     if (typeof context.routeWebSocket === "function") {
       void context.routeWebSocket("**/*", async (route: WebSocketRoute) => {
         const rawUrl = route.url();
+        if (this.offline) {
+          this.blockedEntries.push({
+            pageId: "",
+            pageIndex: -1,
+            url: rawUrl,
+            method: "WS",
+            resourceType: "websocket",
+            ok: false,
+            blockedReason: "offline",
+            timestamp: Date.now(),
+            navigationId: 0,
+          });
+          await route.close().catch(() => undefined);
+          return;
+        }
         if (isAllowedRequestUrl(rawUrl)) {
           route.connectToServer();
           return;
@@ -884,6 +1082,7 @@ export class BrowserSession {
     this.blockedEntries = [];
     this.navigationIds.clear();
     this.currentPageId = undefined;
+    this.offline = false;
 
     if (this.tracingActive && this.context) {
       try {

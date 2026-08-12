@@ -49,6 +49,10 @@ class MockPiApi {
 const EXPECTED_TOOLS = [
   "browser_start",
   "browser_navigate",
+  "browser_reload",
+  "browser_go_back",
+  "browser_go_forward",
+  "browser_viewport",
   "browser_snapshot",
   "browser_click",
   "browser_type",
@@ -60,6 +64,13 @@ const EXPECTED_TOOLS = [
   "browser_network",
   "browser_trace_start",
   "browser_trace_stop",
+  "browser_tab_select",
+  "browser_tab_close",
+  "browser_offline",
+  "browser_online",
+  "browser_set_geolocation",
+  "browser_clear_geolocation",
+  "browser_set_permissions",
   "browser_close",
 ];
 

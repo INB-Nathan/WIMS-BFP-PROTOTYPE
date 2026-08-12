@@ -54,6 +54,20 @@ before(async () => {
       res.end("<!doctype html><html><body><h1>Next page</h1><p>Done</p></body></html>");
       return;
     }
+    if (req.url.startsWith("/geo")) {
+      res.setHeader("Content-Type", "text/html");
+      res.end(`<!doctype html><html><body><h1>Geo test</h1>
+        <p id="geo">pending</p>
+        <script>
+          var out = document.getElementById('geo');
+          navigator.geolocation.getCurrentPosition(
+            function (pos) { out.textContent = 'lat:' + pos.coords.latitude.toFixed(2) + ',lon:' + pos.coords.longitude.toFixed(2); },
+            function (err) { out.textContent = 'denied:' + err.code; }
+          );
+          setTimeout(function () { if (out.textContent === 'pending') out.textContent = 'timeout'; }, 5000);
+        </script></body></html>`);
+      return;
+    }
     if (req.url.startsWith("/redirect")) {
       res.statusCode = 302;
       res.setHeader("Location", "https://example.com/");
@@ -302,5 +316,157 @@ test("tracing: start/stop writes a trace archive; deterministic close finalizes 
     assert.ok(artifacts.some((name) => name.startsWith("trace-") && name.endsWith(".zip")), "expected finalized trace artifact");
   } finally {
     await session2.stop();
+  }
+});
+
+test("reload: reloads the current page, optionally bypassing the cache", async () => {
+  const session = makeSession();
+  await session.start();
+  try {
+    await session.navigate(baseUrl);
+    const plain = await session.reload();
+    assert.match(plain.text, /Reloaded http:\/\/127\.0\.0\.1/);
+    const afterReload = await session.snapshot();
+    assert.match(afterReload.text, /Login/);
+
+    const hard = await session.reload(true);
+    assert.match(hard.text, /bypassing cache/);
+    const afterHard = await session.snapshot();
+    assert.match(afterHard.text, /Login/);
+  } finally {
+    await session.stop();
+  }
+});
+
+test("go back / go forward: browser history navigation on the same loopback origin", async () => {
+  const session = makeSession();
+  await session.start();
+  try {
+    await session.navigate(baseUrl);
+    await session.navigate(`${baseUrl}/next`);
+    const back = await session.goBack();
+    assert.equal(back.details?.moved, true, "expected a real history entry to go back to");
+    assert.match(back.text, /Went back to/);
+    const snapshot = await session.snapshot();
+    assert.match(snapshot.text, /Login/);
+
+    const forward = await session.goForward();
+    assert.equal(forward.details?.moved, true, "expected a forward history entry");
+    assert.match(forward.text, /Went forward to/);
+    await session.waitFor({ text: "Next page" });
+
+    // No further history in either direction: stays on the current page.
+    const noForward = await session.goForward();
+    assert.equal(noForward.details?.moved, false);
+  } finally {
+    await session.stop();
+  }
+});
+
+test("viewport: resize the page viewport and keep it across a reload", async () => {
+  const session = makeSession();
+  await session.start();
+  try {
+    await session.navigate(baseUrl);
+    const resized = await session.setViewport(375, 667);
+    assert.match(resized.text, /Viewport resized to 375x667/);
+    assert.equal(resized.details?.width, 375);
+    assert.equal(resized.details?.height, 667);
+    await session.reload();
+    const again = await session.setViewport(320, 568);
+    assert.match(again.text, /Viewport resized to 320x568/);
+    await assert.rejects(session.setViewport(0, 100), /positive integers/);
+  } finally {
+    await session.stop();
+  }
+});
+
+test("tabs: select by index, close current or by index, refuse to close the last tab", async () => {
+  const session = makeSession();
+  await session.start();
+  try {
+    await session.navigate(baseUrl);
+    const snapshot = await session.snapshot();
+    const loopbackTabRef = snapshot.refs.find((ref) => ref.name === "Open next tab");
+    assert.ok(loopbackTabRef, "expected loopback tab link ref");
+    await session.click({ ref: loopbackTabRef.ref });
+    assert.equal(session.getStatus().tabCount, 2);
+
+    const selected = await session.selectTab(1);
+    assert.match(selected.text, /Selected tab \[1\]/);
+    assert.match(selected.text, /\/next/);
+
+    await session.selectTab(0);
+    const closedCurrent = await session.closeTab();
+    assert.equal(closedCurrent.details?.closed, true);
+    assert.equal(closedCurrent.details?.tabCount, 1);
+    assert.match(closedCurrent.text, /\/next/);
+
+    const refused = await session.closeTab();
+    assert.equal(refused.details?.closed, false);
+    assert.match(refused.text, /Cannot close the last tab/);
+    assert.equal(session.getStatus().tabCount, 1);
+
+    await assert.rejects(session.selectTab(5), /out of range/);
+    await assert.rejects(session.closeTab(3), /out of range/);
+  } finally {
+    await session.stop();
+  }
+});
+
+test("offline/online: navigation fails while offline and recovers after going online", async () => {
+  const session = makeSession();
+  await session.start();
+  try {
+    await session.navigate(baseUrl);
+    const offline = await session.setOffline(true);
+    assert.match(offline.text, /OFFLINE/);
+    // While offline, the network is down; a reload of the current page fails.
+    await assert.rejects(session.reload());
+    await assert.rejects(session.navigate(`${baseUrl}/next`));
+    // The loopback guard still runs: the failed requests are recorded as
+    // BLOCKED(offline) evidence rather than being continued unguarded.
+    const network = await session.networkRequests();
+    assert.match(network.text, /BLOCKED\(offline\)/);
+
+    const online = await session.setOffline(false);
+    assert.match(online.text, /ONLINE/);
+    await session.navigate(`${baseUrl}/next`);
+    await session.waitFor({ text: "Next page" });
+  } finally {
+    await session.stop();
+  }
+});
+
+test("geolocation: set deterministic coordinates, then clear and deny for the fallback path", async () => {
+  const session = makeSession();
+  await session.start();
+  try {
+    const set = await session.setGeolocation(14.5995, 120.9842);
+    assert.equal(set.details?.latitude, 14.5995);
+    assert.equal(set.details?.longitude, 120.9842);
+
+    await session.navigate(`${baseUrl}/geo`);
+    await session.waitFor({ text: "lat:14.60,lon:120.98" });
+
+    const cleared = await session.clearGeolocation();
+    assert.match(cleared.text, /Geolocation cleared/);
+
+    // Deny: clearing permission overrides makes headless Chromium deny the
+    // request, which the page reports as PERMISSION_DENIED (code 1).
+    const denied = await session.setPermission("geolocation", false);
+    assert.match(denied.text, /Denied geolocation/);
+    await session.navigate(`${baseUrl}/geo`);
+    await session.waitFor({ text: "denied:1" });
+
+    // Grant again and re-set coordinates: the page reports them again.
+    await session.setPermission("geolocation", true);
+    await session.setGeolocation(14.5995, 120.9842);
+    await session.navigate(`${baseUrl}/geo`);
+    await session.waitFor({ text: "lat:14.60,lon:120.98" });
+
+    await assert.rejects(session.setGeolocation(91, 0), /latitude must be in/);
+  } finally {
+    await session.stop();
   }
 });
