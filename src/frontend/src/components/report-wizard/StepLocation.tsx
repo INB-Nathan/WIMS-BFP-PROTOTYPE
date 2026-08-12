@@ -58,7 +58,7 @@ export function StepLocation({ latitude, longitude, landmark, onChange }: StepLo
           Where is the fire? <span className="text-xs font-normal" style={{ color: 'var(--text-secondary)' }}>(required)</span>
         </p>
         <p className="text-xs mb-3" style={{ color: 'var(--text-secondary)' }}>
-          Drop a pin on the map, use your location, or describe a nearby landmark.
+          Drop a pin on the map or use your location. A nearby landmark is optional extra context.
         </p>
 
         <div className="rounded-lg overflow-hidden border" style={{ borderColor: 'var(--border)' }}>

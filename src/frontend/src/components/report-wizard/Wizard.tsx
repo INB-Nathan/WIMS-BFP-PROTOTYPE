@@ -356,9 +356,8 @@ export function ReportWizard() {
   function buildPayload() {
     if (description.trim().length === 0) return null;
     if (latitude === null || longitude === null) {
-      // Coordinates are optional in the wizard; backend requires lat/lng.
-      // If absent, we still require a manual/location-less submission is not
-      // allowed — block with a message.
+      // Coordinates are mandatory in the wizard (map pin or GPS) and required
+      // by the backend — a submission without lat/lng is blocked here too.
       return null;
     }
     return {

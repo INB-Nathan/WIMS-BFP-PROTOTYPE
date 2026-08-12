@@ -529,8 +529,10 @@ describe('Report Wizard — submit error / loading UX (#604 hardening)', () => {
     // location requirement (approved safe default — coordinates are mandatory).
     await userEvent.type(screen.getByLabelText(/Nearby landmark/), 'near Jollibee on Rizal Ave');
     expect(screen.getByText('Continue').closest('button')).toBeDisabled();
-    // The validation hint still shows and the wizard does not advance.
-    expect(await screen.findByText(/Add a location/i)).toBeInTheDocument();
+    // The validation hint still shows the exact mandatory-coordinates copy
+    // (not the old "…or enter a nearby landmark" text) and the wizard does
+    // not advance.
+    expect(await screen.findByText('Add a location - drop a pin or use your location.')).toBeInTheDocument();
     expect(screen.queryByText('Add a photo', { exact: false })).not.toBeInTheDocument();
 
     // Dropping a pin provides coordinates and enables Continue.
