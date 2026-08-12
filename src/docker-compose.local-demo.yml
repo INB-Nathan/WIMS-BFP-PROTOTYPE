@@ -1,17 +1,36 @@
 # Resource-conscious laptop topology. Use through scripts/wims-local.sh so the
 # Compose project name and service set remain stable across integration branches.
 #
+# Compose minimum: this file uses the !override merge tag (below), which
+# requires Docker Compose v2.24+; older Compose fails to parse these files.
+#
+# Supported entry point: scripts/wims-local.sh, which always starts the
+# explicit service list (postgres redis keycloak keycloak-bootstrap backend
+# frontend nginx-gateway). Raw `docker compose up <extra-service>` is
+# unsupported: inherited non-selected services (ollama, openbao,
+# celery-worker, wims-suricata, ...) keep the base file's static 172.18.0.x
+# addresses, which lie outside this stack's subnet, so their containers fail
+# to create and would corrupt the local network.
+#
 # wims_internal subnet: the base compose pins 172.18.0.0/24, which collides with
 # k3d clusters (they default to 172.18.0.0/16). This override re-homes the
 # reduced stack onto 172.28.0.0/24 and keeps the base file's convention of
 # reserving the lower half for static addresses (.3/.5/.7) with the dynamic
 # allocation pool in the upper half (.128/25). Set WIMS_LOCAL_SUBNET (e.g.
 # 10.40.0.0/24) for another range; scripts/wims-local.sh derives
-# WIMS_LOCAL_SUBNET_RANGE and the WIMS_LOCAL_*_IP variables from it. Raw
-# `docker compose` users with a custom subnet must set those derived variables
-# themselves.
+# WIMS_LOCAL_SUBNET_RANGE and the WIMS_LOCAL_*_IP variables from it. /8 to
+# /24 prefixes are accepted and host bits are masked onto the network boundary
+# (e.g. 10.40.0.5/24 becomes 10.40.0.0/24); non-boundary addresses are NOT
+# rejected. Raw `docker compose` users with a custom subnet must set those
+# derived variables themselves.
 networks:
   wims_internal:
+    # Isolate from the base/full stack: the base file pins an explicit
+    # `name: wims_internal`, so without this rename the reduced stack would
+    # reuse (or conflict with) a network already created by the full stack,
+    # silently ignoring WIMS_LOCAL_SUBNET. wims-local_* matches the name
+    # Compose would otherwise generate for this project.
+    name: wims-local_wims_internal
     ipam:
       config:
         - subnet: ${WIMS_LOCAL_SUBNET:-172.28.0.0/24}
@@ -34,6 +53,16 @@ services:
 
   keycloak:
     restart: "no"
+    # Keycloak 26 removed the v1 `hostname-url` option (dead config that only
+    # logs a startup error). With no hostname pinned, KC 26 derives the
+    # browser-visible URL from the request: nginx forwards /auth/ with
+    # X-Forwarded-Host/Port at localhost:80, so the OIDC issuer and
+    # authorization endpoints are http://localhost/auth/... — consistent with
+    # the backend KEYCLOAK_ISSUER and the frontend same-origin /auth
+    # authority. The 127.0.0.1:8180 mapping stays for direct admin/API access,
+    # where Keycloak derives http://localhost:8180/auth from the Host header.
+    environment:
+      KC_HOSTNAME_URL: null
     # Re-point the base file's extra_hosts pins (172.18.0.x) at this stack's
     # subnet so Keycloak can reach postgres/redis through /etc/hosts.
     extra_hosts: !override

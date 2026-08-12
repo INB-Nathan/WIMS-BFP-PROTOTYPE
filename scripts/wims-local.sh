@@ -26,10 +26,14 @@ Commands:
 Environment:
   WIMS_LOCAL_ENV_FILE  Use a private ignored env file instead of .env.example.
                        Never point it at production credentials.
-  WIMS_LOCAL_SUBNET    CIDR for the wims_internal docker network, default
-                       172.28.0.0/24 (k3d clusters occupy 172.18.0.0/16, the
-                       base compose default). Service IPs and the dynamic
-                       allocation pool are derived from this value.
+  WIMS_LOCAL_SUBNET    CIDR for the local docker network
+                       (wims-local_wims_internal), default 172.28.0.0/24 (k3d
+                       clusters occupy 172.18.0.0/16, the base compose
+                       default). Service IPs and the dynamic allocation pool
+                       are derived from this value. /8 to /24 prefixes are
+                       accepted; host bits are masked onto the network
+                       boundary; each octet must be 0..255 with no leading
+                       zeros.
 EOF
 }
 
@@ -77,8 +81,21 @@ derive_subnet_env() {
     exit 1
   fi
   local -a oct=()
-  local base a b c d net
+  local base a b c d net o
   IFS=. read -r -a oct <<<"$address"
+  for o in "${oct[@]}"; do
+    # Reject leading-zero octets (e.g. 10.040.0.0): bash arithmetic would
+    # parse them as octal and silently derive a different network.
+    if [[ "$o" =~ ^0[0-9]+$ ]]; then
+      printf 'wims-local: WIMS_LOCAL_SUBNET %s: octet %s has a leading zero (rejected)\n' "$WIMS_LOCAL_SUBNET" "$o" >&2
+      exit 1
+    fi
+    # Reject octets outside 0..255 (10# forces decimal, never octal).
+    if ((10#$o > 255)); then
+      printf 'wims-local: WIMS_LOCAL_SUBNET %s: octet %s is outside 0..255\n' "$WIMS_LOCAL_SUBNET" "$o" >&2
+      exit 1
+    fi
+  done
   base=$(( ((oct[0] << 24) | (oct[1] << 16) | (oct[2] << 8) | oct[3]) & (0xFFFFFFFF << (32 - prefix)) ))
   a=$(( (base >> 24) & 0xFF )); b=$(( (base >> 16) & 0xFF )); c=$(( (base >> 8) & 0xFF )); d=$(( base & 0xFF ))
   net="$a.$b.$c.$d"
