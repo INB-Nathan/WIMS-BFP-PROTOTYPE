@@ -18,7 +18,7 @@ implemented under `src/`; `../infra/AGENTS.md` is a compatibility routing index.
 | Compose/runtime topology | `docker-compose.yml`, the selected overlay, `.env` contract |
 | Database/migrations | `backend/alembic/`, `postgres-init/` — read models + schemas for column/types, grep for RLS/grants |
 | Keycloak | `keycloak/` — read realm JSON, theme files, SPI sources |
-| Nginx | `nginx/nginx.conf`, `nginx/nginx.local.conf`, `nginx/nginx.ci.conf` |
+| Nginx | `nginx/nginx.conf`, `nginx/nginx.local.conf`, `nginx/nginx.ci.conf`, `nginx/nginx.local-demo.conf` |
 | OpenBao | `openbao/`, `docs/operations/openbao-kms-runbook.md` |
 | Suricata/IDS | `suricata/`, backend ingestion/tasks |
 | Backend/frontend | The nearer `AGENTS.md` — discover routes from the live tree (`find api/routes/ -name '*.py'`) |

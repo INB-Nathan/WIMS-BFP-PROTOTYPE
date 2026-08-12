@@ -30,6 +30,10 @@ out/
 .env.*.local
 firebase-creds.json
 letsencrypt/
+# Self-signed TLS material generated for optional local HTTPS (see
+# `scripts/wims-local.sh certs`); *.pem/*.key below already cover the key
+# files — this guards the whole directory including any future non-key files.
+src/.ssl/
 *.pem
 *.key
 *service-account*.json

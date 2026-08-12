@@ -4,7 +4,8 @@ PR #446 P1-8: the prior version of this test only inspected
 ``nginx.conf``, so the 5-line ``set_real_ip_from 172.16.0.0/12`` widening
 and the missing ``Access-Control-Expose-Headers: Retry-After`` directive
 in ``nginx.ci.conf`` and ``nginx.local.conf`` passed CI. We now
-parameterize over all three configs so drift in any of them fails the
+parameterize over all four configs (including ``nginx.local-demo.conf``,
+which the wims-local.sh stack mounts) so drift in any of them fails the
 build.
 
 The carve-out below documents the intentional asymmetry:
@@ -27,12 +28,13 @@ from pathlib import Path
 
 import pytest
 
-# All three nginx configs. The test runs the same assertions against each
+# All four nginx configs. The test runs the same assertions against each
 # so a missing or drifted directive in any one config is caught.
 NGINX_CONFIGS = [
     Path(__file__).resolve().parents[2] / "nginx" / "nginx.conf",
     Path(__file__).resolve().parents[2] / "nginx" / "nginx.ci.conf",
     Path(__file__).resolve().parents[2] / "nginx" / "nginx.local.conf",
+    Path(__file__).resolve().parents[2] / "nginx" / "nginx.local-demo.conf",
 ]
 
 # Both values are "overwrite" forms — neither appends to the existing XFF chain.
