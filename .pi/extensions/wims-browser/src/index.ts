@@ -216,6 +216,205 @@ export default function wimsBrowserExtension(pi: ExtensionAPI): void {
   });
 
   pi.registerTool({
+    name: "browser_reload",
+    label: "Browser Reload",
+    description:
+      "Reload the current page in the headless browser. Optionally bypass the HTTP cache (hard reload). The reload request goes through the same loopback-only request guard as any navigation.",
+    promptSnippet: "Reload the current page, optionally bypassing the HTTP cache.",
+    promptGuidelines: [
+      "The reload goes through the loopback-only request guard; external URLs are still blocked and recorded as evidence.",
+      "Use bypassCache=true for a hard reload when a stale cached resource may be masking a fix.",
+    ],
+    parameters: Type.Object({
+      bypassCache: Type.Optional(Type.Boolean({ description: "Bypass the HTTP cache (hard reload)." })),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const session = await getSession(ctx);
+      const result = await session.reload(params.bypassCache ?? false);
+      updateUi(ctx);
+      return { content: [{ type: "text", text: result.text }], details: result.details ?? {} };
+    },
+  });
+
+  pi.registerTool({
+    name: "browser_go_back",
+    label: "Browser Go Back",
+    description: "Navigate back one entry in the current page's browser history.",
+    promptSnippet: "Go back in the browser history of the current tab.",
+    promptGuidelines: ["History navigation goes through the same loopback-only request guard as direct navigation."],
+    parameters: Type.Object({}),
+    async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
+      const session = await getSession(ctx);
+      const result = await session.goBack();
+      updateUi(ctx);
+      return { content: [{ type: "text", text: result.text }], details: result.details ?? {} };
+    },
+  });
+
+  pi.registerTool({
+    name: "browser_go_forward",
+    label: "Browser Go Forward",
+    description: "Navigate forward one entry in the current page's browser history.",
+    promptSnippet: "Go forward in the browser history of the current tab.",
+    promptGuidelines: ["History navigation goes through the same loopback-only request guard as direct navigation."],
+    parameters: Type.Object({}),
+    async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
+      const session = await getSession(ctx);
+      const result = await session.goForward();
+      updateUi(ctx);
+      return { content: [{ type: "text", text: result.text }], details: result.details ?? {} };
+    },
+  });
+
+  pi.registerTool({
+    name: "browser_viewport",
+    label: "Browser Viewport",
+    description: "Resize the current page's viewport (width x height), e.g. for responsive or mobile QA.",
+    promptSnippet: "Resize the viewport to test responsive/mobile layouts.",
+    parameters: Type.Object({
+      width: Type.Integer({ description: "Viewport width in CSS pixels.", minimum: 1 }),
+      height: Type.Integer({ description: "Viewport height in CSS pixels.", minimum: 1 }),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const session = await getSession(ctx);
+      const result = await session.setViewport(params.width, params.height);
+      updateUi(ctx);
+      return { content: [{ type: "text", text: result.text }], details: result.details ?? {} };
+    },
+  });
+
+  pi.registerTool({
+    name: "browser_tab_select",
+    label: "Browser Tab Select",
+    description: "Switch focus to an open tab by index (0-based). Tabs opened by browser_click are tracked; use this to follow up on them.",
+    promptSnippet: "Switch to another open browser tab.",
+    promptGuidelines: [
+      "Tab indices are 0-based; browser_click reports the index of any new tab it opens.",
+      "Subsequent browser_* tools act on the selected tab.",
+    ],
+    parameters: Type.Object({
+      index: Type.Integer({ description: "Tab index to select (0-based).", minimum: 0 }),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const session = await getSession(ctx);
+      const result = await session.selectTab(params.index);
+      updateUi(ctx);
+      return { content: [{ type: "text", text: result.text }], details: result.details ?? {} };
+    },
+  });
+
+  pi.registerTool({
+    name: "browser_tab_close",
+    label: "Browser Tab Close",
+    description:
+      "Close a tab (the current tab by default, or a specific index) and switch to another open tab. The last remaining tab cannot be closed; use browser_close to end the run.",
+    promptSnippet: "Close a browser tab and switch focus to another.",
+    promptGuidelines: ["Closing the last tab is refused; end the run with browser_close instead."],
+    parameters: Type.Object({
+      index: Type.Optional(Type.Integer({ description: "Tab index to close (0-based); defaults to the current tab.", minimum: 0 })),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const session = await getSession(ctx);
+      const result = await session.closeTab(params.index);
+      updateUi(ctx);
+      return { content: [{ type: "text", text: result.text }], details: result.details ?? {} };
+    },
+  });
+
+  pi.registerTool({
+    name: "browser_offline",
+    label: "Browser Offline",
+    description:
+      "Simulate a network outage for the whole browser context (offline mode) to test offline/PWA behavior. The loopback-only request guard still applies: offline blocks the network, it does not disable the guard.",
+    promptSnippet: "Switch the browser to offline mode for PWA/offline behavior QA.",
+    promptGuidelines: [
+      "Offline disables network requests (loopback included); navigations and reloads will fail until browser_online restores connectivity.",
+      "External (non-loopback) requests remain blocked by the loopback guard regardless of online/offline state.",
+    ],
+    parameters: Type.Object({}),
+    async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
+      const session = await getSession(ctx);
+      const result = await session.setOffline(true);
+      updateUi(ctx);
+      return { content: [{ type: "text", text: result.text }], details: result.details ?? {} };
+    },
+  });
+
+  pi.registerTool({
+    name: "browser_online",
+    label: "Browser Online",
+    description: "Restore network connectivity after browser_offline.",
+    promptSnippet: "Restore the browser to online mode.",
+    parameters: Type.Object({}),
+    async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
+      const session = await getSession(ctx);
+      const result = await session.setOffline(false);
+      updateUi(ctx);
+      return { content: [{ type: "text", text: result.text }], details: result.details ?? {} };
+    },
+  });
+
+  pi.registerTool({
+    name: "browser_set_geolocation",
+    label: "Browser Set Geolocation",
+    description:
+      "Set a deterministic geolocation for the browser context and grant the geolocation permission. Used for report-submission QA (coordinates are supplied by the task, not hard-coded).",
+    promptSnippet: "Set a deterministic geolocation for geolocation-dependent QA scenarios.",
+    promptGuidelines: [
+      "Latitude must be in [-90, 90] and longitude in [-180, 180].",
+      "The geolocation permission is granted automatically; use browser_set_permissions to test the permission-denied fallback.",
+    ],
+    parameters: Type.Object({
+      latitude: Type.Number({ description: "Latitude in degrees (-90 to 90).", minimum: -90, maximum: 90 }),
+      longitude: Type.Number({ description: "Longitude in degrees (-180 to 180).", minimum: -180, maximum: 180 }),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const session = await getSession(ctx);
+      const result = await session.setGeolocation(params.latitude, params.longitude);
+      updateUi(ctx);
+      return { content: [{ type: "text", text: result.text }], details: result.details ?? {} };
+    },
+  });
+
+  pi.registerTool({
+    name: "browser_clear_geolocation",
+    label: "Browser Clear Geolocation",
+    description: "Reset the browser context geolocation to the browser default (no emulated coordinates).",
+    promptSnippet: "Reset the emulated geolocation.",
+    parameters: Type.Object({}),
+    async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
+      const session = await getSession(ctx);
+      const result = await session.clearGeolocation();
+      updateUi(ctx);
+      return { content: [{ type: "text", text: result.text }], details: result.details ?? {} };
+    },
+  });
+
+  pi.registerTool({
+    name: "browser_set_permissions",
+    label: "Browser Set Permissions",
+    description:
+      "Grant or deny a browser permission (geolocation, notifications) for the context. Deny clears all permission overrides so the browser returns to its default (denial) behavior; used for permission-denial fallback QA.",
+    promptSnippet: "Grant or deny browser permissions for permission-fallback QA.",
+    promptGuidelines: [
+      "grant=true uses context.grantPermissions; grant=false clears overrides (Playwright has no per-permission revoke).",
+      "Headless Chromium cannot show permission prompts, so a cleared override behaves as a denial.",
+    ],
+    parameters: Type.Object({
+      permission: Type.Union([Type.Literal("geolocation"), Type.Literal("notifications")], {
+        description: "Permission to configure.",
+      }),
+      grant: Type.Boolean({ description: "true to grant the permission, false to deny it." }),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const session = await getSession(ctx);
+      const result = await session.setPermission(params.permission, params.grant);
+      updateUi(ctx);
+      return { content: [{ type: "text", text: result.text }], details: result.details ?? {} };
+    },
+  });
+
+  pi.registerTool({
     name: "browser_snapshot",
     label: "Browser Snapshot",
     description:

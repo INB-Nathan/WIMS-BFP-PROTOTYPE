@@ -19,7 +19,13 @@ Modifications (project-local, WIMS-BFP):
     commands.
   - Added: explicit browser_start (fresh headless Chromium run), browser_select,
     browser_trace_start / browser_trace_stop (Playwright tracing), blocked-
-    request evidence in browser_network, and deterministic whole-run close.
+    request evidence in browser_network, deterministic whole-run close, and a
+    QA capability set added for the local QA harness: browser_reload
+    (optional cache bypass via hard-reload headers), browser_go_back /
+    browser_go_forward, browser_viewport, browser_tab_select / browser_tab_close
+    (last tab cannot be closed), browser_offline / browser_online,
+    browser_set_geolocation / browser_clear_geolocation, and
+    browser_set_permissions (grant/deny via grantPermissions/clearPermissions).
   - TypeScript declarations target the installed
     `@earendil-works/pi-coding-agent` API (0.84.1) instead of the upstream
     `@mariozechner` package name.

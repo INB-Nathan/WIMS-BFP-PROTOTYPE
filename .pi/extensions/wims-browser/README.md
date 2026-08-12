@@ -43,14 +43,18 @@ Enforced in code (`src/loopback.ts`), not by prompt rules:
   any worker script is fetched or executed.
 - Omitted surfaces: arbitrary page JavaScript evaluation, arbitrary external
   browsing, storage-state import, live-browser CDP attachment, video,
-  downloads, uploads, route mocking, and tab-management tools.
+  downloads, uploads, and route mocking.
 
 ## Tool surface
 
-`browser_start`, `browser_navigate`, `browser_snapshot`, `browser_click`,
+`browser_start`, `browser_navigate`, `browser_reload`, `browser_go_back`,
+`browser_go_forward`, `browser_viewport`, `browser_snapshot`, `browser_click`,
 `browser_type`, `browser_select`, `browser_press_key`, `browser_wait_for`,
 `browser_screenshot`, `browser_console`, `browser_network`,
-`browser_trace_start`, `browser_trace_stop`, `browser_close`.
+`browser_trace_start`, `browser_trace_stop`, `browser_tab_select`,
+`browser_tab_close`, `browser_offline`, `browser_online`,
+`browser_set_geolocation`, `browser_clear_geolocation`,
+`browser_set_permissions`, `browser_close`.
 
 - `browser_start` always closes any prior run and creates a fresh headless
   Chromium `BrowserContext`.
