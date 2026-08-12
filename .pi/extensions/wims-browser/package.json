@@ -1,0 +1,21 @@
+{
+  "name": "wims-browser",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Loopback-only headless Chromium QA tools for pi, adapted from pi-playwright-extension (Apache-2.0).",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "tsx --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@sinclair/typebox": "0.34.41",
+    "playwright": "1.62.0"
+  },
+  "devDependencies": {
+    "@types/node": "25.5.0",
+    "tsx": "4.20.6",
+    "typescript": "5.9.3"
+  }
+}

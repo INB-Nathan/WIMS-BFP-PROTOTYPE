@@ -79,3 +79,7 @@ system-wiki/.obsidian/
 .pi/sessions/
 .pi/npm/
 .pi/git/
+
+# Browser QA artifacts (screenshots, traces, logs; auto-pruned by the
+# wims-browser extension, but never committed)
+.pi/browser/

@@ -1,0 +1,28 @@
+WIMS-BFP Browser QA Extension
+==============================
+
+This extension is derived from the Apache-2.0 licensed
+`pi-playwright-extension` project:
+
+  Copyright 2025 Samuel L. Huber
+  https://github.com/SamuelLHuber/pi-playwright-extension
+  Upstream revision: fef949f810b25bd69d23a910ba30a8364c08e532
+  License: Apache License 2.0 (see LICENSE in this directory)
+
+Modifications (project-local, WIMS-BFP):
+  - Loopback-only network enforcement (localhost, *.localhost, 127.0.0.0/8,
+    ::1) for navigation, popups, redirects, subresources, fetch/XHR, and
+    WebSockets; credentials in URLs are rejected.
+  - Removed: arbitrary page JavaScript evaluation, arbitrary external
+    browsing, storage-state import, live-browser CDP attachment, video
+    recording, run-summary bundling, tab management tools, and slash
+    commands.
+  - Added: explicit browser_start (fresh headless Chromium run), browser_select,
+    browser_trace_start / browser_trace_stop (Playwright tracing), blocked-
+    request evidence in browser_network, and deterministic whole-run close.
+  - TypeScript declarations target the installed
+    `@earendil-works/pi-coding-agent` API (0.84.1) instead of the upstream
+    `@mariozechner` package name.
+
+This product includes software developed by Samuel L. Huber
+(https://github.com/SamuelLHuber).
